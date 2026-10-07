@@ -28,6 +28,11 @@ This writes `suppliers_tax_check.xlsx` next to the input. Options:
 | `--date 2026-09-30` | Confirm registration on this date (default: each row's date column, else today). |
 | `--no-browser` | Skip BC PST lookups (they need the headless browser). |
 | `--nr-list saved.html` | Use a saved copy of Revenu Québec's NR registrant list if the download is blocked. |
+| `--log-dir folder` | Where run logs go (default: `logs`). |
+| `-v` | Also show the detailed log on screen. |
+
+To fix a name and re-check, edit the results file and run the script on it. It overwrites its own
+result columns rather than adding new ones.
 
 To try it out, run it on `examples/sample_suppliers.xlsx`, which uses publicly published numbers.
 
@@ -46,7 +51,11 @@ first 15 rows.
 | Business Number | | Only needed for BC PST when there's no GST/HST number. |
 | QST Number | | `1234567890TQ0001` or `NR00001234`. |
 | PST Number | | Treated as BC, SK or MB based on Province. Or use `BC PST Number`, `SK PST Number`, `MB RST Number`. |
-| Transaction Date | no | Date to confirm the GST/HST registration on. |
+| Transaction Date | no | Date to confirm the GST/HST registration on. Future dates are checked as of today. |
+
+Numbers typed as numbers in Excel are handled. Formula cells are read as their last calculated value,
+so save the workbook in Excel before running. A QST number without its `TQ` suffix is checked as
+`TQ0001`; if that account isn't active, the result says so and asks for the full number.
 
 ## What gets checked
 
@@ -80,4 +89,35 @@ tax and notes from the run.
 | ERROR | A lookup failed (site down, network). Re-run later. |
 
 Lookups are spaced out (about 1.5 s per CRA lookup and 5 s per BC lookup), so a few hundred suppliers
-take several minutes.
+take several minutes. A number that appears on several rows is only looked up once.
+
+## Logs
+
+Every run writes `logs/tax_check_<date>_<time>.log`. The **Tax Check Summary** sheet names the log
+for that run. The log records:
+
+- the arguments, Python version, and which spreadsheet column was matched to each field;
+- each row's input values and every result with its details;
+- every request to a government site (URL, HTTP status, time taken), plus the raw QST API answers
+  and CRA result messages;
+- warnings (an unreadable date, a list that didn't download) and full error tracebacks.
+
+When a BC lookup fails, a screenshot of the eTaxBC page is saved next to the log. Logs contain
+supplier names and tax numbers, so treat them like the workbook itself. `logs/` is git-ignored.
+
+## Tests
+
+```
+python -m unittest discover tests                            # offline, under a second
+TAXCHECK_LIVE=1 python -m unittest tests.test_live -v        # against the real services, ~30 s
+```
+
+The offline tests use real responses saved from CRA and Revenu Québec (`tests/fixtures`), so a
+parsing change gets checked against what the sites actually send. Run the live tests when results
+look wrong: a failure there usually means a government site changed.
+
+## Adapting to your workbook
+
+Column names are matched in `COLUMNS` at the top of `taxcheck/workbook.py`. To support a header
+the script doesn't recognize, add its spelling to the right list. The log shows which column each
+field was matched to, so it's easy to confirm.

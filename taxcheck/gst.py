@@ -2,10 +2,13 @@
 
 import datetime as dt
 import html
+import logging
 import re
 
 from .http import Throttle, new_session
 from .result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
+
+log = logging.getLogger(__name__)
 
 REGISTRY = "https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/"
 SIMPLIFIED_LIST = (
@@ -53,8 +56,13 @@ class SimplifiedList:
                 r = self.session.get(SIMPLIFIED_LIST, timeout=60)
                 r.raise_for_status()
                 self._rows = self.parse(r.text)
+                log.info("Loaded CRA simplified GST/HST list: %d business numbers", len(self._rows))
+                if not self._rows:
+                    self.error = "CRA simplified registrant list was empty; its page layout may have changed"
             except Exception as e:  # the main registry check still works without it
                 self.error = f"couldn't download CRA simplified registrant list: {e}"
+            if self.error:
+                log.warning(self.error)
         entries = self._rows.get(bn9)
         if not entries:
             return None
@@ -83,6 +91,28 @@ class SimplifiedList:
         return rows
 
 
+REGISTRY_RESULTS = {
+    "GST/HST number registered on this transaction date": "registered",
+    "GST/HST number was not registered on this transaction date": "not_registered",
+    "Insufficient information entered": "no_match",
+}
+
+
+def parse_registry_result(page):
+    """Read a CRA registry results page. Returns (outcome, CRA's message); raises on anything unexpected."""
+    m = re.search(r"<strong>Result</strong>\s*</div>\s*<div[^>]*>(.*?)</div>", page, re.S)
+    if m:
+        msg = _text(m.group(1))
+        for prefix, outcome in REGISTRY_RESULTS.items():
+            if msg.startswith(prefix):
+                return outcome, msg
+        raise RuntimeError(f"unexpected CRA registry result: {msg}")
+    errors = [_text(e) for e in re.findall(r'<span class="[^"]*label-error[^"]*">(.*?)</span>', page, re.S)]
+    if "GST/HST number is not valid." in errors:
+        return "invalid", "GST/HST number is not valid."
+    raise RuntimeError("CRA registry rejected the search: " + ("; ".join(errors) or "no result on page"))
+
+
 def _parse_date(s):
     try:
         return dt.datetime.strptime(s.strip(), "%B %d, %Y").date()
@@ -97,7 +127,7 @@ class GstChecker:
         self.simplified = SimplifiedList(self.session)
 
     def registry_lookup(self, bn9, name, date):
-        """One CRA registry search. Returns 'registered', 'no_match' or 'invalid'."""
+        """One CRA registry search. Returns 'registered', 'not_registered', 'no_match' or 'invalid'."""
         self.throttle.wait()
         form = self.session.get(REGISTRY + "reg_01_Ld.action", timeout=30)
         form.raise_for_status()
@@ -115,21 +145,26 @@ class GstChecker:
             timeout=30,
         )
         r.raise_for_status()
-        m = re.search(r"<strong>Result</strong>\s*</div>\s*<div[^>]*>(.*?)</div>", r.text, re.S)
-        if m:
-            msg = _text(m.group(1))
-            if msg.startswith("GST/HST number registered"):
-                return "registered"
-            if msg.startswith("Insufficient information"):
-                return "no_match"
-            raise RuntimeError(f"unexpected CRA registry result: {msg}")
-        if "GST/HST number is not valid" in r.text:
-            return "invalid"
-        errors = re.findall(r'<span class="[^"]*label-error[^"]*">(.*?)</span>', r.text, re.S)
-        raise RuntimeError("CRA registry rejected the search: " + ("; ".join(map(_text, errors)) or "unknown error"))
+        outcome, message = parse_registry_result(r.text)
+        log.debug("CRA registry bn=%s name=%r date=%s -> %s (%s)", bn9, name, date, outcome, message)
+        return outcome
 
     def check(self, bn9, names, date):
+        today = dt.date.today()
+        future_note = ""
+        if date > today:
+            # The registry refuses future dates; confirm as of today instead.
+            future_note = f"Transaction date {date} is in the future, so registration was checked as of today."
+            date = today
         listed = self.simplified.lookup(bn9, date)
+        if listed:
+            log.debug("bn=%s is on the simplified list: %s", bn9, listed)
+        result = self._check(bn9, names, date, listed)
+        if future_note:
+            result.detail = f"{future_note} {result.detail}"
+        return result
+
+    def _check(self, bn9, names, date, listed):
         candidates = name_variants(*names, *(listed and (listed["legal_name"], listed["trade_name"]) or ()))
         note = SIMPLIFIED_NOTE if listed else ""
 
@@ -140,6 +175,10 @@ class GstChecker:
                 return Result(REGISTERED, " ".join(filter(None, [detail, note])), listed and listed["legal_name"] or name)
             if outcome == "invalid":
                 return Result(INVALID, "CRA says this GST/HST number is not valid.")
+            if outcome == "not_registered":
+                # CRA gives this answer about the number and date whatever name is entered,
+                # so it's definite about the number but says nothing about the name.
+                return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.")
 
         if listed:
             dereg = listed["deregistered"]

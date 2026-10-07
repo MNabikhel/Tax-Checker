@@ -1,11 +1,14 @@
 """QST checks: Revenu Québec's validation API, plus its published list of non-resident (NR) registrants."""
 
 import html
+import logging
 import re
 from pathlib import Path
 
 from .http import Throttle, new_session
 from .result import ERROR, INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
+
+log = logging.getLogger(__name__)
 
 API = "https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/{}"
 NR_LIST = (
@@ -42,12 +45,24 @@ class QstChecker:
         self._nr_rows = None
         self.nr_error = None
 
-    def check(self, number):
+    def check(self, number, suffix_assumed=False):
+        """Validate a TQ number. `suffix_assumed` means the sheet had no TQ suffix and TQ0001 was filled in."""
+        result = self._check(number)
+        if suffix_assumed and result.status != REGISTERED:
+            result.detail = (
+                f"No TQ suffix was given, so {number} was checked. A business can have several QST "
+                f"accounts (TQ0001, TQ0002, ...); get the full number from the supplier. {result.detail}"
+            )
+        return result
+
+    def _check(self, number):
         self.throttle.wait()
         r = self.session.get(API.format(number), timeout=30)
         try:
             body = r.json()
+            log.debug("QST API %s -> HTTP %s %s", number, r.status_code, body)
         except ValueError:
+            log.warning("QST API %s -> HTTP %s, non-JSON body: %.300s", number, r.status_code, r.text)
             return Result(ERROR, f"Revenu Québec API answered HTTP {r.status_code} without data.")
         codes = {m.get("CodeMessage") for m in body.get("MessagesFonctionnels") or []}
         if body.get("OperationReussie") and body.get("Resultat"):
@@ -56,8 +71,11 @@ class QstChecker:
             if res.get("RaisonSociale"):
                 name += f" (trade name: {res['RaisonSociale']})"
             since = (res.get("DateStatut") or "")[:10]
-            if res.get("StatutSousDossierUsager") == "R":
+            status = res.get("StatutSousDossierUsager")
+            if status == "R":  # Régulier
                 return Result(REGISTERED, f"Revenu Québec: registration valid since {since}.", name)
+            if status == "A":  # Annulé
+                return Result(NOT_REGISTERED, f"Revenu Québec: registration cancelled since {since}.", name)
             return Result(
                 NOT_CONFIRMED,
                 f"Revenu Québec status '{res.get('DescriptionStatut')}' since {since}; review before relying on it.",
@@ -81,10 +99,13 @@ class QstChecker:
                 r.raise_for_status()
                 page = r.text
             self._nr_rows = parse_nr_list(page)
+            log.info("Loaded Revenu Québec NR list: %d registrants", len(self._nr_rows))
             if not self._nr_rows:
                 self.nr_error = "Revenu Québec NR list was empty or its layout changed"
         except Exception as e:
             self.nr_error = f"couldn't load Revenu Québec NR list ({e})"
+        if self.nr_error:
+            log.warning(self.nr_error)
         return self._nr_rows
 
     def check_nr(self, number):

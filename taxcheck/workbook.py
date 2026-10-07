@@ -1,6 +1,7 @@
 """Reading the supplier workbook and writing results back into a copy of it."""
 
 import datetime as dt
+import logging
 import re
 from collections import Counter
 
@@ -9,6 +10,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .result import ERROR, INVALID, MANUAL, MISSING, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
+
+log = logging.getLogger(__name__)
 
 # Accepted header spellings (compared lowercase with spaces/punctuation removed).
 COLUMNS = {
@@ -78,17 +81,34 @@ def parse_date(value):
     return None
 
 
+def clean_value(value):
+    """Excel stores typed numbers as floats (857305932 -> 857305932.0); turn those back into whole numbers."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
 class SupplierSheet:
     def __init__(self, path, sheet=None):
+        # Two copies: `wb` keeps formulas so the output is a faithful copy of the input;
+        # `values_ws` has the calculated values (as last saved by Excel) that the checks read.
         self.wb = openpyxl.load_workbook(path)
-        self.ws = self.wb[sheet] if sheet else self.wb.worksheets[0]
+        values_wb = openpyxl.load_workbook(path, data_only=True)
+        name = sheet or self.wb.sheetnames[0]
+        self.ws, self.values_ws = self.wb[name], values_wb[name]
         self.header_row, self.cols = self._find_header()
+        log.info("Reading sheet '%s': header on row %d", name, self.header_row)
+        for col, c in self.cols.items():
+            log.debug("  column %-10s <- '%s' (column %s)", col, self.ws.cell(self.header_row, c).value, get_column_letter(c))
 
     def _find_header(self):
-        for r in range(1, min(self.ws.max_row, 15) + 1):
+        for r in range(1, min(self.values_ws.max_row, 15) + 1):
             cols = {}
-            for c in range(1, self.ws.max_column + 1):
-                col = _ALIASES.get(_key(self.ws.cell(r, c).value))
+            for c in range(1, self.values_ws.max_column + 1):
+                col = _ALIASES.get(_key(self.values_ws.cell(r, c).value))
                 if col and col not in cols:
                     cols[col] = c
             if "name" in cols and len(cols) >= 2:
@@ -100,15 +120,21 @@ class SupplierSheet:
 
     def rows(self):
         """Yield (row_number, {column: value}) for every non-empty supplier row."""
-        for r in range(self.header_row + 1, self.ws.max_row + 1):
-            values = {col: self.ws.cell(r, c).value for col, c in self.cols.items()}
+        for r in range(self.header_row + 1, self.values_ws.max_row + 1):
+            values = {col: clean_value(self.values_ws.cell(r, c).value) for col, c in self.cols.items()}
             if any(v not in (None, "") for v in values.values()):
                 yield r, values
 
     def write_results(self, results, out_path, run_notes):
         """results: {row_number: {tax_key: Result}}"""
         ws = self.ws
-        start = ws.max_column + 1
+        # Re-running on an earlier results file overwrites its result columns instead of adding more.
+        start = next(
+            (c for c in range(1, ws.max_column + 1) if ws.cell(self.header_row, c).value == "Overall"),
+            ws.max_column + 1,
+        )
+        if "Tax Check Summary" in self.wb.sheetnames:
+            del self.wb["Tax Check Summary"]
         headers = ["Overall"]
         for key, label in TAXES:
             headers += [f"{label} Status", f"{label} Details"]
@@ -121,6 +147,9 @@ class SupplierSheet:
 
         counts = {key: Counter() for key, _ in TAXES}
         for r, by_tax in results.items():
+            for c in range(start, start + len(headers)):  # clear anything left from an earlier run
+                cell = ws.cell(r, c)
+                cell.value, cell.fill = None, PatternFill()
             col = start + 1
             names = []
             statuses = []

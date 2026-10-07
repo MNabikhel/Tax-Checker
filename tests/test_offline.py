@@ -130,6 +130,24 @@ class Routing(unittest.TestCase):
         self.assertEqual(out["gst"].status, INVALID)
         self.assertEqual(self.gst.calls, [])
 
+    def test_qst_without_suffix_is_flagged(self):
+        calls = []
+
+        class FakeQst:
+            def check(self, number, suffix_assumed=False):
+                calls.append((number, suffix_assumed))
+                return Result(REGISTERED, "")
+
+        checker = RowChecker(self.gst, FakeQst())
+        checker.check({"name": "X", "qst": 1019288451}, TODAY)
+        checker.check({"name": "X", "qst": "1019288451 TQ 0004"}, TODAY)
+        self.assertEqual(calls, [("1019288451TQ0001", True), ("1019288451TQ0004", False)])
+
+    def test_duplicate_numbers_looked_up_once(self):
+        self.checker.check({"name": "A", "gst": "108161779RT0001"}, TODAY)
+        self.checker.check({"name": "A", "gst": "108161779RT0001"}, TODAY)
+        self.assertEqual(self.gst.calls, ["108161779"])
+
     def test_financial_institution_qst_goes_to_cra(self):
         out = self.checker.check({"name": "Bank", "qst": "108161779"}, TODAY)
         self.assertEqual(out["qst"].status, REGISTERED)

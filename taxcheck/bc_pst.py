@@ -1,21 +1,30 @@
 """BC PST checks through the eTaxBC 'PST Number Verification Service' (needs a headless browser)."""
 
 import contextlib
+import datetime as dt
+import logging
 import os
 import re
+from pathlib import Path
 
 from .http import Throttle
 from .result import ERROR, NOT_CONFIRMED, REGISTERED, Result
+
+log = logging.getLogger(__name__)
 
 ETAXBC = "https://www.etax.gov.bc.ca/btp/eservices/_/"
 
 
 class BcPstChecker:
-    """Drives eTaxBC with Playwright. Start it once with `with BcPstChecker() as bc:`."""
+    """Drives eTaxBC with Playwright. Start it once with `with BcPstChecker() as bc:`.
 
-    def __init__(self, delay=2.0, headless=True):
+    If `debug_dir` is given, a screenshot of the page is saved there whenever a lookup attempt fails.
+    """
+
+    def __init__(self, delay=2.0, headless=True, debug_dir=None):
         self.throttle = Throttle(delay)
         self.headless = headless
+        self.debug_dir = Path(debug_dir) if debug_dir else None
         self._pw = self._browser = None
 
     def __enter__(self):
@@ -28,6 +37,7 @@ class BcPstChecker:
         if os.environ.get("HTTPS_PROXY"):
             kwargs["proxy"] = {"server": os.environ["HTTPS_PROXY"]}
         self._browser = self._pw.chromium.launch(**kwargs)
+        log.debug("Started Chromium %s for eTaxBC lookups", self._browser.version)
         return self
 
     def __exit__(self, *exc):
@@ -39,6 +49,7 @@ class BcPstChecker:
     def _lookup(self, bn9, pst):
         # eTaxBC keeps search state per session, so each lookup gets a clean one.
         ctx = self._browser.new_context()
+        page = None
         try:
             page = ctx.new_page()
             page.set_default_timeout(30000)
@@ -62,24 +73,31 @@ class BcPstChecker:
             page.wait_for_function("document.body.innerText.includes('Search Date')", timeout=20000)
             m = re.search(r"Result:\s*(.+)", page.inner_text("body"))
             return m.group(1).strip() if m else ""
-        except Exception as e:
-            body = ""
-            with contextlib.suppress(Exception):
-                body = re.sub(r"\s+", " ", page.inner_text("body"))[:300]
-            raise RuntimeError(f"{str(e).splitlines()[0]} | page: {body}") from e
+        except Exception:
+            if page is not None:
+                with contextlib.suppress(Exception):
+                    log.debug("eTaxBC page text at failure: %s", re.sub(r"\s+", " ", page.inner_text("body"))[:1500])
+                if self.debug_dir:
+                    shot = self.debug_dir / f"etaxbc_fail_{bn9}_{pst}_{dt.datetime.now():%H%M%S}.png"
+                    with contextlib.suppress(Exception):
+                        page.screenshot(path=str(shot), full_page=True)
+                        log.info("Saved eTaxBC failure screenshot: %s", shot)
+            raise
         finally:
             ctx.close()
 
     def check(self, bn9, pst, attempts=3):
-        for _ in range(attempts):
+        for attempt in range(1, attempts + 1):
             self.throttle.wait()
             try:
                 outcome = self._lookup(bn9, pst)
+                log.debug("eTaxBC bn=%s pst=%s -> %r (attempt %d)", bn9, pst, outcome, attempt)
                 break
             except Exception as e:
-                error = str(e)
+                error = str(e).splitlines()[0]
+                log.warning("eTaxBC lookup bn=%s pst=%s attempt %d/%d failed: %s", bn9, pst, attempt, attempts, error)
         else:
-            return Result(ERROR, f"eTaxBC lookup failed after {attempts} tries: {error}")
+            return Result(ERROR, f"eTaxBC lookup failed after {attempts} tries: {error} (see log file)")
         if outcome == "PST number is valid":
             return Result(REGISTERED, f"eTaxBC: PST-{pst} is valid for BN {bn9}.")
         if outcome == "No Match Found":

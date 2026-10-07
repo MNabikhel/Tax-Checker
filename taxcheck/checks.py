@@ -1,8 +1,13 @@
 """Decides which checks apply to a supplier row and runs them."""
 
+import copy
+import logging
+
 from .numbers import BadNumber, parse_bc_pst, parse_bn, parse_gst, parse_qst
 from .result import ERROR, INVALID, MANUAL, MISSING, Result
 from .workbook import normalize_province
+
+log = logging.getLogger(__name__)
 
 SK_REGISTRY = "https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry"
 SK_MANUAL = (
@@ -24,6 +29,7 @@ class RowChecker:
         self.gst = gst
         self.qst = qst
         self.bc = bc  # None means BC lookups are skipped (no browser)
+        self._cache = {}  # the same number often appears on several rows; look it up once
 
     def check(self, row, date):
         prov = normalize_province(row.get("province"))
@@ -33,6 +39,7 @@ class RowChecker:
         sk_pst = row.get("sk_pst") if not _blank(row.get("sk_pst")) else (pst if prov == "SK" else None)
         mb_rst = row.get("mb_rst") if not _blank(row.get("mb_rst")) else (pst if prov == "MB" else None)
 
+        log.debug("Row input: %s | province=%r date=%s", row, prov, date)
         out = {}
         out["gst"] = self._guard(self._gst, row.get("gst"), names, date)
         if not _blank(row.get("qst")):
@@ -47,16 +54,24 @@ class RowChecker:
             out["sk_pst"] = Result(MANUAL, SK_MANUAL)
         if not _blank(mb_rst) or prov == "MB":
             out["mb_rst"] = Result(MANUAL, MB_MANUAL)
+        for tax, res in out.items():
+            log.debug("  %s: %s | %s | %s", tax, res.status, res.detail, res.registered_name)
         return out
 
-    @staticmethod
-    def _guard(fn, *args):
+    def _guard(self, fn, *args):
+        key = (fn.__name__, repr(args))
+        if key in self._cache:
+            log.debug("Reusing earlier result for %s%s", fn.__name__, args)
+            return copy.copy(self._cache[key])
         try:
-            return fn(*args)
+            result = fn(*args)
         except BadNumber as e:
-            return Result(INVALID, str(e))
+            result = Result(INVALID, str(e))
         except Exception as e:  # network trouble etc. shouldn't stop the whole run
-            return Result(ERROR, f"{type(e).__name__}: {e}")
+            log.exception("%s%s failed", fn.__name__, args)
+            return Result(ERROR, f"{type(e).__name__}: {e} (see log file)")
+        self._cache[key] = result
+        return copy.copy(result)
 
     def _gst(self, value, names, date):
         if _blank(value):
@@ -67,7 +82,7 @@ class RowChecker:
     def _qst(self, value, names, date):
         kind, number = parse_qst(value)
         if kind == "TQ":
-            return self.qst.check(number)
+            return self.qst.check(number, suffix_assumed="TQ" not in str(value).upper())
         if kind == "NR":
             return self.qst.check_nr(number)
         # 9-digit QST numbers belong to listed financial institutions; the CRA administers their QST.
