@@ -1,0 +1,101 @@
+"""QST checks: Revenu Québec's validation API, plus its published list of non-resident (NR) registrants."""
+
+import html
+import re
+from pathlib import Path
+
+from .http import Throttle, new_session
+from .result import ERROR, INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
+
+API = "https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/{}"
+NR_LIST = (
+    "https://www.revenuquebec.ca/en/businesses/consumption-taxes/gsthst-and-qst/special-cases-gsthst-and-qst/"
+    "suppliers-outside-quebec/list-of-suppliers-outside-quebec-that-are-registered-for-the-qst/"
+)
+
+
+def _text(fragment):
+    return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
+
+
+def parse_nr_list(page):
+    """Map 'NR12345678' -> {'trade_name', 'legal_name'} from the Revenu Québec NR list page."""
+    rows = {}
+    for tr in re.findall(r"<tr.*?</tr>", page, re.S | re.I):
+        cells = [_text(c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S | re.I)]
+        for i, cell in enumerate(cells):
+            m = re.fullmatch(r"NR\s*(\d{4})\s*(\d{4})", cell, re.I)
+            if m:
+                names = [c for c in cells[:i] if c and c != "-"]
+                rows[f"NR{m.group(1)}{m.group(2)}"] = {
+                    "trade_name": names[0] if names else "",
+                    "legal_name": names[-1] if names else "",
+                }
+    return rows
+
+
+class QstChecker:
+    def __init__(self, nr_list_file=None, delay=0.5):
+        self.session = new_session()
+        self.throttle = Throttle(delay)
+        self.nr_list_file = nr_list_file
+        self._nr_rows = None
+        self.nr_error = None
+
+    def check(self, number):
+        self.throttle.wait()
+        r = self.session.get(API.format(number), timeout=30)
+        try:
+            body = r.json()
+        except ValueError:
+            return Result(ERROR, f"Revenu Québec API answered HTTP {r.status_code} without data.")
+        codes = {m.get("CodeMessage") for m in body.get("MessagesFonctionnels") or []}
+        if body.get("OperationReussie") and body.get("Resultat"):
+            res = body["Resultat"]
+            name = res.get("NomEntreprise") or ""
+            if res.get("RaisonSociale"):
+                name += f" (trade name: {res['RaisonSociale']})"
+            since = (res.get("DateStatut") or "")[:10]
+            if res.get("StatutSousDossierUsager") == "R":
+                return Result(REGISTERED, f"Revenu Québec: registration valid since {since}.", name)
+            return Result(
+                NOT_CONFIRMED,
+                f"Revenu Québec status '{res.get('DescriptionStatut')}' since {since}; review before relying on it.",
+                name,
+            )
+        if "GX.AucuneDonneeTrouvee" in codes:
+            return Result(NOT_REGISTERED, "Revenu Québec has no QST registration under this number.")
+        if "GX.IdentifiantEntreeInvalide" in codes:
+            return Result(INVALID, "Revenu Québec says this is not a valid QST number (likely a typo).")
+        return Result(ERROR, f"Revenu Québec API: HTTP {r.status_code} {', '.join(sorted(filter(None, codes)))}")
+
+    def _load_nr_list(self):
+        if self._nr_rows is not None:
+            return self._nr_rows
+        self._nr_rows = {}
+        try:
+            if self.nr_list_file:
+                page = Path(self.nr_list_file).read_text(encoding="utf-8", errors="replace")
+            else:
+                r = self.session.get(NR_LIST, timeout=60)
+                r.raise_for_status()
+                page = r.text
+            self._nr_rows = parse_nr_list(page)
+            if not self._nr_rows:
+                self.nr_error = "Revenu Québec NR list was empty or its layout changed"
+        except Exception as e:
+            self.nr_error = f"couldn't load Revenu Québec NR list ({e})"
+        return self._nr_rows
+
+    def check_nr(self, number):
+        rows = self._load_nr_list()
+        if self.nr_error:
+            return Result(
+                ERROR,
+                f"{self.nr_error}. Save the page {NR_LIST} from your browser and re-run with --nr-list <saved file>.",
+            )
+        row = rows.get(number)
+        if row:
+            name = row["legal_name"] + (f" (trade name: {row['trade_name']})" if row["trade_name"] != row["legal_name"] else "")
+            return Result(REGISTERED, "Listed by Revenu Québec as registered under the specified (NR) system.", name)
+        return Result(NOT_REGISTERED, "Not on Revenu Québec's list of NR (non-resident) QST registrants.")

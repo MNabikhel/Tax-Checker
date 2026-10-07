@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*_tax_check.xlsx
+~$*.xlsx
