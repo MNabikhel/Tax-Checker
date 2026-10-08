@@ -76,3 +76,15 @@ def parse_bc_pst(value):
     if not re.fullmatch(r"\d{8}", s):
         raise BadNumber(f"'{value}' is not a BC PST number (expected PST-1234-5678)")
     return f"{s[:4]}-{s[4:]}"
+
+
+def parse_mb_rst(value):
+    """Return a 7-digit Manitoba RST number. The 15-digit account number on RST returns isn't it."""
+    s = _compact(value)
+    if s.startswith("RST"):
+        s = s[3:]
+    if re.fullmatch(r"\d{15}", s):
+        raise BadNumber(f"'{value}' looks like the 15-digit RST account number; Manitoba's registry needs the 7-digit RST number")
+    if not re.fullmatch(r"\d{7}", s):
+        raise BadNumber(f"'{value}' is not a Manitoba RST number (expected 7 digits)")
+    return s

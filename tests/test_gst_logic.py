@@ -79,5 +79,25 @@ class GstLogic(unittest.TestCase):
         self.assertIn("2021-01-01", res.detail)
 
 
+class RegistryRetry(unittest.TestCase):
+    def test_dropped_connection_is_retried(self):
+        import requests
+        from unittest import mock
+
+        g = GstChecker(delay=0)
+        calls = []
+
+        def flaky(bn9, name, date):
+            calls.append(1)
+            if len(calls) == 1:
+                raise requests.ConnectionError("Connection reset by peer")
+            return "registered"
+
+        g._registry_lookup = flaky
+        with mock.patch("taxcheck.gst.time.sleep"):
+            self.assertEqual(g.registry_lookup("108161779", "X", TODAY), "registered")
+        self.assertEqual(len(calls), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -61,18 +61,43 @@ class LiveQst(unittest.TestCase):
 
 
 @unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
-class LiveBc(unittest.TestCase):
+class LiveBrowserChecks(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from taxcheck.browser import Browser
+
+        cls.browser = Browser().__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.__exit__(None, None, None)
+
     def test_etaxbc(self):
-        try:
-            from taxcheck.bc_pst import BcPstChecker
-            bc = BcPstChecker().__enter__()
-        except Exception as e:
-            self.skipTest(f"browser unavailable: {e}")
-        try:
-            self.assertEqual(bc.check("108161779", "1000-7572").status, REGISTERED)
-            self.assertEqual(bc.check("108161779", "1000-7573").status, NOT_CONFIRMED)
-        finally:
-            bc.__exit__(None, None, None)
+        from taxcheck.bc_pst import BcPstChecker
+
+        bc = BcPstChecker(self.browser)
+        self.assertEqual(bc.check("108161779", "1000-7572").status, REGISTERED)
+        self.assertEqual(bc.check("108161779", "1000-7573").status, NOT_CONFIRMED)
+
+    def test_manitoba_taxcess(self):
+        from taxcheck.mb_rst import MbRstChecker
+
+        mb = MbRstChecker(self.browser)
+        res = mb.check(["Amazon Canada Fulfillment"], bn9="857305932")  # falls back to the first word
+        self.assertEqual(res.status, REGISTERED, res.detail)
+        self.assertIn("AMAZON.COM.CA ULC", res.registered_name)
+        self.assertEqual(mb.check(["University of British Columbia"], bn9="108161779").status, NOT_CONFIRMED)
+
+
+@unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
+class LiveFederalNames(unittest.TestCase):
+    def test_name_mismatch_recovered(self):
+        from taxcheck.fedcorp import FederalCorporations
+
+        gst = GstChecker(delay=1.0, corporations=FederalCorporations(cache_dir="cache"))
+        res = gst.check("774075766", ["NA Tutors"], TODAY)  # sheet name doesn't match CRA's
+        self.assertEqual(res.status, REGISTERED, res.detail)
+        self.assertIn("North American Tutors", res.detail)
 
 
 if __name__ == "__main__":

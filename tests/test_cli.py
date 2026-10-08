@@ -9,6 +9,7 @@ from unittest import mock
 import openpyxl
 
 import check_suppliers
+from taxcheck.browser import BrowserUnavailable
 from taxcheck.result import REGISTERED, Result
 
 
@@ -64,7 +65,7 @@ class Cli(unittest.TestCase):
 
     def run_cli(self, *extra):
         logs = self.dir / "logs"
-        code = check_suppliers.main([str(self.src), "--log-dir", str(logs), "--no-browser", *extra])
+        code = check_suppliers.main([str(self.src), "--log-dir", str(logs), "--no-browser", "--no-name-lookup", *extra])
         log_files = list(logs.glob("tax_check_*.log"))
         self.assertEqual(len(log_files), 1)
         return code, log_files[0].read_text(encoding="utf-8")
@@ -97,15 +98,16 @@ class Cli(unittest.TestCase):
         self.assertIn("Run failed", log_text)
 
     def test_browser_start_failure_falls_back_to_manual(self):
-        with mock.patch("taxcheck.bc_pst.BcPstChecker.__enter__", side_effect=RuntimeError("no chromium")):
-            logs = self.dir / "logs2"
-            code = check_suppliers.main([str(self.src), "--log-dir", str(logs)])
+        with mock.patch(
+            "taxcheck.browser.Browser._ensure_started", side_effect=BrowserUnavailable("no chromium. Run playwright install")
+        ):
+            code = check_suppliers.main([str(self.src), "--log-dir", str(self.dir / "logs2"), "--no-name-lookup"])
         self.assertEqual(code, 0)
         ws = openpyxl.load_workbook(self.dir / "suppliers_tax_check.xlsx")["Sheet"]
         headers = [c.value for c in ws[1]]
-        self.assertEqual(dict(zip(headers, [c.value for c in ws[4]]))["BC PST Status"], "MANUAL CHECK")
-        self.assertIn("no chromium", next(logs.glob("*.log")).read_text(encoding="utf-8"))
-
+        row = dict(zip(headers, [c.value for c in ws[4]]))
+        self.assertEqual(row["BC PST Status"], "MANUAL CHECK")
+        self.assertIn("no chromium", row["BC PST Details"])
 
 if __name__ == "__main__":
     unittest.main()

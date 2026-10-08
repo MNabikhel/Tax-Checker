@@ -4,6 +4,9 @@ import datetime as dt
 import html
 import logging
 import re
+import time
+
+import requests
 
 from .http import Throttle, new_session
 from .result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
@@ -25,6 +28,11 @@ def _text(fragment):
     return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
 
 
+def _name_key(name):
+    """CRA ignores case and punctuation, so names that differ only in those are the same search."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
 def name_variants(*names):
     """The CRA registry ignores case and punctuation but not extra words, so try a few spellings."""
     seen, out = set(), []
@@ -33,7 +41,7 @@ def name_variants(*names):
             continue
         name = str(name).strip()
         for candidate in (name, re.sub(r"^the\s+", "", name, flags=re.I)):
-            key = re.sub(r"[^a-z0-9]", "", candidate.lower())
+            key = _name_key(candidate)
             if key and key not in seen:
                 seen.add(key)
                 out.append(candidate)
@@ -121,13 +129,29 @@ def _parse_date(s):
 
 
 class GstChecker:
-    def __init__(self, delay=1.5):
+    def __init__(self, delay=1.5, corporations=None):
+        """`corporations`: optional FederalCorporations, used for official names when the sheet's don't match."""
         self.session = new_session()
         self.throttle = Throttle(delay)
         self.simplified = SimplifiedList(self.session)
+        self.corporations = corporations
 
-    def registry_lookup(self, bn9, name, date):
-        """One CRA registry search. Returns 'registered', 'not_registered', 'no_match' or 'invalid'."""
+    def registry_lookup(self, bn9, name, date, attempts=3):
+        """One CRA registry search. Returns 'registered', 'not_registered', 'no_match' or 'invalid'.
+
+        Searches are read-only and each attempt fetches a fresh form token, so a dropped connection
+        is simply retried.
+        """
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._registry_lookup(bn9, name, date)
+            except (requests.ConnectionError, requests.Timeout) as e:
+                if attempt == attempts:
+                    raise
+                log.warning("CRA registry connection problem (attempt %d/%d), retrying: %s", attempt, attempts, e)
+                time.sleep(2 * attempt)
+
+    def _registry_lookup(self, bn9, name, date):
         self.throttle.wait()
         form = self.session.get(REGISTRY + "reg_01_Ld.action", timeout=30)
         form.raise_for_status()
@@ -164,14 +188,36 @@ class GstChecker:
             result.detail = f"{future_note} {result.detail}"
         return result
 
-    def _check(self, bn9, names, date, listed):
-        candidates = name_variants(*names, *(listed and (listed["legal_name"], listed["trade_name"]) or ()))
-        note = SIMPLIFIED_NOTE if listed else ""
+    def _candidates(self, bn9, names, listed):
+        """Names to try, best first: the sheet's, CRA's simplified list, then the federal corporate name.
 
-        for name in candidates:
+        Yields (name, source). The federal data is only loaded if the earlier names all fail.
+        """
+        tried = set()
+        for source, group in (("sheet", names), ("simplified list", listed and (listed["legal_name"], listed["trade_name"]))):
+            for name in name_variants(*(group or ())):
+                if _name_key(name) not in tried:
+                    tried.add(_name_key(name))
+                    yield name, source
+        if self.corporations:
+            for name in name_variants(*self.corporations.names(bn9)):
+                if _name_key(name) not in tried:
+                    tried.add(_name_key(name))
+                    yield name, "federal corporations registry"
+
+    def _check(self, bn9, names, date, listed):
+        note = SIMPLIFIED_NOTE if listed else ""
+        tried = []
+        for name, source in self._candidates(bn9, names, listed):
+            tried.append(name)
             outcome = self.registry_lookup(bn9, name, date)
             if outcome == "registered":
                 detail = f"CRA GST/HST Registry confirms registration on {date} (matched name '{name}')."
+                if source == "federal corporations registry":
+                    detail += (
+                        f" The name in your sheet didn't match; '{name}' is the official corporate name "
+                        "for this business number, so consider updating your vendor record."
+                    )
                 return Result(REGISTERED, " ".join(filter(None, [detail, note])), listed and listed["legal_name"] or name)
             if outcome == "invalid":
                 return Result(INVALID, "CRA says this GST/HST number is not valid.")
@@ -188,10 +234,19 @@ class GstChecker:
                 return Result(NOT_REGISTERED, f"Simplified GST/HST registration only starts {listed['registered']}.", listed["legal_name"])
             return Result(REGISTERED, f"Found on CRA's simplified registrant list. {note}", listed["legal_name"])
 
-        tried = "; ".join(f"'{n}'" for n in candidates) or "(no name given)"
+        official = self.corporations.names(bn9) if self.corporations else []
+        tried_text = "; ".join(f"'{n}'" for n in tried) or "(no name given)"
+        if official:
+            return Result(
+                NOT_CONFIRMED,
+                f"CRA could not match this number on {date} with {tried_text}, even using the official federal "
+                "corporate name. The number is most likely not registered for GST/HST, or is registered under "
+                "another name; ask the supplier to confirm.",
+                official[0],
+            )
         return Result(
             NOT_CONFIRMED,
-            f"CRA could not match this number with name {tried} on {date}. Either the number isn't "
+            f"CRA could not match this number with name {tried_text} on {date}. Either the number isn't "
             "registered or the legal name differs from CRA's records (CRA doesn't say which). "
             "Check the supplier's exact legal name and re-run.",
         )

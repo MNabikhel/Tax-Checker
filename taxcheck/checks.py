@@ -3,7 +3,7 @@
 import copy
 import logging
 
-from .numbers import BadNumber, parse_bc_pst, parse_bn, parse_gst, parse_qst
+from .numbers import BadNumber, parse_bc_pst, parse_bn, parse_gst, parse_mb_rst, parse_qst
 from .result import ERROR, INVALID, MANUAL, MISSING, Result
 from .workbook import normalize_province
 
@@ -11,12 +11,12 @@ log = logging.getLogger(__name__)
 
 SK_REGISTRY = "https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry"
 SK_MANUAL = (
-    "Saskatchewan's PST registry requires a person to tick a reCAPTCHA, so it can't be automated. "
-    f"Search the business name at {SK_REGISTRY}; it confirms an active vendor licence but doesn't show the number."
+    "Saskatchewan's PST registry has a reCAPTCHA, so it needs a person: re-run with --sk-assist to tick it once "
+    f"and let the script do the searches, or search the business name at {SK_REGISTRY}."
 )
 MB_MANUAL = (
-    "Manitoba has no public RST lookup. Get the supplier's 7-digit RST number in writing and confirm it with "
-    "Manitoba Finance, Taxation Division: 204-945-5603 / 1-800-782-0318 / MBTax@gov.mb.ca."
+    "Browser checks are turned off. Search at https://taxcess.gov.mb.ca/TAXcess/?Link=RSTLookup with the business "
+    "name and RST or business number."
 )
 
 
@@ -25,10 +25,12 @@ def _blank(v):
 
 
 class RowChecker:
-    def __init__(self, gst, qst, bc=None):
+    def __init__(self, gst, qst, bc=None, mb=None, sk=None):
         self.gst = gst
         self.qst = qst
         self.bc = bc  # None means BC lookups are skipped (no browser)
+        self.mb = mb  # None means Manitoba lookups are skipped (no browser)
+        self.sk = sk  # None means Saskatchewan is left for a manual check (no --sk-assist)
         self._cache = {}  # the same number often appears on several rows; look it up once
 
     def check(self, row, date):
@@ -51,9 +53,9 @@ class RowChecker:
         elif prov == "BC":
             out["bc_pst"] = Result(MISSING, "BC supplier but no PST number provided.")
         if not _blank(sk_pst) or prov == "SK":
-            out["sk_pst"] = Result(MANUAL, SK_MANUAL)
+            out["sk_pst"] = self._guard(self._sk, names)
         if not _blank(mb_rst) or prov == "MB":
-            out["mb_rst"] = Result(MANUAL, MB_MANUAL)
+            out["mb_rst"] = self._guard(self._mb, mb_rst, names, row.get("bn") or row.get("gst"))
         for tax, res in out.items():
             log.debug("  %s: %s | %s | %s", tax, res.status, res.detail, res.registered_name)
         return out
@@ -68,9 +70,12 @@ class RowChecker:
         except BadNumber as e:
             result = Result(INVALID, str(e))
         except Exception as e:  # network trouble etc. shouldn't stop the whole run
-            log.exception("%s%s failed", fn.__name__, args)
+            # One line on screen; the full traceback goes to the log file only.
+            log.error("%s%s failed: %s: %s", fn.__name__, args, type(e).__name__, str(e).splitlines()[0] if str(e) else "")
+            log.debug("Traceback for the failure above", exc_info=True)
             return Result(ERROR, f"{type(e).__name__}: {e} (see log file)")
-        self._cache[key] = result
+        if result.status != ERROR:  # a failed lookup is worth retrying on a later duplicate row
+            self._cache[key] = result
         return copy.copy(result)
 
     def _gst(self, value, names, date):
@@ -97,3 +102,17 @@ class RowChecker:
         if self.bc is None:
             return Result(MANUAL, f"Browser checks turned off. Verify PST-{pst} at https://www.etax.gov.bc.ca/btp/eservices/_/")
         return self.bc.check(parse_bn(bn_source), pst)
+
+    def _mb(self, rst_value, names, bn_source):
+        rst = None if _blank(rst_value) else parse_mb_rst(rst_value)
+        bn9 = None if _blank(bn_source) else parse_bn(bn_source)
+        if not (rst or bn9):
+            return Result(MISSING, "Manitoba supplier but no RST number or GST/HST number to search with.")
+        if self.mb is None:
+            return Result(MANUAL, MB_MANUAL)
+        return self.mb.check(names, bn9=bn9, rst=rst)
+
+    def _sk(self, names):
+        if self.sk is None:
+            return Result(MANUAL, SK_MANUAL)
+        return self.sk.check(names)

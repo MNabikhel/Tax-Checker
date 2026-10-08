@@ -3,7 +3,10 @@
 import html
 import logging
 import re
+import time
 from pathlib import Path
+
+import requests
 
 from .http import Throttle, new_session
 from .result import ERROR, INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
@@ -11,6 +14,7 @@ from .result import ERROR, INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, R
 log = logging.getLogger(__name__)
 
 API = "https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/{}"
+NR_CACHE_AGE = 7 * 24 * 3600
 NR_LIST = (
     "https://www.revenuquebec.ca/en/businesses/consumption-taxes/gsthst-and-qst/special-cases-gsthst-and-qst/"
     "suppliers-outside-quebec/list-of-suppliers-outside-quebec-that-are-registered-for-the-qst/"
@@ -38,10 +42,12 @@ def parse_nr_list(page):
 
 
 class QstChecker:
-    def __init__(self, nr_list_file=None, delay=0.5):
+    def __init__(self, nr_list_file=None, delay=0.5, browser=None, cache_dir=None):
         self.session = new_session()
         self.throttle = Throttle(delay)
         self.nr_list_file = nr_list_file
+        self.browser = browser  # fallback for the NR list when Revenu Québec blocks plain downloads
+        self.cache_file = Path(cache_dir) / "qst_nr_list.html" if cache_dir else None
         self._nr_rows = None
         self.nr_error = None
 
@@ -87,24 +93,47 @@ class QstChecker:
             return Result(INVALID, "Revenu Québec says this is not a valid QST number (likely a typo).")
         return Result(ERROR, f"Revenu Québec API: HTTP {r.status_code} {', '.join(sorted(filter(None, codes)))}")
 
+    def _nr_list_sources(self):
+        """Yield (description, page HTML) from each way of getting the NR list, best first."""
+        if self.nr_list_file:
+            yield f"saved file {self.nr_list_file}", Path(self.nr_list_file).read_text(encoding="utf-8", errors="replace")
+            return
+        if self.cache_file and self.cache_file.exists() and time.time() - self.cache_file.stat().st_mtime < NR_CACHE_AGE:
+            yield f"cached copy {self.cache_file}", self.cache_file.read_text(encoding="utf-8")
+        try:
+            r = self.session.get(NR_LIST, timeout=60)
+            if r.ok:
+                yield "download", r.text
+            else:
+                log.info("Plain download of the NR list got HTTP %s; trying a real browser", r.status_code)
+        except requests.RequestException as e:
+            log.info("Plain download of the NR list failed (%s); trying a real browser", e)
+        if self.browser:
+            with self.browser.page() as page:
+                resp = page.goto(NR_LIST, wait_until="networkidle", timeout=60000)
+                log.debug("Browser load of NR list -> HTTP %s", resp and resp.status)
+                yield "browser download", page.content()
+
     def _load_nr_list(self):
         if self._nr_rows is not None:
             return self._nr_rows
         self._nr_rows = {}
+        errors = []
         try:
-            if self.nr_list_file:
-                page = Path(self.nr_list_file).read_text(encoding="utf-8", errors="replace")
-            else:
-                r = self.session.get(NR_LIST, timeout=60)
-                r.raise_for_status()
-                page = r.text
-            self._nr_rows = parse_nr_list(page)
-            log.info("Loaded Revenu Québec NR list: %d registrants", len(self._nr_rows))
-            if not self._nr_rows:
-                self.nr_error = "Revenu Québec NR list was empty or its layout changed"
+            for source, page in self._nr_list_sources():
+                rows = parse_nr_list(page)
+                if rows:
+                    self._nr_rows = rows
+                    log.info("Loaded Revenu Québec NR list from %s: %d registrants", source, len(rows))
+                    if self.cache_file and source.endswith("download"):
+                        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+                        self.cache_file.write_text(page, encoding="utf-8")
+                    break
+                errors.append(f"{source} had no NR numbers (blocked, or the page layout changed)")
         except Exception as e:
-            self.nr_error = f"couldn't load Revenu Québec NR list ({e})"
-        if self.nr_error:
+            errors.append(f"{type(e).__name__}: {str(e).splitlines()[0]}")
+        if not self._nr_rows:
+            self.nr_error = "couldn't load Revenu Québec NR list (" + "; ".join(errors or ["no source available"]) + ")"
             log.warning(self.nr_error)
         return self._nr_rows
 
