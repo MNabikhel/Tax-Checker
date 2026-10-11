@@ -216,6 +216,14 @@ class Routing(unittest.TestCase):
         self.assertEqual(set(out), {"gst"})
         self.assertIn("isn't BC, SK or MB", logs.output[0])
 
+    def test_saskatchewan_number_is_noted_as_unused(self):
+        class Sk:
+            def check(self, names):
+                return Result(REGISTERED, "Saskatchewan PST registry: holds a vendor's licence.")
+
+        out = RowChecker(self.Gst(), None, sk=Sk()).check({"name": "Prairie Co", "province": "SK", "pst": "1234567"}, TODAY)
+        self.assertIn("wasn't used", out["sk_pst"].detail)
+
     def test_saskatchewan_without_assist_is_manual(self):
         out = RowChecker(self.Gst(), None).check({"name": "Prairie Co", "province": "SK"}, TODAY)
         self.assertEqual(out["sk_pst"].status, MANUAL)

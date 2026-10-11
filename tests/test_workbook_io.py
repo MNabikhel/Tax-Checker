@@ -153,7 +153,24 @@ class DatesAndHeaders(unittest.TestCase):
 
         self.assertEqual(suggest_field("QC Tax No")[1], "qst")
         self.assertEqual(suggest_field("GST Reg No.")[1], "gst")
+        self.assertEqual(suggest_field("Prov Sales Tax #")[1], "pst")  # tax-ish headers only map to tax fields
         self.assertIsNone(suggest_field("Amount"))
+        self.assertIsNone(suggest_field("Vendor ID"))  # identifiers aren't names
+        self.assertIsNone(suggest_field("Supplier Code"))
+
+    def test_header_hints_when_nothing_matches(self):
+        import tempfile as tf
+
+        from taxcheck.workbook import header_hints
+
+        with tf.TemporaryDirectory() as d:
+            path = Path(d) / "v.csv"
+            path.write_text("Export 2026\nVendor ID,Entity,QC Tax No\nV1,Amazon,1019288451\n", encoding="utf-8")
+            row, hints = header_hints(path)
+        self.assertEqual(row, 2)
+        by_header = {h: (field, hint) for _, h, field, hint in hints}
+        self.assertEqual(by_header["QC Tax No"][1][1], "qst")
+        self.assertIsNone(by_header["Vendor ID"][1])
 
     def test_common_company_headers_are_recognized(self):
         from taxcheck.workbook import _ALIASES, _key

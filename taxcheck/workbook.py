@@ -28,7 +28,7 @@ COLUMNS = {
     "bc_pst": ["bc pst number", "bc pst no", "bc pst #", "bc pst"],
     "sk_pst": ["sk pst number", "sk pst #", "sk pst", "saskatchewan pst"],
     "mb_rst": ["mb rst number", "mb rst #", "mb rst", "rst number", "rst #", "rst", "manitoba rst", "mb pst"],
-    "pst": ["pst number", "pst no", "pst #", "pst"],
+    "pst": ["pst number", "pst no", "pst #", "pst", "provincial sales tax", "provincial sales tax number", "pst/rst"],
     "date": ["transaction date", "invoice date", "date"],
 }
 
@@ -58,6 +58,7 @@ def _key(s):
 
 
 _ALIASES = {_key(a): col for col, names in COLUMNS.items() for a in names}
+TAX_FIELDS = {"gst", "bn", "qst", "pst", "bc_pst", "sk_pst", "mb_rst"}
 
 
 def suggest_field(header):
@@ -67,10 +68,18 @@ def suggest_field(header):
     key = _key(header)
     if not key:
         return None
-    match = difflib.get_close_matches(key, list(_ALIASES), n=1, cutoff=0.6)
+    if re.search(r"\b(id|code|key|ref|no\.?)$", str(header).strip().lower()) and not re.search(
+        r"tax|gst|hst|qst|tvq|pst|rst|bn|business", str(header).lower()
+    ):
+        return None  # "Vendor ID", "Supplier Code": identifiers, not names
+    candidates = list(_ALIASES)
+    if re.search(r"tax|gst|hst|qst|tvq|pst|rst", key):
+        # A tax-ish header should only be suggested as a tax-number field, never as province or name.
+        candidates = [a for a in candidates if _ALIASES[a] in TAX_FIELDS]
+    match = difflib.get_close_matches(key, candidates, n=1, cutoff=0.6)
     if not match:
-        # Partial words: "Legal Entity" contains "legal", "Tax Reg #" contains "tax"...
-        match = [a for a in _ALIASES if len(a) >= 3 and (a in key or key in a)][:1]
+        # Partial words: "Legal Entity" contains "legal"...
+        match = [a for a in candidates if len(a) >= 3 and (a in key or key in a)][:1]
     return (match[0], _ALIASES[match[0]]) if match else None
 
 
@@ -109,6 +118,27 @@ def as_text(value):
     """Text from outside sources is written as text: a leading '=' would make Excel treat it as a formula."""
     value = str(value or "")
     return "'" + value if value[:1] in ("=", "+", "@") else value
+
+
+def header_hints(path, sheet=None):
+    """When no header row is recognized: the most header-like row and a suggested field per cell.
+
+    Used by --check-columns so it can still help when almost nothing matches.
+    """
+    path = Path(path)
+    wb = _read_csv(path) if path.suffix.lower() == ".csv" else openpyxl.load_workbook(path, data_only=True)
+    ws = wb[sheet] if sheet else wb.worksheets[0]
+    best_row, best = None, []
+    for r, row in enumerate(ws.iter_rows(min_row=1, max_row=min(ws.max_row, 15), values_only=True), 1):
+        cells = [(c, v) for c, v in enumerate(row, 1) if isinstance(v, str) and v.strip()]
+        if len(cells) > len(best):
+            best_row, best = r, cells
+    hints = []
+    for c, header in best:
+        field = _ALIASES.get(_key(header))
+        hint = (header, field) if field else suggest_field(header)
+        hints.append((get_column_letter(c), header, field, hint))
+    return best_row, hints
 
 
 def clean_value(value):

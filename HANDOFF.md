@@ -6,7 +6,7 @@ has been verified, how the code is laid out, and how to adapt it to a new suppli
 
 **Last updated:** 2026-10-11 · **Branch:** `main` (work is done on `claude/magical-cerf-3mm20q` and
 fast-forwarded to `main`; if `git log origin/main` is behind that branch, use the branch) ·
-**Tests:** 85 offline + 8 live
+**Tests:** 87 offline + 8 live
 
 ---
 
@@ -131,7 +131,7 @@ Which taxes are checked for a row (`RowChecker.check`):
 | QST | a QST number is given | NO NUMBER if province is QC; else not reported |
 | BC PST | a BC PST number is given (BC PST column, or generic PST column + province BC); BN from the GST or Business Number column | NO NUMBER if province is BC |
 | MB RST | province is MB or an RST number is given; searches with the RST number and/or the BN from the GST column | NO NUMBER if neither number exists |
-| SK PST | province is SK or an SK PST number is given (name-only search, so the trade name matters) | MANUAL CHECK without `--sk-assist` |
+| SK PST | province is SK or an SK PST number is given (name-only search, so the trade name matters; the SK number itself is never used, and the result says so) | MANUAL CHECK without `--sk-assist` |
 
 A generic `PST` value whose province isn't BC, SK or MB (blank, ON, a US state...) isn't checked; a
 warning is logged for it. Non-Canadian suppliers (unrecognized province) only get the GST/HST row,
@@ -198,31 +198,41 @@ to bypass the CAPTCHA.**
    `python check_suppliers.py their_file.xlsx --check-columns` makes **no lookups**. It prints the header
    row found, which column feeds which field, unrecognized headers with the closest known alias, fields
    with no column, and what the first 10 rows would check (`--preview N` for more). If no header row is
-   found, the error lists the text it saw in the first rows.
+   recognized at all, it picks the most header-like row and gives a per-column suggestion instead.
+   Expect to iterate: add aliases, re-run `--check-columns`, until every column that matters is mapped
+   and each preview row routes the way you'd expect (e.g. a BC row with a PST number shows `bc_pst`).
 2. **Unrecognized headers:** add the spelling to `COLUMNS` in `taxcheck/workbook.py`. Matching rules
    (`_key`): lowercase, then remove everything except letters, digits and `#`, then require an **exact**
    match with an alias treated the same way. So `GST #` → `gst#` and `GST No` → `gstno` are different
-   keys, and `Legal Entity Name` won't match `legal entity`. If two columns match the same field, the
+   keys, and `Supplier Legal Name` won't match `legal name`. If two columns match the same field, the
    **leftmost** wins. The header row needs a name column plus at least one other recognized column.
    Don't add very generic words that could match unrelated columns ("date" is already generic; watch for
    "Date Added"). The suggestions from `--check-columns` are hints; confirm what the column holds.
+   Identifier columns ("Vendor ID", "Supplier Code") never get a suggestion, and headers mentioning a
+   tax are only suggested as tax-number fields. A generic header like "Tax Reg #" gets no suggestion:
+   ask what it holds (usually the GST/HST number → add it to `COLUMNS["gst"]`).
 3. **Province values** in an unusual form (e.g. "Ont.", full addresses): extend `PROVINCES`. To derive
    the province from an address, add an `address` key to `COLUMNS` and parse it in `RowChecker.check`.
    US/foreign suppliers: decide with the user whether they should be skipped, reported as "not
    applicable", or checked only if they have a GST number (non-residents selling digital services may
-   be simplified registrants); implement that in `RowChecker.check`.
+   be simplified registrants); implement that in `RowChecker.check`. If the file has a Country column,
+   that's the natural signal: add a `country` key to `COLUMNS` and branch on it there (it isn't read today).
 4. **Several numbers in one cell** (e.g. "GST 123... / QST 456..."): split them in
    `SupplierSheet.rows()` or a pre-processing step, rather than loosening the number parsers.
 5. **Header not in the first 15 rows**, or multiple sheets: `_find_header` scans 15 rows; `--sheet`
    selects a sheet.
 6. **Different output layout** (e.g. only a few columns, separate report): change
    `SupplierSheet.write_results`. Keep `as_text()` for external strings.
-7. **Add tests for every adaptation**: a small synthetic workbook in `tests/test_workbook_io.py`
-   style. Keep the real dataset out of git.
+7. **Add tests for every adaptation**, with made-up rows in the same format as the real file (CSV if
+   it's a CSV): one for the column mapping (`SupplierSheet(path).cols` and the values from `.rows()`, see
+   `tests/test_workbook_io.py`) and, if routing changed, one through `RowChecker` with stand-in checkers
+   (`checks.DryRun`, or the small fakes in `tests/test_more_sources.py`). Keep the real dataset out of git.
 8. **Dates:** `parse_date` accepts ISO (with or without time), `YYYYMMDD`, `15/09/2026` (day first:
    `09/10/2026` is 9 October), `15-Sep-2026`, `15 Sep 2026`, `September 15, 2026`, and Excel date cells.
-   Anything else falls back to today with a warning in the log. Confirm a "date" column really holds
-   transaction dates (not invoice numbers) before mapping it.
+   A blank date uses today (`--date` overrides); an unreadable one also uses today, with a warning in
+   the log. The GST/HST check confirms registration *on that date*. A "last invoice date" is a reasonable
+   choice for "was it registered when they charged us"; for "is it registered now", don't map a date
+   column (or use `--date`). Confirm the column holds dates, not invoice numbers.
 9. Run `python -m unittest discover tests` and, after changes to any checker,
    `TAXCHECK_LIVE=1 python -m unittest tests.test_live -v`.
 
@@ -275,6 +285,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-11 (second review)**: A fresh agent tailored a copy to an unfamiliar CSV using only this
+  file (knew what to do on reaching §8; 6 aliases + 1 test). Its notes led to: `--check-columns` gives
+  per-column suggestions even when no header row is recognized; no suggestions for ID/code columns;
+  tax-ish headers only suggested as tax fields; "provincial sales tax" aliases; SK results note that the
+  sheet's SK number isn't used; docs on dates, Country columns and what tests to write.
 - **2026-10-11 (later)**: A cold read of this handoff by a fresh agent found gaps, now fixed: added
   `--check-columns` (offline column mapping and routing preview with alias suggestions); header-not-found
   error lists the headers seen; more date formats; warning when a PST number is ignored because of the

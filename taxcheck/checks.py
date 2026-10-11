@@ -60,6 +60,8 @@ class RowChecker:
             out["bc_pst"] = Result(MISSING, "BC supplier but no PST number provided.")
         if not _blank(sk_pst) or prov == "SK":
             out["sk_pst"] = self._guard(self._sk, names)
+            if not _blank(sk_pst) and out["sk_pst"].status not in (MANUAL,):
+                out["sk_pst"].detail += " (Saskatchewan's registry searches by name only; the PST number in the sheet wasn't used.)"
         if not _blank(mb_rst) or prov == "MB":
             out["mb_rst"] = self._guard(self._mb, mb_rst, names, row.get("bn") or row.get("gst"))
         for tax, res in out.items():

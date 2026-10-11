@@ -26,7 +26,7 @@ from taxcheck.logsetup import setup_logging
 from taxcheck.mb_rst import MbRstChecker
 from taxcheck.qst import QstChecker
 from taxcheck.sk_pst import SkPstAssistant
-from taxcheck.workbook import InputError, SupplierSheet, parse_date
+from taxcheck.workbook import InputError, SupplierSheet, header_hints, parse_date
 
 log = logging.getLogger("check_suppliers")
 
@@ -38,7 +38,26 @@ def check_columns(args):
     try:
         sheet = SupplierSheet(Path(args.workbook), args.sheet)
     except InputError as e:
-        log.error("%s", e)
+        if "header row" not in str(e):
+            log.error("%s", e)
+            return 1
+        log.error("No header row recognized (it needs a supplier-name column plus one other recognized column).")
+        try:
+            row, hints = header_hints(args.workbook, args.sheet)
+        except Exception:
+            return 1
+        if hints:
+            log.info("Row %d looks most like the header row. Per column:", row)
+            for letter, header, field, hint in hints:
+                if field:
+                    log.info("  %3s '%s' -> %s (recognized)", letter, header, field)
+                elif hint:
+                    log.info("  %3s '%s': closest alias '%s' (%s); if it holds that, add '%s' to COLUMNS['%s']",
+                             letter, header, hint[0], hint[1], header, hint[1])
+                else:
+                    log.info("  %3s '%s': no close alias", letter, header)
+            log.info("Fields: name (legal name, required), trade_name, province, gst, bn, qst, pst, bc_pst, sk_pst, "
+                     "mb_rst, date. Add spellings to COLUMNS in taxcheck/workbook.py.")
         return 1
     for line in sheet.describe_columns():
         log.info(line)
