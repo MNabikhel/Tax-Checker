@@ -30,6 +30,7 @@ This writes `suppliers_tax_check.xlsx` next to the input. Options:
 | `--date 2026-09-30` | Confirm registration on this date (default: each row's date column, else today). |
 | `--no-browser` | Skip BC and Manitoba lookups (they need the headless browser). |
 | `--sk-assist` | Check Saskatchewan PST. A browser window opens; tick its CAPTCHA once and the script does the searches. |
+| `--trust-gst-number` | Count "REGISTERED - NAME NOT MATCHED" (GST number registered, vendor name not confirmed) as OK. |
 | `--no-name-lookup` | Don't retry GST/HST name mismatches with the official federal corporate name (skips a ~110 MB download). |
 | `--cache-dir folder` | Where downloaded reference data is kept (default: `cache`, refreshed weekly). |
 | `--nr-list saved.html` | Use a saved copy of Revenu Québec's NR registrant list if the download is blocked. |
@@ -92,8 +93,15 @@ without a lookup.
 the same answer for a wrong name as for an unregistered number. The script tries the sheet's name,
 without "The", and the trade name. If none match, it looks up the business number in
 [Corporations Canada's open data](https://open.canada.ca/data/en/dataset/0032ce54-c5dd-4b66-99a0-320a7b5e99f2)
-(all federal corporations, updated weekly) and retries with the official name. If that matches, the result
-names it so you can fix your vendor record. Provincially incorporated companies aren't in that data.
+(all federal corporations, updated weekly) and retries with the official name.
+
+If no name matches, the number alone still gets a definite answer. CRA checks the number against the date
+before it looks at the name, so one extra lookup shows whether the number is registered, not registered,
+or unknown to CRA. A number registered under a name other than the one in your sheet is reported as
+**REGISTERED - NAME NOT MATCHED**, with CRA's name for the business when it's known. The number is valid,
+but it isn't confirmed to be this supplier's (it could be another business's number), so it shows as REVIEW.
+If your vendor names are unreliable and you only need the number checked, `--trust-gst-number` counts it
+as OK.
 
 **Québec NR list.** Revenu Québec's website blocks some networks, such as cloud servers. The script tries
 a plain download, then a real browser, and keeps a copy for a week. If both are blocked, save the page
@@ -114,9 +122,10 @@ tax and notes from the run.
 
 | Status | Meaning |
 |---|---|
-| REGISTERED | The government source confirms the registration. |
+| REGISTERED | The government source confirms the registration (for GST/HST: number and the sheet's name). |
+| REGISTERED - NAME NOT MATCHED | GST/HST only: the number is registered, but not under the name in your sheet. The details give CRA's name when known. OK with `--trust-gst-number`. |
 | NOT REGISTERED | The source says the number isn't (or is no longer) registered. |
-| NOT CONFIRMED | The source couldn't match it. For GST/HST this usually means the name doesn't match CRA's records: CRA gives the same answer for a wrong name and an unregistered number. |
+| NOT CONFIRMED | The source couldn't match it (BC PST/business-number mismatch, no Manitoba or Saskatchewan match, an unusual QST status). |
 | INVALID NUMBER | The number is malformed or fails its check digit. |
 | NO NUMBER | The tax looks applicable, but no number was provided. |
 | MANUAL CHECK | Wasn't checked automatically (SK without `--sk-assist`, or no browser available). The details say how to check it. |

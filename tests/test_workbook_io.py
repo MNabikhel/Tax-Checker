@@ -76,6 +76,17 @@ class WorkbookIO(unittest.TestCase):
         self.assertEqual(row["Name on Government Record"], "'=1+1")
         self.assertTrue(row["GST/HST Details"].startswith("'="))
 
+    def test_trusting_gst_number_counts_name_not_matched_as_ok(self):
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        path = self.dir / "in.xlsx"
+        make_workbook(path, [["Supplier Name", "GST/HST Number"], ["A Co", "108161779"]])
+        results = {2: {"gst": Result(NAME_NOT_MATCHED, "")}}
+        SupplierSheet(path).write_results(results, self.dir / "default.xlsx", [])
+        SupplierSheet(path).write_results(results, self.dir / "trusted.xlsx", [], (REGISTERED, NAME_NOT_MATCHED))
+        self.assertEqual(openpyxl.load_workbook(self.dir / "default.xlsx")["Sheet"]["C2"].value, "REVIEW")
+        self.assertEqual(openpyxl.load_workbook(self.dir / "trusted.xlsx")["Sheet"]["C2"].value, "OK")
+
     def test_overall_review_when_anything_not_registered(self):
         path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
         make_workbook(path, [["Supplier Name", "Province"], ["A Co", "SK"]])

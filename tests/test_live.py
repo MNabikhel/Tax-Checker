@@ -58,6 +58,17 @@ class LiveCra(unittest.TestCase):
         self.assertGreater(len(self.gst.simplified._rows), 1000)
         self.assertIn("input tax credits", res.detail)
 
+    def test_number_only(self):
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        g = GstChecker(delay=1.0)  # no federal names: the number alone decides
+        self.assertEqual(g.check("857305932", [None], TODAY).status, NAME_NOT_MATCHED)  # no name in the sheet
+        self.assertEqual(g.check("857305932", ["Totally Wrong Vendor"], TODAY).status, NAME_NOT_MATCHED)
+        self.assertEqual(g.check("723754966", ["Wrong"], TODAY).status, NOT_REGISTERED)  # existing BN, not registered
+        res = g.check("298277534", ["Wrong"], TODAY)  # check-digit-valid number CRA doesn't know
+        self.assertEqual(res.status, NOT_REGISTERED, res.detail)
+        self.assertIn("no GST/HST account", res.detail)
+
     def test_not_registered_before_registration(self):
         res = self.gst.check("857305932", ["Amazon.com.ca ULC"], dt.date(1990, 1, 1))
         self.assertEqual(res.status, NOT_REGISTERED, res.detail)
@@ -148,7 +159,9 @@ class LiveFederalNames(unittest.TestCase):
 
         gst = GstChecker(delay=1.0, corporations=FederalCorporations(cache_dir="cache"))
         res = gst.check("774075766", ["NA Tutors"], TODAY)  # sheet name doesn't match CRA's
-        self.assertEqual(res.status, REGISTERED, res.detail)
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        self.assertEqual(res.status, NAME_NOT_MATCHED, res.detail)
         self.assertIn("North American Tutors", res.detail)
 
 

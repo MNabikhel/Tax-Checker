@@ -25,6 +25,7 @@ from taxcheck.gst import GstChecker, cra_today
 from taxcheck.logsetup import setup_logging
 from taxcheck.mb_rst import MbRstChecker
 from taxcheck.qst import QstChecker
+from taxcheck.result import NAME_NOT_MATCHED, REGISTERED
 from taxcheck.sk_pst import SkPstAssistant
 from taxcheck.workbook import InputError, SupplierSheet, header_hints, parse_date
 
@@ -73,15 +74,15 @@ def check_columns(args):
     return 0
 
 
-def save_workbook(sheet, results, out, notes):
+def save_workbook(sheet, results, out, notes, ok_statuses):
     """Save results; if the file is open in Excel (locked), save under a new name instead."""
     try:
-        sheet.write_results(results, out, notes)
+        sheet.write_results(results, out, notes, ok_statuses)
         return out
     except PermissionError:
         alt = out.with_name(f"{out.stem}_{dt.datetime.now():%H%M%S}{out.suffix}")
         log.warning("%s is locked (open in Excel?); saving to %s instead", out, alt)
-        sheet.write_results(results, alt, notes)
+        sheet.write_results(results, alt, notes, ok_statuses)
         return alt
 
 
@@ -143,7 +144,8 @@ def run(args, log_path):
         "BC PST: eTaxBC PST Number Verification Service. MB RST: Manitoba TAXcess RST Registration Registry.",
         "SK PST: SETS PST On-Line Registry (needs --sk-assist, because of its CAPTCHA).",
         "GST/HST names that don't match CRA are retried with the official name from Corporations Canada's open data.",
-        "NOT CONFIRMED on GST/HST usually means the legal name doesn't match CRA's records; fix the name and re-run.",
+        "GST/HST numbers whose name doesn't match are still checked by number: 'REGISTERED - NAME NOT MATCHED' means "
+        "the number is registered but not under the sheet's name (CRA's name is shown when known).",
     ]
     if gst.simplified.error:
         notes.append(gst.simplified.error)
@@ -153,7 +155,10 @@ def run(args, log_path):
         notes.append(qst.nr_error)
     if stopped_early:
         notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked.")
-    saved = save_workbook(sheet, results, out, notes)
+    ok_statuses = (REGISTERED, NAME_NOT_MATCHED) if args.trust_gst_number else (REGISTERED,)
+    if args.trust_gst_number:
+        notes.append("--trust-gst-number: 'REGISTERED - NAME NOT MATCHED' counts as OK in the Overall column.")
+    saved = save_workbook(sheet, results, out, notes, ok_statuses)
     log.info("Results written to %s", saved)
     return saved
 
@@ -173,6 +178,8 @@ def main(argv=None):
     ap.add_argument("--nr-list", help="saved copy of Revenu Québec's NR registrant list page, if it can't be downloaded")
     ap.add_argument("--log-dir", default="logs", help="folder for run logs (default: logs)")
     ap.add_argument("-v", "--verbose", action="store_true", help="show the detailed log on screen too")
+    ap.add_argument("--trust-gst-number", action="store_true",
+                    help="count 'REGISTERED - NAME NOT MATCHED' (GST number registered, name not confirmed) as OK")
     ap.add_argument("--check-columns", action="store_true",
                     help="don't check anything: show how the columns are read and what the first rows would check")
     ap.add_argument("--preview", type=int, default=10, help="rows to show with --check-columns (default: 10)")

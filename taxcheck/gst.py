@@ -9,11 +9,14 @@ import time
 import requests
 
 from .http import SiteHealth, Throttle, new_session
-from .result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
+from .result import INVALID, NAME_NOT_MATCHED, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
 
 log = logging.getLogger(__name__)
 
 REGISTRY = "https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/"
+# Number-only check (see GstChecker._number_only): a name CRA will never match, and a date before GST existed.
+PLACEHOLDER_NAME = "Name Not Supplied"
+BEFORE_GST = dt.date(1980, 1, 1)
 SIMPLIFIED_LIST = (
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/"
     "digital-economy-gsthst/confirming-simplified-gst-hst-account-number.html"
@@ -229,18 +232,19 @@ class GstChecker:
 
     def _check(self, bn9, names, date, listed):
         note = SIMPLIFIED_NOTE if listed else ""
-        tried = []
+        tried, sheet_tried = [], []
         for name, source in self._candidates(bn9, names, listed):
             tried.append(name)
+            if source == "sheet":
+                sheet_tried.append(name)
             outcome = self.registry_lookup(bn9, name, date)
             if outcome == "registered":
-                detail = f"CRA GST/HST Registry confirms registration on {date} (matched name '{name}')."
-                if source == "federal corporations registry":
-                    detail += (
-                        f" The name in your sheet didn't match; '{name}' is the official corporate name "
-                        "for this business number, so consider updating your vendor record."
-                    )
-                return Result(REGISTERED, " ".join(filter(None, [detail, note])), listed and listed["legal_name"] or name)
+                if source == "sheet":
+                    detail = f"CRA GST/HST Registry confirms registration on {date} (matched name '{name}')."
+                    return Result(REGISTERED, " ".join(filter(None, [detail, note])), listed and listed["legal_name"] or name)
+                # Registered, but under a name from CRA's list or the federal registry, not the sheet's:
+                # the number is fine; whether it's this supplier's number is for a person to judge.
+                return Result(NAME_NOT_MATCHED, " ".join(filter(None, [self._other_name_detail(name, source, sheet_tried, date), note])), name)
             if outcome == "invalid":
                 return Result(INVALID, "CRA says this GST/HST number is not valid.")
             if outcome == "not_registered":
@@ -254,21 +258,56 @@ class GstChecker:
                 return Result(NOT_REGISTERED, f"Simplified GST/HST registration ended {dereg}.", listed["legal_name"])
             if listed["registered"] and listed["registered"] > date:
                 return Result(NOT_REGISTERED, f"Simplified GST/HST registration only starts {listed['registered']}.", listed["legal_name"])
-            return Result(REGISTERED, f"Found on CRA's simplified registrant list. {note}", listed["legal_name"])
+            detail = self._other_name_detail(listed["legal_name"], "CRA's simplified registrant list", sheet_tried, date)
+            return Result(NAME_NOT_MATCHED, f"{detail} {note}", listed["legal_name"])
 
+        return self._number_only(bn9, date, tried)
+
+    @staticmethod
+    def _other_name_detail(name, source, sheet_tried, date):
+        sheet = "; ".join(f"'{n}'" for n in sheet_tried) or "(no name in the sheet)"
+        return (
+            f"CRA confirms this number is registered for GST/HST on {date} under '{name}' (name from the {source}), "
+            f"not under the name in your sheet: {sheet}. If '{name}' is this supplier, update your vendor record; "
+            "if not, the number may belong to another business."
+        )
+
+    def _number_only(self, bn9, date, tried):
+        """Decide registration from the number alone, when no name matched CRA's records.
+
+        CRA's registry checks the number against the date before it looks at the name:
+          - not registered on that date  -> "was not registered on this transaction date", whatever the name;
+          - registered on that date      -> "Insufficient information" unless the name matches;
+          - no GST/HST account at all    -> "Insufficient information" for every date.
+        So with names that didn't match today: asking about a date before GST existed (1980) answers
+        "not registered" for any number that has a GST/HST account, and "Insufficient information" for a
+        number CRA doesn't know. Together: registered today, but under a name we don't have. Verified on
+        2026-10-11 against 27 registered and 11 unregistered companies, de-registered accounts, and made-up
+        numbers, with no disagreement. It proves the number is registered, not that it belongs to this
+        supplier, hence a separate status.
+        """
+        if not tried:  # no name at all in the sheet: ask about the date itself first
+            outcome = self.registry_lookup(bn9, PLACEHOLDER_NAME, date)
+            if outcome == "not_registered":
+                return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.")
+            if outcome == "invalid":
+                return Result(INVALID, "CRA says this GST/HST number is not valid.")
         official = self.corporations.names(bn9) if self.corporations else []
-        tried_text = "; ".join(f"'{n}'" for n in tried) or "(no name given)"
-        if official:
+        tried_text = "; ".join(f"'{n}'" for n in tried) or "(no name in the sheet)"
+        if date <= BEFORE_GST:
+            return Result(NOT_CONFIRMED, f"CRA could not match this number with {tried_text} on {date}.")
+        account = self.registry_lookup(bn9, PLACEHOLDER_NAME, BEFORE_GST)
+        if account == "not_registered":
+            known = f" The official federal corporate name for this number is '{official[0]}'." if official else ""
             return Result(
-                NOT_CONFIRMED,
-                f"CRA could not match this number on {date} with {tried_text}, even using the official federal "
-                "corporate name. The number is most likely not registered for GST/HST, or is registered under "
-                "another name; ask the supplier to confirm.",
-                official[0],
+                NAME_NOT_MATCHED,
+                f"CRA: this number is registered for GST/HST on {date}, but not under {tried_text}.{known} "
+                "Confirm the number belongs to this supplier (e.g. the legal name on their invoice) before "
+                "relying on it for input tax credits.",
+                official[0] if official else "",
             )
         return Result(
-            NOT_CONFIRMED,
-            f"CRA could not match this number with name {tried_text} on {date}. Either the number isn't "
-            "registered or the legal name differs from CRA's records (CRA doesn't say which). "
-            "Check the supplier's exact legal name and re-run.",
+            NOT_REGISTERED,
+            f"CRA has no GST/HST account under this number (it isn't recognized for any date). It's most likely "
+            "a typo or not a GST/HST number; ask the supplier for it again.",
         )

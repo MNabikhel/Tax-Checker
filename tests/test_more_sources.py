@@ -90,8 +90,11 @@ class FederalNames(unittest.TestCase):
     def test_retries_with_official_name(self):
         g = gst_with({"North American Tutors Inc.": "registered"}, FakeCorps(["North American Tutors Inc."]))
         res = g.check("774075766", ["NA Tutors"], TODAY)
-        self.assertEqual(res.status, REGISTERED)
-        self.assertIn("official corporate name", res.detail)
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        self.assertEqual(res.status, NAME_NOT_MATCHED)
+        self.assertIn("'North American Tutors Inc.' (name from the federal corporations registry)", res.detail)
+        self.assertEqual(res.registered_name, "North American Tutors Inc.")
         self.assertEqual(g.tried, ["NA Tutors", "North American Tutors Inc."])
 
     def test_not_loaded_when_sheet_name_matches(self):
@@ -99,10 +102,16 @@ class FederalNames(unittest.TestCase):
         gst_with({"Good Name": "registered"}, corps).check("774075766", ["Good Name"], TODAY)
         self.assertEqual(corps.calls, 0)
 
-    def test_official_name_also_fails(self):
-        res = gst_with({}, FakeCorps(["Official Ltd."])).check("774075766", ["Sheet Name"], TODAY)
-        self.assertEqual(res.status, NOT_CONFIRMED)
-        self.assertIn("most likely not registered", res.detail)
+    def test_official_name_also_fails_but_number_is_registered(self):
+        from taxcheck.gst import BEFORE_GST
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        g = gst_with({}, FakeCorps(["Official Ltd."]))
+        inner = g.registry_lookup
+        g.registry_lookup = lambda bn9, name, date: "not_registered" if date <= BEFORE_GST else inner(bn9, name, date)
+        res = g.check("774075766", ["Sheet Name"], TODAY)
+        self.assertEqual(res.status, NAME_NOT_MATCHED)
+        self.assertIn("Official Ltd.", res.detail)
         self.assertEqual(res.registered_name, "Official Ltd.")
 
     def test_csv_loading_from_cache(self):

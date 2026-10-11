@@ -6,7 +6,7 @@ has been verified, how the code is laid out, and how to adapt it to a new suppli
 
 **Last updated:** 2026-10-11 · **Branch:** `main` (work is done on `claude/magical-cerf-3mm20q` and
 fast-forwarded to `main`; if `git log origin/main` is behind that branch, use the branch) ·
-**Tests:** 89 offline + 10 live
+**Tests:** 93 offline + 11 live
 
 ---
 
@@ -125,15 +125,17 @@ the log only).
 
 | Status | Meaning | Typical cause |
 |---|---|---|
-| REGISTERED | Source confirms an active registration | |
+| REGISTERED | Source confirms an active registration (GST/HST: number **and** the sheet's name or trade name) | |
+| REGISTERED - NAME NOT MATCHED | GST/HST number registered, but not under the sheet's name (CRA's name in the details when known) | Misnamed vendor, or a number belonging to another business |
 | NOT REGISTERED | Source definitively says no (or cancelled / deregistered) | |
-| NOT CONFIRMED | Source couldn't match; not definitive | GST name mismatch; BC PST/BN mismatch; no MB/SK match |
+| NOT CONFIRMED | Source couldn't match; not definitive | BC PST/BN mismatch; no MB/SK match; unusual QST status |
 | INVALID NUMBER | Malformed, fails check digit, or Excel scientific notation | Typos |
 | NO NUMBER | Tax applies (by province) but no number given | Missing data |
 | MANUAL CHECK | Not checked automatically | SK without `--sk-assist`; no browser; CAPTCHA not completed |
 | ERROR | Lookup failed (network, site down, page changed) | Re-run later; see log |
 
-`Overall` is `OK` only if every status in the row is REGISTERED, otherwise `REVIEW`.
+`Overall` is `OK` only if every status in the row is REGISTERED (or REGISTERED - NAME NOT MATCHED with
+`--trust-gst-number`), otherwise `REVIEW`.
 
 Which taxes are checked for a row (`RowChecker.check`):
 
@@ -156,9 +158,18 @@ These were all learned by testing; don't "simplify" them away.
 **CRA GST/HST Registry** (`gst.py`)
 - Form: GET `reg_01_Ld.action` for a Struts token, POST `reg_01_Sbmt.action` with `businessNumber`
   (9 digits), `businessName`, `requestDate` (YYYY-MM-DD). No CAPTCHA. ~15 lookups in a row are fine.
-- Four answers: *registered on this date* / *was not registered on this date* (given **regardless of
-  name**, so it's definitive about the number only) / *Insufficient information* (wrong name **or**
-  unregistered; CRA deliberately doesn't say which) / field error *GST/HST number is not valid*.
+- Four answers: *registered on this date* / *was not registered on this date* / *Insufficient
+  information* / field error *GST/HST number is not valid*.
+- **CRA checks the date before the name.** Not registered on the date → "was not registered", whatever
+  name is entered. Registered on the date → "Insufficient information" unless the name matches. No GST
+  account at all → "Insufficient information" for every date. So when no name matches today, one more
+  lookup with any name for 1980-01-01 (before GST existed) settles it from the number alone: "was not
+  registered" means the number has an account and, given today's answer, is registered now; "Insufficient
+  information" means CRA doesn't know the number. This is `GstChecker._number_only`. Verified 2026-10-11
+  on 27 registered and 11 unregistered federal corporations, de-registered simplified accounts (correct
+  both inside and after their registration period), and made-up numbers: no disagreement. It proves the
+  number is registered, **not** that it belongs to the supplier, hence the separate status. Any match via a
+  name that didn't come from the sheet (CRA's simplified list, federal registry) gets the same status.
 - Name matching ignores case and punctuation but **not extra words**: "The University of British
   Columbia" fails, "University of British Columbia" passes. Hence `name_variants` (drop "The", trade
   name) and the federal-name fallback.
@@ -277,7 +288,7 @@ Inc. `774075766`.
 
 | Symptom | Look at | Likely fix |
 |---|---|---|
-| Many GST NOT CONFIRMED | log lines `CRA registry bn=... name=... -> no_match` | Legal names in the sheet differ from CRA's; check "Name on Government Record" |
+| Many GST "REGISTERED - NAME NOT MATCHED" | "Name on Government Record" column, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's legal names: update the vendor master, or use `--trust-gst-number` if only the number matters |
 | `Transaction date cannot be a future date` | system clock | `cra_today()` should prevent it; check the PC's clock |
 | BC/MB all ERROR, "answered HTTP 5xx" or "wasn't responding" | site status | Maintenance; re-run later |
 | BC/MB ERROR with a timeout on a specific element | failure screenshot in `logs/` | The site's layout changed; update selectors in `_lookup` |
@@ -297,6 +308,12 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-11 (number-only GST)**: GST/HST results no longer depend on having the right vendor name.
+  When no name matches, one extra lookup (date before GST existed) tells registered / not registered /
+  unknown number from the number alone (see §7). New status REGISTERED - NAME NOT MATCHED for numbers
+  registered under another name (including matches found via the federal registry or CRA's simplified
+  list); `--trust-gst-number` counts it as OK. GST/HST no longer returns NOT CONFIRMED. Tested on a
+  misnamed 13-vendor list (blank names, typos, "Misc Vendor"): every row got a definite answer.
 - **2026-10-11 (open items)**: Tried every route to verify the three open items from the build
   environment (archives, a separate fetch service, browser download); all blocked. Made them one-command
   checks on the new PC instead: live tests for the NR list (skips only when refused, fails if the page

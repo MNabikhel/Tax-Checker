@@ -4,7 +4,7 @@ import datetime as dt
 import unittest
 
 from taxcheck.gst import GstChecker, cra_today
-from taxcheck.result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
+from taxcheck.result import INVALID, NAME_NOT_MATCHED, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
 
 TODAY = cra_today()
 
@@ -44,10 +44,12 @@ class GstLogic(unittest.TestCase):
         g.check("108161779", ["Example Co", "Other"], TODAY)
         self.assertEqual(len(g.calls), 1)
 
-    def test_no_match_on_every_name(self):
+    def test_unknown_number_when_no_name_matches_at_any_date(self):
+        # CRA answers "Insufficient information" for every date: it has no account under this number.
         res = checker({}).check("108161779", ["A", "B"], TODAY)
-        self.assertEqual(res.status, NOT_CONFIRMED)
-        self.assertIn("'A'; 'B'", res.detail)
+        self.assertEqual(res.status, NOT_REGISTERED)
+        self.assertIn("no GST/HST account", res.detail)
+
 
     def test_not_registered_on_date_is_definite(self):
         res = checker({"Example Co": "not_registered"}).check("108161779", ["Example Co"], TODAY)
@@ -67,9 +69,11 @@ class GstLogic(unittest.TestCase):
                   "registered": dt.date(2026, 9, 1), "deregistered": None}
         g = checker({"Airalo": "registered"}, listed)
         res = g.check("751950577", ["Wrong Name"], TODAY)
-        self.assertEqual(res.status, REGISTERED)
+        # Registered, but only under CRA's name for it, not the sheet's.
+        self.assertEqual(res.status, NAME_NOT_MATCHED)
+        self.assertIn("'Airalo'", res.detail)
         self.assertIn("input tax credits", res.detail)
-        self.assertEqual(res.registered_name, "AIRGSM PTE. LTD.")
+        self.assertEqual(checker({"Airalo": "registered"}, listed).check("751950577", ["Airalo"], TODAY).status, REGISTERED)
 
     def test_simplified_deregistered(self):
         listed = {"legal_name": "OLD LTD", "trade_name": "", "number": "751950577RT9999",
@@ -77,6 +81,48 @@ class GstLogic(unittest.TestCase):
         res = checker({}, listed).check("751950577", ["OLD LTD"], dt.date(2022, 1, 1))
         self.assertEqual(res.status, NOT_REGISTERED)
         self.assertIn("2021-01-01", res.detail)
+
+
+def cra_like(registered_names, account=True, registered_on_date=True):
+    """A fake registry that answers the way CRA does: date first, then name."""
+    from taxcheck.gst import BEFORE_GST
+
+    g = GstChecker(delay=0)
+    g.simplified = FakeList(None)
+    g.calls = []
+
+    def lookup(bn9, name, date):
+        g.calls.append((name, date))
+        if not account:
+            return "no_match"
+        if date <= BEFORE_GST or not registered_on_date:
+            return "not_registered"
+        return "registered" if name in registered_names else "no_match"
+
+    g.registry_lookup = lookup
+    return g
+
+
+class NumberOnly(unittest.TestCase):
+    def test_registered_under_another_name(self):
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        g = cra_like({"Real Legal Name Inc."})
+        res = g.check("869744920", ["Wrong Vendor Name"], TODAY)
+        self.assertEqual(res.status, NAME_NOT_MATCHED)
+        self.assertIn("Confirm the number belongs to this supplier", res.detail)
+        self.assertEqual(len(g.calls), 2)  # the sheet's name, then one probe before GST existed
+
+    def test_no_name_in_sheet(self):
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        self.assertEqual(cra_like({"X"}).check("869744920", [None, None], TODAY).status, NAME_NOT_MATCHED)
+        res = cra_like({"X"}, registered_on_date=False).check("869744920", [None], TODAY)
+        self.assertEqual(res.status, NOT_REGISTERED)
+        self.assertEqual(cra_like(set(), account=False).check("298277534", [None], TODAY).status, NOT_REGISTERED)
+
+    def test_matching_name_still_gives_full_registered(self):
+        self.assertEqual(cra_like({"Real Inc."}).check("869744920", ["Real Inc."], TODAY).status, REGISTERED)
 
 
 class RegistryRetry(unittest.TestCase):

@@ -11,7 +11,7 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .result import ERROR, INVALID, MANUAL, MISSING, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
+from .result import ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ PROVINCES = {
 
 STATUS_FILL = {
     REGISTERED: "C6EFCE",
+    NAME_NOT_MATCHED: "E2EFDA",
     NOT_REGISTERED: "FFC7CE",
     INVALID: "FFC7CE",
     NOT_CONFIRMED: "FFEB9C",
@@ -254,7 +255,7 @@ class SupplierSheet:
             if any(v not in (None, "") for v in values.values()):
                 yield r, values
 
-    def write_results(self, results, out_path, run_notes):
+    def write_results(self, results, out_path, run_notes, ok_statuses=(REGISTERED,)):
         """results: {row_number: {tax_key: Result}}"""
         ws = self.ws
         # Re-running on an earlier results file overwrites its result columns instead of adding more.
@@ -292,7 +293,7 @@ class SupplierSheet:
                     if res.registered_name and res.registered_name not in names:
                         names.append(res.registered_name)
                 col += 2
-            overall = "OK" if statuses and all(s == REGISTERED for s in statuses) else "REVIEW"
+            overall = "OK" if statuses and all(s in ok_statuses for s in statuses) else "REVIEW"
             ws.cell(r, start, overall).fill = PatternFill("solid", fgColor="C6EFCE" if overall == "OK" else "FFEB9C")
             ws.cell(r, col, as_text("; ".join(names)))
             ws.cell(r, col + 1, today)
@@ -304,7 +305,7 @@ class SupplierSheet:
         summary = self.wb.create_sheet("Tax Check Summary")
         summary.append(["Supplier tax registration check", today])
         summary.append([])
-        statuses = [REGISTERED, NOT_REGISTERED, NOT_CONFIRMED, INVALID, MISSING, MANUAL, ERROR]
+        statuses = [REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED, NOT_CONFIRMED, INVALID, MISSING, MANUAL, ERROR]
         summary.append(["Tax"] + statuses)
         for key, label in TAXES:
             summary.append([label] + [counts[key][s] for s in statuses])
