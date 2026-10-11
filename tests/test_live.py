@@ -11,12 +11,23 @@ import datetime as dt
 import os
 import unittest
 
-from taxcheck.gst import GstChecker
+from taxcheck.gst import GstChecker, cra_today
 from taxcheck.qst import QstChecker
 from taxcheck.result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
 
 LIVE = os.environ.get("TAXCHECK_LIVE") == "1"
-TODAY = dt.date.today()
+
+
+def reachable(url):
+    """True if the site answers at all, so an outage is reported as a skip rather than a code failure."""
+    import requests
+
+    try:
+        requests.get(url, timeout=20)
+        return True
+    except requests.RequestException:
+        return False
+TODAY = cra_today()
 
 
 @unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
@@ -73,7 +84,10 @@ class LiveBrowserChecks(unittest.TestCase):
         cls.browser.__exit__(None, None, None)
 
     def test_etaxbc(self):
-        from taxcheck.bc_pst import BcPstChecker
+        from taxcheck.bc_pst import ETAXBC, BcPstChecker
+
+        if not reachable(ETAXBC):
+            self.skipTest("eTaxBC isn't responding (it has scheduled maintenance windows); try again later")
 
         bc = BcPstChecker(self.browser)
         self.assertEqual(bc.check("108161779", "1000-7572").status, REGISTERED)

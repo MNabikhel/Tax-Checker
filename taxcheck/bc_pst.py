@@ -4,7 +4,7 @@ import logging
 import re
 
 from .browser import BrowserUnavailable
-from .http import Throttle
+from .http import SiteHealth, Throttle
 from .result import ERROR, MANUAL, NOT_CONFIRMED, REGISTERED, Result
 
 log = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ class BcPstChecker:
     def __init__(self, browser, delay=2.0):
         self.browser = browser
         self.throttle = Throttle(delay)
+        self.health = SiteHealth("eTaxBC")
 
     def _lookup(self, bn9, pst):
         # eTaxBC keeps search state per session, so each lookup gets a clean one.
@@ -46,6 +47,8 @@ class BcPstChecker:
                 raise
 
     def check(self, bn9, pst, attempts=3):
+        if self.health.down:
+            return Result(ERROR, self.health.down_message())
         for attempt in range(1, attempts + 1):
             self.throttle.wait()
             try:
@@ -58,7 +61,9 @@ class BcPstChecker:
                 error = str(e).splitlines()[0]
                 log.warning("eTaxBC lookup bn=%s pst=%s attempt %d/%d failed: %s", bn9, pst, attempt, attempts, error)
         else:
+            self.health.record(False, error)
             return Result(ERROR, f"eTaxBC lookup failed after {attempts} tries: {error} (see log file)")
+        self.health.record(True)
         if outcome == "PST number is valid":
             return Result(REGISTERED, f"eTaxBC: PST-{pst} is valid for BN {bn9}.")
         if outcome == "No Match Found":

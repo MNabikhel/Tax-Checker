@@ -121,6 +121,19 @@ def parse_registry_result(page):
     raise RuntimeError("CRA registry rejected the search: " + ("; ".join(errors) or "no result on page"))
 
 
+def cra_today(now=None):
+    """Today's date in Ottawa, which is what the CRA registry treats as "today".
+
+    The registry rejects later dates as "in the future", so on a PC whose clock is ahead of Ottawa
+    (UTC, Atlantic, Newfoundland, overseas) the local date can be refused shortly after midnight.
+    UTC-5 is Ottawa's winter offset; in summer it lags Ottawa by an hour, so this date is never ahead
+    of Ottawa's (at worst it's a day behind for one hour). No time-zone database needed (Windows
+    Python doesn't ship one).
+    """
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return (now.astimezone(dt.timezone.utc) - dt.timedelta(hours=5)).date()
+
+
 def _parse_date(s):
     try:
         return dt.datetime.strptime(s.strip(), "%B %d, %Y").date()
@@ -174,11 +187,11 @@ class GstChecker:
         return outcome
 
     def check(self, bn9, names, date):
-        today = dt.date.today()
+        today = cra_today()
         future_note = ""
         if date > today:
             # The registry refuses future dates; confirm as of today instead.
-            future_note = f"Transaction date {date} is in the future, so registration was checked as of today."
+            future_note = f"Transaction date {date} is in the future, so registration was checked as of {today}."
             date = today
         listed = self.simplified.lookup(bn9, date)
         if listed:

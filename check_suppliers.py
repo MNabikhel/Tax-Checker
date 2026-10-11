@@ -21,7 +21,7 @@ from taxcheck.bc_pst import BcPstChecker
 from taxcheck.browser import Browser
 from taxcheck.checks import RowChecker
 from taxcheck.fedcorp import FederalCorporations
-from taxcheck.gst import GstChecker
+from taxcheck.gst import GstChecker, cra_today
 from taxcheck.logsetup import setup_logging
 from taxcheck.mb_rst import MbRstChecker
 from taxcheck.qst import QstChecker
@@ -46,7 +46,7 @@ def save_workbook(sheet, results, out, notes):
 def run(args, log_path):
     src = Path(args.workbook)
     out = Path(args.output) if args.output else src.with_name(f"{src.stem}_tax_check.xlsx")
-    default_date = parse_date(args.date) if args.date else dt.date.today()
+    default_date = parse_date(args.date) if args.date else cra_today()
 
     sheet = SupplierSheet(src, args.sheet)
     rows = list(sheet.rows())

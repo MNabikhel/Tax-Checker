@@ -3,10 +3,10 @@
 import datetime as dt
 import unittest
 
-from taxcheck.gst import GstChecker
+from taxcheck.gst import GstChecker, cra_today
 from taxcheck.result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
 
-TODAY = dt.date.today()
+TODAY = cra_today()
 
 
 class FakeList:

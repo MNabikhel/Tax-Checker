@@ -10,7 +10,7 @@ import logging
 import re
 
 from .browser import BrowserUnavailable
-from .http import Throttle
+from .http import SiteHealth, Throttle
 from .result import ERROR, MANUAL, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
 
 log = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ class MbRstChecker:
     def __init__(self, browser, delay=2.0):
         self.browser = browser
         self.throttle = Throttle(delay)
+        self.health = SiteHealth("Manitoba TAXcess")
 
     def _lookup(self, name, bn9=None, rst=None):
         """One registry search. Returns a list of (status, legal name, operating name); empty if none found."""
@@ -100,11 +101,15 @@ class MbRstChecker:
         tried = []
         for name in name_variants(*names):
             tried.append(name)
+            if self.health.down:
+                return Result(ERROR, self.health.down_message())
             try:
                 found = self._lookup_with_retry(name, bn9, rst)
+                self.health.record(True)
             except BrowserUnavailable as e:
                 return Result(MANUAL, f"Couldn't check automatically: {e} Or search by hand at {TAXCESS_RST}")
             except RuntimeError as e:
+                self.health.record(False, str(e))
                 return Result(ERROR, f"{e} (see log file)")
             if found:
                 status, legal, operating = found[0]

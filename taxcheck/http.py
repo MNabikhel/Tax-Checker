@@ -44,3 +44,36 @@ class Throttle:
         if gap < self.seconds:
             time.sleep(self.seconds - gap)
         self._last = time.monotonic()
+
+
+class SiteHealth:
+    """Stops hammering a site that's down: after `limit` lookups in a row fail outright, give up on it.
+
+    Lookups for the rest of the run then fail immediately with an explanation, instead of each one
+    waiting through its own retries (which for a site under maintenance can take minutes per row).
+    """
+
+    def __init__(self, site, limit=2):
+        self.site = site
+        self.limit = limit
+        self.failures = 0
+        self.last_error = ""
+
+    @property
+    def down(self):
+        return self.failures >= self.limit
+
+    def down_message(self):
+        return (
+            f"{self.site} wasn't responding ({self.failures} lookups in a row failed, last error: {self.last_error}), "
+            "so it wasn't tried again in this run. It may be down for maintenance; re-run later."
+        )
+
+    def record(self, ok, error=""):
+        if ok:
+            self.failures = 0
+            return
+        self.failures += 1
+        self.last_error = error
+        if self.failures == self.limit:
+            log.warning("%s looks down after %d failed lookups in a row; skipping it for the rest of this run", self.site, self.failures)
