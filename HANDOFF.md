@@ -6,7 +6,7 @@ has been verified, how the code is laid out, and how to adapt it to a new suppli
 
 **Last updated:** 2026-10-11 · **Branch:** `main` (work is done on `claude/magical-cerf-3mm20q` and
 fast-forwarded to `main`; if `git log origin/main` is behind that branch, use the branch) ·
-**Tests:** 87 offline + 8 live
+**Tests:** 89 offline + 10 live
 
 ---
 
@@ -29,25 +29,37 @@ a status and an explanation per tax, plus a summary sheet and a detailed log fil
 
 Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need the GST/HST check.
 
-## 2. Open items (check these first on the new PC)
+## 2. Open items: verify these on the new PC first
 
-1. **BC with the current Chromium.** BC was verified with Chromium 141. On 2026-10-11 eTaxBC was
+Three parts couldn't be verified from the cloud environment this was built in. Each has a live test
+that settles it in one command on a normal Canadian connection. Run them first and record the result
+in the change log (§12).
+
+```
+TAXCHECK_LIVE=1 python -m unittest tests.test_live -v                        # items 1 and 2 (plus everything else)
+TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSaskatchewanAssisted -v   # item 3
+```
+(Windows PowerShell: `$env:TAXCHECK_LIVE=1; $env:TAXCHECK_SK_ASSIST=1; python -m unittest ...`)
+
+1. **BC with the current Chromium** (`test_etaxbc`). Verified with Chromium 141. On 2026-10-11 eTaxBC was
    down for scheduled maintenance (Oct 9, 4 PM – Oct 13, 7 AM Pacific), so it couldn't be re-verified
-   with Chromium 153, which is what `playwright install chromium` now gives. Manitoba runs on the same
-   platform (FAST/GenTax) and works with 153, so BC most likely does too. Verify with
-   `TAXCHECK_LIVE=1 python -m unittest tests.test_live -v` (the BC test skips itself if eTaxBC is unreachable).
-2. **Québec NR list.** Revenu Québec's website (Cloudflare) refused the cloud server this was built
-   on: plain download, headless browser, and the Wayback Machine all got a 403 naming the server's IP.
-   It should work from a normal Canadian connection. The parser (`qst.parse_nr_list`) was written from
-   the page's documented layout (trade name, legal name, `NR 0013 0061`) and is unit-tested on a
-   synthetic table, but **has never seen the real page**. On the first run with an NR supplier, check
-   the log for `Loaded Revenu Québec NR list from ...: N registrants` (N should be ~2,000).
-3. **Saskatchewan results page.** The reCAPTCHA only guards the terms page (confirmed by reading the
-   site's `pstLookup.js`). The search page has a `#pstSearch` box (min. 4 characters). What the
-   results look like is unknown, so `sk_pst.classify()` is conservative: REGISTERED only when a table
-   row contains the supplier's name and the word "vendor" or "consumer". Every search saves a
-   screenshot next to the log and logs the full page text. **After the first real `--sk-assist` run,
-   compare those screenshots with the results column and tighten `classify()`.**
+   with Chromium 153, which `playwright install chromium` now gives. Manitoba runs on the same platform
+   (FAST/GenTax) and passes with 153, so BC most likely does too. The test skips itself if eTaxBC is
+   unreachable; a *failure* means a real problem (see the `etaxbc_*_fail_*.png` screenshot).
+2. **Québec NR list** (`test_nr_list_loads_and_checks`). Revenu Québec's website refused the build
+   environment with HTTP 403 (plain download, headless browser, archive sites and a separate fetch
+   service all blocked), so the parser has never seen the real page. It reads the documented layout
+   (a table: trade name, legal name, number like `NR 0013 0061`) in any column order and falls back to
+   list/paragraph layouts. The test skips only if every source answers with an HTTP error; if the page
+   loads but no NR numbers are found it **fails**, meaning `qst.parse_nr_list` needs updating: save the
+   page from a browser and add it as a fixture.
+3. **Saskatchewan results page** (`test_known_vendor`). Needs a person to tick the reCAPTCHA in the
+   window that opens. The reCAPTCHA only guards the terms page (confirmed from the site's
+   `pstLookup.js`); the search page has a `#pstSearch` box (min. 4 characters). The results layout is
+   unknown, so `sk_pst.classify()` is conservative: REGISTERED only when a table row contains the
+   supplier's name and "vendor" or "consumer". The test searches Federated Co-operatives Limited (a
+   retailer across Saskatchewan, so certainly licensed); if it fails, the screenshot `sk_*.png` in the
+   repo folder and the logged page text show the real layout to adapt `classify()` to.
 
 ## 3. Setup on a new PC
 
@@ -285,6 +297,10 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-11 (open items)**: Tried every route to verify the three open items from the build
+  environment (archives, a separate fetch service, browser download); all blocked. Made them one-command
+  checks on the new PC instead: live tests for the NR list (skips only when refused, fails if the page
+  can't be read) and for Saskatchewan (assisted). NR parser accepts any column order and list layouts.
 - **2026-10-11 (second review)**: A fresh agent tailored a copy to an unfamiliar CSV using only this
   file (knew what to do on reaching §8; 6 aliases + 1 test). Its notes led to: `--check-columns` gives
   per-column suggestions even when no header row is recognized; no suggestions for ID/code columns;

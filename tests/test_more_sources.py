@@ -147,6 +147,26 @@ class FakeBrowser:
         yield Page()
 
 
+class QuebecNrLayouts(unittest.TestCase):
+    def test_table_in_any_column_order(self):
+        from taxcheck.qst import parse_nr_list
+
+        page = ("<table><thead><tr><th>QST number</th><th>Trade name</th><th>Legal name</th></tr></thead>"
+                "<tr><td>NR 0013 0061</td><td>ExampleStream</td><td>ExampleStream B.V.</td></tr>"
+                "<tr><td>NR00140062</td><td>-</td><td>Other Ltd</td></tr></table>")
+        rows = parse_nr_list(page)
+        self.assertEqual(rows["NR00130061"], {"trade_name": "ExampleStream", "legal_name": "ExampleStream B.V."})
+        self.assertEqual(rows["NR00140062"]["legal_name"], "Other Ltd")
+
+    def test_list_layout_fallback(self):
+        from taxcheck.qst import parse_nr_list
+
+        page = "<ul><li>ExampleStream B.V. – NR 0013 0061</li><li>Other Ltd (NR-0014-0062)</li></ul>"
+        rows = parse_nr_list(page)
+        self.assertEqual(set(rows), {"NR00130061", "NR00140062"})
+        self.assertIn("ExampleStream", rows["NR00130061"]["legal_name"])
+
+
 class QuebecNrList(unittest.TestCase):
     def test_browser_fallback_then_cache(self):
         with tempfile.TemporaryDirectory() as d:

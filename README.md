@@ -144,6 +144,7 @@ supplier names and tax numbers, so treat them like the workbook itself. `logs/` 
 ```
 python -m unittest discover tests                            # offline, under a second
 TAXCHECK_LIVE=1 python -m unittest tests.test_live -v        # against the real services, ~1 min
+TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSaskatchewanAssisted -v   # tick the CAPTCHA when the window opens
 ```
 
 The offline tests use real responses saved from CRA and Revenu Québec (`tests/fixtures`), so a

@@ -25,19 +25,38 @@ def _text(fragment):
     return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
 
 
+NR_NUMBER = re.compile(r"\bNR\s*-?\s*(\d{4})\s*-?\s*(\d{4})\b", re.I)
+
+
 def parse_nr_list(page):
-    """Map 'NR12345678' -> {'trade_name', 'legal_name'} from the Revenu Québec NR list page."""
+    """Map 'NR12345678' -> {'trade_name', 'legal_name'} from the Revenu Québec NR list page.
+
+    The page has never been seen from the build environment (Revenu Québec blocked it), so this reads
+    the documented layout (a table: trade name, legal name, number like "NR 0013 0061") and falls back to
+    any element containing an NR number (list items, paragraphs) if there's no table. Names are
+    best-effort; the number is what matters for the check.
+    """
     rows = {}
     for tr in re.findall(r"<tr.*?</tr>", page, re.S | re.I):
         cells = [_text(c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S | re.I)]
         for i, cell in enumerate(cells):
-            m = re.fullmatch(r"NR\s*(\d{4})\s*(\d{4})", cell, re.I)
-            if m:
-                names = [c for c in cells[:i] if c and c != "-"]
+            m = NR_NUMBER.search(cell)
+            if m and len(cell) <= 20:
+                names = [c for j, c in enumerate(cells) if j != i and c and c != "-" and not NR_NUMBER.search(c)]
                 rows[f"NR{m.group(1)}{m.group(2)}"] = {
                     "trade_name": names[0] if names else "",
-                    "legal_name": names[-1] if names else "",
+                    "legal_name": names[1] if len(names) > 1 else (names[0] if names else ""),
                 }
+    if rows:
+        return rows
+    # No table: take each list item / paragraph / div that holds an NR number.
+    for block in re.findall(r"<(li|p|div|dd)[^>]*>(.*?)</\1>", page, re.S | re.I):
+        text = _text(block[1])
+        for m in NR_NUMBER.finditer(text):
+            if len(text) > 300:
+                continue  # a container holding many entries; its children are handled separately
+            name = NR_NUMBER.sub("", text).strip(" -–|,;:")
+            rows.setdefault(f"NR{m.group(1)}{m.group(2)}", {"trade_name": name, "legal_name": name})
     return rows
 
 
@@ -50,6 +69,7 @@ class QstChecker:
         self.cache_file = Path(cache_dir) / "qst_nr_list.html" if cache_dir else None
         self._nr_rows = None
         self.nr_error = None
+        self.nr_refusals = []
 
     def check(self, number, suffix_assumed=False):
         """Validate a TQ number. `suffix_assumed` means the sheet had no TQ suffix and TQ0001 was filled in."""
@@ -105,6 +125,7 @@ class QstChecker:
             if r.ok:
                 yield "download", r.text
             else:
+                self.nr_refusals.append(f"download: HTTP {r.status_code}")
                 log.info("Plain download of the NR list got HTTP %s; trying a real browser", r.status_code)
         except requests.RequestException as e:
             log.info("Plain download of the NR list failed (%s); trying a real browser", e)
@@ -112,12 +133,16 @@ class QstChecker:
             with self.browser.page() as page:
                 resp = page.goto(NR_LIST, wait_until="networkidle", timeout=60000)
                 log.debug("Browser load of NR list -> HTTP %s", resp and resp.status)
-                yield "browser download", page.content()
+                if resp is not None and resp.status >= 400:
+                    self.nr_refusals.append(f"browser: HTTP {resp.status}")
+                else:
+                    yield "browser download", page.content()
 
     def _load_nr_list(self):
         if self._nr_rows is not None:
             return self._nr_rows
         self._nr_rows = {}
+        self.nr_refusals = []  # sources that answered with an HTTP error (blocked), as opposed to a page we couldn't read
         errors = []
         try:
             for source, page in self._nr_list_sources():
@@ -133,7 +158,7 @@ class QstChecker:
         except Exception as e:
             errors.append(f"{type(e).__name__}: {str(e).splitlines()[0]}")
         if not self._nr_rows:
-            self.nr_error = "couldn't load Revenu Québec NR list (" + "; ".join(errors or ["no source available"]) + ")"
+            self.nr_error = "couldn't load Revenu Québec NR list (" + "; ".join(errors + self.nr_refusals or ["no source available"]) + ")"
             log.warning(self.nr_error)
         return self._nr_rows
 

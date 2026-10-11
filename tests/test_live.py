@@ -4,6 +4,9 @@ Skipped unless TAXCHECK_LIVE=1, because they need internet access and take a min
 
     TAXCHECK_LIVE=1 python -m unittest tests.test_live -v
 
+The Saskatchewan test also needs a person: with TAXCHECK_SK_ASSIST=1 it opens a browser window where
+you tick the registry's "I'm not a robot" box, then searches automatically (up to 5 minutes to tick it).
+
 Run these when something looks off: a failure here usually means a government site changed.
 """
 
@@ -101,6 +104,41 @@ class LiveBrowserChecks(unittest.TestCase):
         self.assertEqual(res.status, REGISTERED, res.detail)
         self.assertIn("AMAZON.COM.CA ULC", res.registered_name)
         self.assertEqual(mb.check(["University of British Columbia"], bn9="108161779").status, NOT_CONFIRMED)
+
+
+@unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
+class LiveQuebecNrList(unittest.TestCase):
+    def test_nr_list_loads_and_checks(self):
+        from taxcheck.browser import Browser
+
+        with Browser() as browser:
+            qst = QstChecker(browser=browser)  # no cache: always the live page
+            rows = qst._load_nr_list()
+        # Skip only if every source was refused outright (Revenu Québec blocks some networks). A page that
+        # loads but yields no NR numbers is a real failure: the parser needs updating.
+        if not rows and qst.nr_refusals and "had no NR numbers" not in (qst.nr_error or ""):
+            self.skipTest(f"Revenu Québec refused this network: {qst.nr_error}")
+        self.assertIsNone(qst.nr_error)
+        self.assertGreater(len(rows), 1000, "the NR list should have ~2,000 registrants")
+        number, entry = next(iter(rows.items()))
+        self.assertTrue(entry["legal_name"] or entry["trade_name"], f"no name parsed for {number}: {entry}")
+        self.assertEqual(qst.check_nr(number).status, REGISTERED)
+        print(f"\n  NR list: {len(rows)} registrants; first: {number} {entry}")
+
+
+@unittest.skipUnless(LIVE and os.environ.get("TAXCHECK_SK_ASSIST") == "1",
+                     "set TAXCHECK_LIVE=1 and TAXCHECK_SK_ASSIST=1 (needs a person to tick a CAPTCHA)")
+class LiveSaskatchewanAssisted(unittest.TestCase):
+    def test_known_vendor(self):
+        from taxcheck.browser import Browser
+        from taxcheck.sk_pst import SkPstAssistant
+
+        with Browser(headless=False, debug_dir=".") as browser:
+            sk = SkPstAssistant(browser)
+            # Federated Co-operatives Limited (Saskatoon) sells at retail across Saskatchewan.
+            res = sk.check(["Federated Co-operatives Limited"])
+        print(f"\n  SK result: {res.status} | {res.detail} | {res.registered_name}")
+        self.assertEqual(res.status, REGISTERED, "check the sk_*.png screenshot and the log, then adjust sk_pst.classify()")
 
 
 @unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
