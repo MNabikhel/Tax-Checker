@@ -153,6 +153,20 @@ class LiveSaskatchewanAssisted(unittest.TestCase):
 
 
 @unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
+class LiveOrgBook(unittest.TestCase):
+    def test_bc_company_name_recovered(self):
+        from taxcheck.orgbook import OrgBookBC
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        ob = OrgBookBC()
+        self.assertIn("2K PLUMBING LTD.", ob.names("859512196"))  # BC-incorporated, not in the federal data
+        res = GstChecker(delay=1.0, name_sources=[ob]).check("859512196", ["2K Plumbing & Heating"], TODAY)
+        self.assertEqual(res.status, NAME_NOT_MATCHED, res.detail)
+        self.assertEqual(res.registered_name, "2K PLUMBING LTD.")
+        self.assertIn("OrgBook BC", res.detail)
+
+
+@unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
 class LiveFederalNames(unittest.TestCase):
     def test_name_mismatch_recovered(self):
         from taxcheck.fedcorp import FederalCorporations

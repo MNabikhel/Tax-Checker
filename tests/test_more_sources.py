@@ -63,6 +63,8 @@ class Saskatchewan(unittest.TestCase):
 
 
 class FakeCorps:
+    label = "the federal corporations registry"
+
     def __init__(self, names):
         self._names = names
         self.calls = 0
@@ -125,6 +127,93 @@ class FederalNames(unittest.TestCase):
             self.assertEqual(corps.names("774075766"), ["North American Tutors Inc.", "Tuteurs Nord-Américains Inc."])
             self.assertEqual(corps.names("123456782"), ["Other Org"])
             self.assertEqual(corps.names("999999999"), [])
+
+
+class OrgBook(unittest.TestCase):
+    # Shape of a real /api/v4/search/topic response (trimmed), 2026-10-11.
+    PAYLOAD = {"results": [
+        {"source_id": "BC0784529", "names": [
+            {"type": "entity_name", "text": "2K PLUMBING LTD."},
+            {"type": "business_number", "text": "859512196"}],
+         "attributes": [{"type": "entity_status", "value": "ACT"}]},
+        {"source_id": "BC0000001", "names": [
+            {"type": "entity_name", "text": "OLD 2K PLUMBING LTD."},
+            {"type": "business_number", "text": "859512196"}],
+         "attributes": [{"type": "entity_status", "value": "HIS"}]},
+        {"source_id": "BC0000002", "names": [
+            {"type": "entity_name", "text": "Unrelated Ltd."},
+            {"type": "business_number", "text": "111111118"}],
+         "attributes": [{"type": "entity_status", "value": "ACT"}]},
+    ]}
+
+    def test_names_for_matching_number_active_first(self):
+        from taxcheck.orgbook import parse_topics
+
+        self.assertEqual(parse_topics(self.PAYLOAD, "859512196"), ["2K PLUMBING LTD.", "OLD 2K PLUMBING LTD."])
+        self.assertEqual(parse_topics({"results": []}, "859512196"), [])
+
+    def test_lookup_caches_and_survives_outage(self):
+        from taxcheck.orgbook import OrgBookBC
+
+        calls = []
+
+        class Session:
+            def get(self, url, params=None, timeout=None):
+                calls.append(params)
+                payload = OrgBook.PAYLOAD
+
+                class R:
+                    def raise_for_status(self):
+                        pass
+
+                    def json(self):
+                        return payload
+
+                return R()
+
+        ob = OrgBookBC(session=Session(), delay=0)
+        self.assertEqual(ob.names("859512196")[0], "2K PLUMBING LTD.")
+        ob.names("859512196")
+        self.assertEqual(len(calls), 1)
+
+        class Down:
+            def get(self, *a, **k):
+                raise requests.ConnectionError("down")
+
+        ob = OrgBookBC(session=Down(), delay=0)
+        self.assertEqual(ob.names("859512196"), [])
+        self.assertIn("OrgBook BC lookups failed", ob.error)
+
+
+class NameSources(unittest.TestCase):
+    def test_order_sheet_list_extra_then_sources(self):
+        class Source:
+            def __init__(self, label, names):
+                self.label, self._names = label, names
+
+            def names(self, bn9):
+                return self._names
+
+        g = GstChecker(delay=0, corporations=Source("federal", ["Fed Inc."]), name_sources=[Source("orgbook", ["BC Ltd."])])
+        listed = {"legal_name": "List Corp", "trade_name": ""}
+        got = list(g._candidates("123", ["Sheet Co"], listed, [("RQ Inc.", "Revenu Québec (QST)")]))
+        self.assertEqual(got, [("Sheet Co", "sheet"), ("List Corp", "CRA's simplified registrant list"),
+                               ("RQ Inc.", "Revenu Québec (QST)"), ("Fed Inc.", "federal"), ("BC Ltd.", "orgbook")])
+
+    def test_revenu_quebec_name_reaches_gst_check(self):
+        seen = []
+
+        class Gst:
+            def check(self, bn9, names, date, extra_names=()):
+                seen.append(extra_names)
+                return Result(REGISTERED, "")
+
+        class Qst:
+            def check(self, number, suffix_assumed=False):
+                return Result(REGISTERED, "", "AVIENT CANADA ULC (trade name: SPARTECH PLASTIQUES)")
+
+        RowChecker(Gst(), Qst()).check({"name": "Avient", "gst": "857305932", "qst": "1019288451TQ0004"}, TODAY)
+        self.assertEqual(seen, [(("AVIENT CANADA ULC", "Revenu Québec (QST)"), ("SPARTECH PLASTIQUES", "Revenu Québec (QST)"))])
 
 
 class BlockedSession:

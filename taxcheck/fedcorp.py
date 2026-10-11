@@ -24,6 +24,8 @@ MAX_AGE = 7 * 24 * 3600
 
 
 class FederalCorporations:
+    label = "the federal corporations registry"
+
     def __init__(self, cache_dir="cache", session=None):
         self.cache_dir = Path(cache_dir)
         self.session = session or new_session()

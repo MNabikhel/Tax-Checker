@@ -2,9 +2,10 @@
 
 import copy
 import logging
+import re
 
 from .numbers import BadNumber, parse_bc_pst, parse_bn, parse_gst, parse_mb_rst, parse_qst
-from .result import ERROR, INVALID, MANUAL, MISSING, Result
+from .result import ERROR, INVALID, MANUAL, MISSING, NOT_REGISTERED, REGISTERED, Result
 from .workbook import normalize_province
 
 log = logging.getLogger(__name__)
@@ -18,6 +19,17 @@ MB_MANUAL = (
     "Browser checks are turned off. Search at https://taxcess.gov.mb.ca/TAXcess/?Link=RSTLookup with the business "
     "name and RST or business number."
 )
+
+
+def _names_from(result, label):
+    """Legal and trade names another check found for this supplier, as (name, label) pairs.
+
+    Revenu Québec's names come as "LEGAL NAME (trade name: TRADE)".
+    """
+    if not result or not result.registered_name or result.status not in (REGISTERED, NOT_REGISTERED):
+        return ()
+    m = re.fullmatch(r"(.*?)(?: \(trade name: (.*)\))?", result.registered_name)
+    return tuple((n, label) for n in m.groups() if n)
 
 
 def _blank(v):
@@ -49,9 +61,14 @@ class RowChecker:
             )
         log.debug("Row input: %s | province=%r date=%s", row, prov, date)
         out = {}
-        out["gst"] = self._guard(self._gst, row.get("gst"), names, date)
+        # QST first: Revenu Québec returns the supplier's legal name, which the GST/HST check can use
+        # when the sheet's name doesn't match CRA's records.
+        qst = None
         if not _blank(row.get("qst")):
-            out["qst"] = self._guard(self._qst, row.get("qst"), names, date)
+            qst = self._guard(self._qst, row.get("qst"), names, date)
+        out["gst"] = self._guard(self._gst, row.get("gst"), names, date, _names_from(qst, "Revenu Québec (QST)"))
+        if qst:
+            out["qst"] = qst
         elif prov == "QC":
             out["qst"] = Result(MISSING, "Québec supplier but no QST number provided.")
         if not _blank(bc_pst):
@@ -86,10 +103,12 @@ class RowChecker:
             self._cache[key] = result
         return copy.copy(result)
 
-    def _gst(self, value, names, date):
+    def _gst(self, value, names, date, extra_names=()):
         if _blank(value):
             return Result(MISSING, "No GST/HST number provided.")
         bn9, _ = parse_gst(value)
+        if extra_names:
+            return self.gst.check(bn9, names, date, extra_names)
         return self.gst.check(bn9, names, date)
 
     def _qst(self, value, names, date):

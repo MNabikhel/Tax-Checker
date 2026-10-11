@@ -24,6 +24,7 @@ from taxcheck.fedcorp import FederalCorporations
 from taxcheck.gst import GstChecker, cra_today
 from taxcheck.logsetup import setup_logging
 from taxcheck.mb_rst import MbRstChecker
+from taxcheck.orgbook import OrgBookBC
 from taxcheck.qst import QstChecker
 from taxcheck.result import NAME_NOT_MATCHED, REGISTERED
 from taxcheck.sk_pst import SkPstAssistant
@@ -99,7 +100,8 @@ def run(args, log_path):
     log.info("%d suppliers found (columns used: %s)", len(rows), ", ".join(sheet.cols))
 
     corporations = None if args.no_name_lookup else FederalCorporations(cache_dir=args.cache_dir)
-    gst = GstChecker(corporations=corporations)
+    orgbook = None if args.no_name_lookup else OrgBookBC()
+    gst = GstChecker(corporations=corporations, name_sources=[orgbook] if orgbook else None)
 
     results = {}
     started = time.monotonic()
@@ -143,14 +145,16 @@ def run(args, log_path):
         "QST: Revenu Québec QST validation API (TQ numbers) and Revenu Québec's NR registrant list.",
         "BC PST: eTaxBC PST Number Verification Service. MB RST: Manitoba TAXcess RST Registration Registry.",
         "SK PST: SETS PST On-Line Registry (needs --sk-assist, because of its CAPTCHA).",
-        "GST/HST names that don't match CRA are retried with the official name from Corporations Canada's open data.",
+        "GST/HST names that don't match CRA are retried with official names: Revenu Québec's (when a QST number "
+        "is given), Corporations Canada's open data, and OrgBook BC.",
         "GST/HST numbers whose name doesn't match are still checked by number: 'REGISTERED - NAME NOT MATCHED' means "
         "the number is registered but not under the sheet's name (CRA's name is shown when known).",
     ]
     if gst.simplified.error:
         notes.append(gst.simplified.error)
-    if corporations and corporations.error:
-        notes.append(corporations.error)
+    for source in (corporations, orgbook):
+        if source and source.error:
+            notes.append(source.error)
     if qst.nr_error:
         notes.append(qst.nr_error)
     if stopped_early:
@@ -173,7 +177,7 @@ def main(argv=None):
     ap.add_argument("--sk-assist", action="store_true",
                     help="check Saskatchewan PST: opens a browser window where you tick its CAPTCHA once")
     ap.add_argument("--no-name-lookup", action="store_true",
-                    help="don't retry GST/HST name mismatches with the federal corporate name (skips a ~110 MB download)")
+                    help="don't look up official names (federal registry ~110 MB download, OrgBook BC) for GST/HST name mismatches")
     ap.add_argument("--cache-dir", default="cache", help="folder for downloaded reference data (default: cache)")
     ap.add_argument("--nr-list", help="saved copy of Revenu Québec's NR registrant list page, if it can't be downloaded")
     ap.add_argument("--log-dir", default="logs", help="folder for run logs (default: logs)")

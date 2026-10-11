@@ -31,7 +31,7 @@ This writes `suppliers_tax_check.xlsx` next to the input. Options:
 | `--no-browser` | Skip BC and Manitoba lookups (they need the headless browser). |
 | `--sk-assist` | Check Saskatchewan PST. A browser window opens; tick its CAPTCHA once and the script does the searches. |
 | `--trust-gst-number` | Count "REGISTERED - NAME NOT MATCHED" (GST number registered, vendor name not confirmed) as OK. |
-| `--no-name-lookup` | Don't retry GST/HST name mismatches with the official federal corporate name (skips a ~110 MB download). |
+| `--no-name-lookup` | Don't look up official names for GST/HST name mismatches (skips the ~110 MB federal download and OrgBook BC). |
 | `--cache-dir folder` | Where downloaded reference data is kept (default: `cache`, refreshed weekly). |
 | `--nr-list saved.html` | Use a saved copy of Revenu Québec's NR registrant list if the download is blocked. |
 | `--log-dir folder` | Where run logs go (default: `logs`). |
@@ -93,7 +93,9 @@ without a lookup.
 the same answer for a wrong name as for an unregistered number. The script tries the sheet's name,
 without "The", and the trade name. If none match, it looks up the business number in
 [Corporations Canada's open data](https://open.canada.ca/data/en/dataset/0032ce54-c5dd-4b66-99a0-320a7b5e99f2)
-(all federal corporations, updated weekly) and retries with the official name.
+(all federal corporations, updated weekly), [OrgBook BC](https://orgbook.gov.bc.ca) (companies and other
+organizations registered in BC, via its public API), and, when the row has a QST number, the legal name
+Revenu Québec returns. It retries with each official name it finds.
 
 If no name matches, the number alone still gets a definite answer. CRA checks the number against the date
 before it looks at the name, so one extra lookup shows whether the number is registered, not registered,

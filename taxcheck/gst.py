@@ -145,12 +145,17 @@ def _parse_date(s):
 
 
 class GstChecker:
-    def __init__(self, delay=1.5, corporations=None):
-        """`corporations`: optional FederalCorporations, used for official names when the sheet's don't match."""
+    def __init__(self, delay=1.5, corporations=None, name_sources=None):
+        """Name sources are tried, in order, when the sheet's names don't match CRA's records.
+
+        Each has `.label` and `.names(bn9) -> [official names]` (FederalCorporations, OrgBookBC).
+        `corporations` is kept as a shorthand for the first one.
+        """
         self.session = new_session()
         self.throttle = Throttle(delay)
         self.simplified = SimplifiedList(self.session)
         self.corporations = corporations
+        self.name_sources = [s for s in [corporations, *(name_sources or [])] if s]
         self.health = SiteHealth("The CRA GST/HST Registry")
 
     def registry_lookup(self, bn9, name, date, attempts=3):
@@ -198,7 +203,8 @@ class GstChecker:
         log.debug("CRA registry bn=%s name=%r date=%s -> %s (%s)", bn9, name, date, outcome, message)
         return outcome
 
-    def check(self, bn9, names, date):
+    def check(self, bn9, names, date, extra_names=()):
+        """`extra_names`: (name, source label) pairs already known from other checks, e.g. Revenu Québec's."""
         today = cra_today()
         future_note = ""
         if date > today:
@@ -208,32 +214,51 @@ class GstChecker:
         listed = self.simplified.lookup(bn9, date)
         if listed:
             log.debug("bn=%s is on the simplified list: %s", bn9, listed)
-        result = self._check(bn9, names, date, listed)
+        result = self._check(bn9, names, date, listed, extra_names)
         if future_note:
             result.detail = f"{future_note} {result.detail}"
         return result
 
-    def _candidates(self, bn9, names, listed):
-        """Names to try, best first: the sheet's, CRA's simplified list, then the federal corporate name.
+    def _candidates(self, bn9, names, listed, extra_names=()):
+        """Names to try, best first: the sheet's, CRA's simplified list, names from other checks, then
+        each name source (federal registry, OrgBook BC...).
 
-        Yields (name, source). The federal data is only loaded if the earlier names all fail.
+        Yields (name, source). A source is only consulted if every earlier name failed.
         """
         tried = set()
-        for source, group in (("sheet", names), ("simplified list", listed and (listed["legal_name"], listed["trade_name"]))):
+
+        def fresh(group):
             for name in name_variants(*(group or ())):
                 if _name_key(name) not in tried:
                     tried.add(_name_key(name))
-                    yield name, source
-        if self.corporations:
-            for name in name_variants(*self.corporations.names(bn9)):
-                if _name_key(name) not in tried:
-                    tried.add(_name_key(name))
-                    yield name, "federal corporations registry"
+                    yield name
 
-    def _check(self, bn9, names, date, listed):
+        for name in fresh(names):
+            yield name, "sheet"
+        if listed:
+            for name in fresh((listed["legal_name"], listed["trade_name"])):
+                yield name, "CRA's simplified registrant list"
+        for name, label in extra_names:
+            for variant in fresh((name,)):
+                yield variant, label
+        for source in self.name_sources:
+            for name in fresh(source.names(bn9)):
+                yield name, source.label
+
+    def _official_name(self, bn9, extra_names=()):
+        """The first official name known for this number, for reports when nothing matched."""
+        for name, _ in extra_names:
+            return name
+        for source in self.name_sources:
+            found = source.names(bn9)
+            if found:
+                return found[0]
+        return ""
+
+    def _check(self, bn9, names, date, listed, extra_names=()):
         note = SIMPLIFIED_NOTE if listed else ""
         tried, sheet_tried = [], []
-        for name, source in self._candidates(bn9, names, listed):
+        for name, source in self._candidates(bn9, names, listed, extra_names):
             tried.append(name)
             if source == "sheet":
                 sheet_tried.append(name)
@@ -261,18 +286,18 @@ class GstChecker:
             detail = self._other_name_detail(listed["legal_name"], "CRA's simplified registrant list", sheet_tried, date)
             return Result(NAME_NOT_MATCHED, f"{detail} {note}", listed["legal_name"])
 
-        return self._number_only(bn9, date, tried)
+        return self._number_only(bn9, date, tried, extra_names)
 
     @staticmethod
     def _other_name_detail(name, source, sheet_tried, date):
         sheet = "; ".join(f"'{n}'" for n in sheet_tried) or "(no name in the sheet)"
         return (
-            f"CRA confirms this number is registered for GST/HST on {date} under '{name}' (name from the {source}), "
+            f"CRA confirms this number is registered for GST/HST on {date} under '{name}' (name from {source}), "
             f"not under the name in your sheet: {sheet}. If '{name}' is this supplier, update your vendor record; "
             "if not, the number may belong to another business."
         )
 
-    def _number_only(self, bn9, date, tried):
+    def _number_only(self, bn9, date, tried, extra_names=()):
         """Decide registration from the number alone, when no name matched CRA's records.
 
         CRA's registry checks the number against the date before it looks at the name:
@@ -292,13 +317,13 @@ class GstChecker:
                 return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.")
             if outcome == "invalid":
                 return Result(INVALID, "CRA says this GST/HST number is not valid.")
-        official = self.corporations.names(bn9) if self.corporations else []
+        official = [n for n in [self._official_name(bn9, extra_names)] if n]
         tried_text = "; ".join(f"'{n}'" for n in tried) or "(no name in the sheet)"
         if date <= BEFORE_GST:
             return Result(NOT_CONFIRMED, f"CRA could not match this number with {tried_text} on {date}.")
         account = self.registry_lookup(bn9, PLACEHOLDER_NAME, BEFORE_GST)
         if account == "not_registered":
-            known = f" The official federal corporate name for this number is '{official[0]}'." if official else ""
+            known = f" The official name on record for this number is '{official[0]}'." if official else ""
             return Result(
                 NAME_NOT_MATCHED,
                 f"CRA: this number is registered for GST/HST on {date}, but not under {tried_text}.{known} "
