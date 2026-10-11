@@ -1,9 +1,11 @@
 """Reading the supplier workbook and writing results back into a copy of it."""
 
+import csv
 import datetime as dt
 import logging
 import re
 from collections import Counter
+from pathlib import Path
 
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -81,6 +83,12 @@ def parse_date(value):
     return None
 
 
+def as_text(value):
+    """Text from outside sources is written as text: a leading '=' would make Excel treat it as a formula."""
+    value = str(value or "")
+    return "'" + value if value[:1] in ("=", "+", "@") else value
+
+
 def clean_value(value):
     """Excel stores typed numbers as floats (857305932 -> 857305932.0); turn those back into whole numbers."""
     if isinstance(value, float) and value.is_integer():
@@ -91,13 +99,47 @@ def clean_value(value):
     return value
 
 
+class InputError(ValueError):
+    """A problem with the input file that the person running the script can fix."""
+
+
+def _read_csv(path):
+    """Load a CSV into a one-sheet workbook. Excel on Windows saves CSVs as cp1252, others as UTF-8."""
+    for encoding in ("utf-8-sig", "cp1252"):
+        try:
+            with open(path, newline="", encoding=encoding) as f:
+                rows = list(csv.reader(f))
+            break
+        except UnicodeDecodeError:
+            continue
+    log.debug("Read CSV %s as %s: %d rows", path, encoding, len(rows))
+    wb = openpyxl.Workbook()
+    wb.active.title = re.sub(r"[\\/*?:\[\]]", "_", Path(path).stem)[:31] or "Sheet1"
+    for row in rows:
+        wb.active.append([v if v != "" else None for v in row])
+    return wb
+
+
 class SupplierSheet:
     def __init__(self, path, sheet=None):
-        # Two copies: `wb` keeps formulas so the output is a faithful copy of the input;
-        # `values_ws` has the calculated values (as last saved by Excel) that the checks read.
-        self.wb = openpyxl.load_workbook(path)
-        values_wb = openpyxl.load_workbook(path, data_only=True)
+        path = Path(path)
+        if not path.exists():
+            raise InputError(f"Can't find the input file: {path}")
+        suffix = path.suffix.lower()
+        if suffix == ".csv":
+            self.wb = values_wb = _read_csv(path)
+        elif suffix in (".xlsx", ".xlsm", ".xltx", ".xltm"):
+            # Two copies: `wb` keeps formulas so the output is a faithful copy of the input;
+            # `values_wb` has the calculated values (as last saved by Excel) that the checks read.
+            self.wb = openpyxl.load_workbook(path)
+            values_wb = openpyxl.load_workbook(path, data_only=True)
+        elif suffix == ".xls":
+            raise InputError(f"{path.name} is an old-style .xls file. Open it in Excel and use File > Save As > Excel Workbook (.xlsx).")
+        else:
+            raise InputError(f"{path.name}: expected an Excel workbook (.xlsx) or a .csv file.")
         name = sheet or self.wb.sheetnames[0]
+        if name not in self.wb.sheetnames:
+            raise InputError(f"There's no sheet called '{name}'. Sheets in this file: {', '.join(self.wb.sheetnames)}")
         self.ws, self.values_ws = self.wb[name], values_wb[name]
         self.header_row, self.cols = self._find_header()
         log.info("Reading sheet '%s': header on row %d", name, self.header_row)
@@ -113,7 +155,7 @@ class SupplierSheet:
                     cols[col] = c
             if "name" in cols and len(cols) >= 2:
                 return r, cols
-        raise ValueError(
+        raise InputError(
             "Couldn't find a header row with a supplier name column plus at least one tax-number column. "
             "See the README for accepted column names."
         )
@@ -157,7 +199,7 @@ class SupplierSheet:
                 res = by_tax.get(key)
                 if res:
                     ws.cell(r, col, res.status).fill = PatternFill("solid", fgColor=STATUS_FILL.get(res.status, "FFFFFF"))
-                    ws.cell(r, col + 1, res.detail).alignment = Alignment(wrap_text=True, vertical="top")
+                    ws.cell(r, col + 1, as_text(res.detail)).alignment = Alignment(wrap_text=True, vertical="top")
                     counts[key][res.status] += 1
                     statuses.append(res.status)
                     if res.registered_name and res.registered_name not in names:
@@ -165,7 +207,7 @@ class SupplierSheet:
                 col += 2
             overall = "OK" if statuses and all(s == REGISTERED for s in statuses) else "REVIEW"
             ws.cell(r, start, overall).fill = PatternFill("solid", fgColor="C6EFCE" if overall == "OK" else "FFEB9C")
-            ws.cell(r, col, "; ".join(names))
+            ws.cell(r, col, as_text("; ".join(names)))
             ws.cell(r, col + 1, today)
 
         for i, h in enumerate(headers):

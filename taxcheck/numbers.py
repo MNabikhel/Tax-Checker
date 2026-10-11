@@ -8,6 +8,11 @@ class BadNumber(ValueError):
 
 
 def _compact(value):
+    if re.fullmatch(r"\s*\d(\.\d+)?[eE]\+?\d+\s*", str(value or "")):
+        raise BadNumber(
+            f"'{value}' was turned into scientific notation by Excel, which loses digits. Format the column "
+            "as Text in the source file and re-enter the number."
+        )
     return re.sub(r"[\s\-./]", "", str(value or "")).upper()
 
 

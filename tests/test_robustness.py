@@ -80,5 +80,43 @@ class SiteDown(unittest.TestCase):
         self.assertIn("wasn't responding", results[-1].detail)
 
 
+class CraDown(unittest.TestCase):
+    def test_cra_stops_after_repeated_connection_failures(self):
+        import requests
+        from unittest import mock
+
+        from taxcheck.gst import GstChecker
+
+        g = GstChecker(delay=0)
+        calls = []
+
+        def down(*a):
+            calls.append(1)
+            raise requests.ConnectionError("Connection refused")
+
+        g._registry_lookup = down
+        with mock.patch("taxcheck.gst.time.sleep"):
+            for _ in range(2):
+                with self.assertRaises(requests.ConnectionError):
+                    g.registry_lookup("108161779", "X", cra_today())
+            with self.assertRaisesRegex(RuntimeError, "wasn't responding"):
+                g.registry_lookup("108161779", "X", cra_today())
+        self.assertEqual(len(calls), 6)  # 2 lookups x 3 attempts, then no more requests
+
+    def test_changed_search_page_gives_clear_error(self):
+        from taxcheck.gst import GstChecker
+
+        class Page:
+            text = "<html>new design</html>"
+
+            def raise_for_status(self):
+                pass
+
+        g = GstChecker(delay=0)
+        g.session.get = lambda *a, **k: Page()
+        with self.assertRaisesRegex(RuntimeError, "page has changed"):
+            g.registry_lookup("108161779", "X", cra_today())
+
+
 if __name__ == "__main__":
     unittest.main()

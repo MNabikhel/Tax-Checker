@@ -197,6 +197,15 @@ class Routing(unittest.TestCase):
         out = RowChecker(self.Gst(), None, mb=self.Mb()).check({"name": "A", "mb_rst": "12"}, TODAY)
         self.assertEqual(out["mb_rst"].status, INVALID)
 
+    def test_manitoba_bad_gst_number_falls_back_to_rst(self):
+        mb = self.Mb()
+        RowChecker(self.Gst(), None, mb=mb).check({"name": "A", "province": "MB", "gst": "123456789", "pst": "1234567"}, TODAY)
+        self.assertEqual(mb.calls, [(None, "1234567")])
+
+    def test_bc_without_business_number_is_missing_data(self):
+        out = RowChecker(self.Gst(), None).check({"name": "A", "province": "BC", "pst": "PST-1000-7572"}, TODAY)
+        self.assertEqual(out["bc_pst"].status, MISSING)
+
     def test_manitoba_nothing_to_search_with(self):
         out = RowChecker(self.Gst(), None, mb=self.Mb()).check({"name": "A", "province": "MB"}, TODAY)
         self.assertEqual(out["mb_rst"].status, MISSING)

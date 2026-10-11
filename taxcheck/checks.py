@@ -98,14 +98,19 @@ class RowChecker:
     def _bc(self, value, bn_source):
         pst = parse_bc_pst(value)
         if _blank(bn_source):
-            return Result(ERROR, "BC's lookup needs the supplier's business number; add a GST/HST or Business Number column.")
+            return Result(MISSING, "BC's lookup needs the supplier's business number; add a GST/HST or Business Number.")
         if self.bc is None:
             return Result(MANUAL, f"Browser checks turned off. Verify PST-{pst} at https://www.etax.gov.bc.ca/btp/eservices/_/")
         return self.bc.check(parse_bn(bn_source), pst)
 
     def _mb(self, rst_value, names, bn_source):
         rst = None if _blank(rst_value) else parse_mb_rst(rst_value)
-        bn9 = None if _blank(bn_source) else parse_bn(bn_source)
+        try:
+            bn9 = None if _blank(bn_source) else parse_bn(bn_source)
+        except BadNumber:
+            if not rst:
+                raise
+            bn9 = None  # the RST number is enough to search with; the bad GST number is flagged in its own column
         if not (rst or bn9):
             return Result(MISSING, "Manitoba supplier but no RST number or GST/HST number to search with.")
         if self.mb is None:

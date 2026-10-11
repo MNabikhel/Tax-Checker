@@ -26,7 +26,7 @@ from taxcheck.logsetup import setup_logging
 from taxcheck.mb_rst import MbRstChecker
 from taxcheck.qst import QstChecker
 from taxcheck.sk_pst import SkPstAssistant
-from taxcheck.workbook import SupplierSheet, parse_date
+from taxcheck.workbook import InputError, SupplierSheet, parse_date
 
 log = logging.getLogger("check_suppliers")
 
@@ -46,6 +46,9 @@ def save_workbook(sheet, results, out, notes):
 def run(args, log_path):
     src = Path(args.workbook)
     out = Path(args.output) if args.output else src.with_name(f"{src.stem}_tax_check.xlsx")
+    if out.suffix.lower() != ".xlsx":
+        log.warning("Results are always saved as an Excel workbook; writing %s", out.with_suffix(".xlsx"))
+        out = out.with_suffix(".xlsx")
     default_date = parse_date(args.date) if args.date else cra_today()
 
     sheet = SupplierSheet(src, args.sheet)
@@ -71,15 +74,22 @@ def run(args, log_path):
             mb=browser and MbRstChecker(browser),
             sk=sk,
         )
-        for i, (r, values) in enumerate(rows, 1):
-            date = parse_date(values.get("date"))
-            if values.get("date") and not date:
-                log.warning("Row %d: couldn't read date %r; using %s", r, values.get("date"), default_date)
-            date = date or default_date
-            log.debug("---- Row %d: %s", r, values.get("name"))
-            results[r] = checker.check(values, date)
-            summary = ", ".join(f"{k}={v.status}" for k, v in results[r].items())
-            log.info("[%d/%d] %s: %s", i, len(rows), values.get("name"), summary)
+        try:
+            for i, (r, values) in enumerate(rows, 1):
+                date = parse_date(values.get("date"))
+                if values.get("date") and not date:
+                    log.warning("Row %d: couldn't read date %r; using %s", r, values.get("date"), default_date)
+                date = date or default_date
+                log.debug("---- Row %d: %s", r, values.get("name"))
+                results[r] = checker.check(values, date)
+                summary = ", ".join(f"{k}={v.status}" for k, v in results[r].items())
+                log.info("[%d/%d] %s: %s", i, len(rows), values.get("name"), summary)
+        except KeyboardInterrupt:
+            # A long run stopped with Ctrl+C keeps what it has; re-run on the output to finish the rest.
+            log.warning("Stopped early after %d of %d suppliers; saving the results so far.", len(results), len(rows))
+            stopped_early = True
+        else:
+            stopped_early = False
 
     counts = Counter(res.status for by_tax in results.values() for res in by_tax.values())
     log.info("Finished %d suppliers in %.0fs: %s", len(rows), time.monotonic() - started, dict(counts))
@@ -99,6 +109,8 @@ def run(args, log_path):
         notes.append(corporations.error)
     if qst.nr_error:
         notes.append(qst.nr_error)
+    if stopped_early:
+        notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked.")
     saved = save_workbook(sheet, results, out, notes)
     log.info("Results written to %s", saved)
     return saved
@@ -129,8 +141,13 @@ def main(argv=None):
     log.debug("Python %s on %s", sys.version.split()[0], platform.platform())
     try:
         run(args, log_path)
+    except InputError as e:
+        log.error("Can't run: %s", e)
+        return 1
     except Exception as e:
-        log.exception("Run failed: %s", e)
+        # One line on screen; the traceback goes to the log file.
+        log.error("Run failed: %s: %s", type(e).__name__, e)
+        log.debug("Traceback for the failure above", exc_info=True)
         log.error("See %s for details.", log_path)
         return 1
     return 0

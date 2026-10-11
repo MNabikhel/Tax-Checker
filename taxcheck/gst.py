@@ -8,7 +8,7 @@ import time
 
 import requests
 
-from .http import Throttle, new_session
+from .http import SiteHealth, Throttle, new_session
 from .result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED, Result
 
 log = logging.getLogger(__name__)
@@ -148,6 +148,7 @@ class GstChecker:
         self.throttle = Throttle(delay)
         self.simplified = SimplifiedList(self.session)
         self.corporations = corporations
+        self.health = SiteHealth("The CRA GST/HST Registry")
 
     def registry_lookup(self, bn9, name, date, attempts=3):
         """One CRA registry search. Returns 'registered', 'not_registered', 'no_match' or 'invalid'.
@@ -155,20 +156,28 @@ class GstChecker:
         Searches are read-only and each attempt fetches a fresh form token, so a dropped connection
         is simply retried.
         """
+        if self.health.down:
+            raise RuntimeError(self.health.down_message())
         for attempt in range(1, attempts + 1):
             try:
-                return self._registry_lookup(bn9, name, date)
-            except (requests.ConnectionError, requests.Timeout) as e:
+                outcome = self._registry_lookup(bn9, name, date)
+                self.health.record(True)
+                return outcome
+            except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
                 if attempt == attempts:
+                    self.health.record(False, f"{type(e).__name__}: {e}")
                     raise
-                log.warning("CRA registry connection problem (attempt %d/%d), retrying: %s", attempt, attempts, e)
+                log.warning("CRA registry problem (attempt %d/%d), retrying: %s", attempt, attempts, e)
                 time.sleep(2 * attempt)
 
     def _registry_lookup(self, bn9, name, date):
         self.throttle.wait()
         form = self.session.get(REGISTRY + "reg_01_Ld.action", timeout=30)
         form.raise_for_status()
-        token = re.search(r'name="token" value="([^"]+)"', form.text).group(1)
+        m = re.search(r'name="token" value="([^"]+)"', form.text)
+        if not m:
+            raise RuntimeError("the CRA registry search page has changed (no form token found); see the log")
+        token = m.group(1)
         r = self.session.post(
             REGISTRY + "reg_01_Sbmt.action",
             data={

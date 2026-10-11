@@ -66,6 +66,16 @@ class WorkbookIO(unittest.TestCase):
         self.assertIsNone(row["QST Status"])  # stale value from the first run is cleared
         self.assertEqual(wb.sheetnames.count("Tax Check Summary"), 1)
 
+    def test_external_text_never_becomes_a_formula(self):
+        path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
+        make_workbook(path, [["Supplier Name", "GST/HST Number"], ["A Co", "108161779"]])
+        SupplierSheet(path).write_results({2: {"gst": Result(REGISTERED, "=HYPERLINK(\"x\")", "=1+1")}}, out, [])
+        ws = openpyxl.load_workbook(out)["Sheet"]
+        headers = [c.value for c in ws[1]]
+        row = dict(zip(headers, [c.value for c in ws[2]]))
+        self.assertEqual(row["Name on Government Record"], "'=1+1")
+        self.assertTrue(row["GST/HST Details"].startswith("'="))
+
     def test_overall_review_when_anything_not_registered(self):
         path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
         make_workbook(path, [["Supplier Name", "Province"], ["A Co", "SK"]])
@@ -90,6 +100,48 @@ class WorkbookIO(unittest.TestCase):
         ws.append(["A Co", "108161779"])
         wb.save(path)
         self.assertEqual(len(list(SupplierSheet(path, "Vendors").rows())), 1)
+
+
+class InputFiles(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_csv_utf8_and_windows_encodings(self):
+        for encoding in ("utf-8-sig", "cp1252"):
+            path = self.dir / f"suppliers_{encoding}.csv"
+            path.write_text("Supplier Name,Province,GST/HST Number\nCafé Québécois Inc,QC,857305932\n\n", encoding=encoding)
+            sheet = SupplierSheet(path)
+            (_, values), = sheet.rows()
+            self.assertEqual(values["name"], "Café Québécois Inc")
+            self.assertEqual(values["gst"], "857305932")
+            out = self.dir / f"out_{encoding}.xlsx"
+            sheet.write_results({2: {"gst": Result(REGISTERED, "")}}, out, [])
+            self.assertEqual(openpyxl.load_workbook(out).active["D2"].value, "OK")
+
+    def test_unsupported_files_get_plain_messages(self):
+        from taxcheck.workbook import InputError
+
+        (self.dir / "old.xls").write_bytes(b"x")
+        with self.assertRaisesRegex(InputError, "Save As"):
+            SupplierSheet(self.dir / "old.xls")
+        with self.assertRaisesRegex(InputError, "Can't find"):
+            SupplierSheet(self.dir / "nope.xlsx")
+        make_workbook(self.dir / "in.xlsx", [["Supplier Name", "GST/HST Number"]])
+        with self.assertRaisesRegex(InputError, "Sheets in this file: Sheet"):
+            SupplierSheet(self.dir / "in.xlsx", "Vendors")
+
+
+class ScientificNotation(unittest.TestCase):
+    def test_excel_mangled_numbers_are_flagged(self):
+        from taxcheck.numbers import BadNumber, parse_gst, parse_qst
+
+        for bad in ("8.57306E+08", "1.01929E+09", "8E+08"):
+            with self.assertRaisesRegex(BadNumber, "scientific notation"):
+                (parse_qst if bad.startswith("1.0") else parse_gst)(bad)
 
 
 if __name__ == "__main__":

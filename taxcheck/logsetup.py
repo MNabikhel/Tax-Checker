@@ -1,7 +1,9 @@
 """Run logging: a detailed log file per run (for debugging later) plus brief console output."""
 
+import contextlib
 import datetime as dt
 import logging
+import sys
 from pathlib import Path
 
 FILE_FORMAT = "%(asctime)s %(levelname)-7s %(name)-18s %(message)s"
@@ -27,6 +29,9 @@ def setup_logging(log_dir="logs", verbose=False):
     file_handler.setFormatter(logging.Formatter(FILE_FORMAT))
     root.addHandler(file_handler)
 
+    # Never crash on a supplier name the console can't display (e.g. accents on an old Windows code page).
+    with contextlib.suppress(Exception):
+        sys.stderr.reconfigure(errors="backslashreplace")
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG if verbose else logging.INFO)
     console.setFormatter(logging.Formatter("%(message)s"))

@@ -91,11 +91,30 @@ class Cli(unittest.TestCase):
         self.assertIn("couldn't read date 'not a date'", log_text)
         self.assertIn("Results written to", log_text)
 
+    def test_ctrl_c_keeps_results_so_far(self):
+        calls = []
+
+        def check(self_, bn9, names, date):
+            calls.append(bn9)
+            if len(calls) == 2:
+                raise KeyboardInterrupt
+            return Result(REGISTERED, "fake CRA", names[0])
+
+        with mock.patch.object(FakeGst, "check", check):
+            code, log_text = self.run_cli()
+        self.assertEqual(code, 0)
+        wb = openpyxl.load_workbook(self.dir / "suppliers_tax_check.xlsx")
+        self.assertEqual(wb["Sheet"]["G2"].value, "OK")  # first supplier's result was kept
+        notes = [r[0] for r in wb["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
+        self.assertTrue(any(str(n).startswith("STOPPED EARLY") for n in notes), notes)
+        self.assertIn("Stopped early after 1 of 4", log_text)
+
     def test_missing_file_fails_cleanly_with_log(self):
         self.src = self.dir / "nope.xlsx"
         code, log_text = self.run_cli()
         self.assertEqual(code, 1)
-        self.assertIn("Run failed", log_text)
+        self.assertIn("Can't find the input file", log_text)
+        self.assertNotIn("Traceback", log_text)  # a missing file is the user's to fix, not a crash
 
     def test_browser_start_failure_falls_back_to_manual(self):
         with mock.patch(
