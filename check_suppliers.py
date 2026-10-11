@@ -118,7 +118,7 @@ def run(args, log_path):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("workbook", help="supplier list (.xlsx)")
+    ap.add_argument("workbook", help="supplier list (.xlsx, .xlsm or .csv)")
     ap.add_argument("-o", "--output", help="where to write results (default: <workbook>_tax_check.xlsx)")
     ap.add_argument("--sheet", help="sheet name (default: first sheet)")
     ap.add_argument("--date", help="date to confirm registration on, YYYY-MM-DD (default: each row's date column, else today)")

@@ -1,8 +1,10 @@
 # Tax-Checker
 
-Checks whether suppliers are registered for Canadian sales taxes (GST/HST, QST, BC PST) using the
-governments' own lookup services. It reads a supplier workbook, runs the checks, and writes a copy
-of the workbook with results added.
+Checks whether suppliers are registered for Canadian sales taxes (GST/HST, QST, BC PST, Manitoba RST,
+Saskatchewan PST) using the governments' own lookup services. It reads a supplier workbook or CSV,
+runs the checks, and writes a copy of the workbook with results added.
+
+Taking over development or adapting it to a new dataset? Start with [HANDOFF.md](HANDOFF.md).
 
 ## Setup
 
@@ -37,13 +39,23 @@ This writes `suppliers_tax_check.xlsx` next to the input. Options:
 To fix a name and re-check, edit the results file and run the script on it. It overwrites its own
 result columns rather than adding new ones.
 
+Press Ctrl+C to stop a long run early: the results so far are saved, and the summary sheet says the
+run stopped early. If a government site is down (they have maintenance windows), the script notices
+after two failed suppliers, stops trying that site for the rest of the run, and marks those rows
+ERROR so you can re-run later.
+
 To try it out, run it on `examples/sample_suppliers.xlsx`, which uses publicly published numbers.
 
 ## Input columns
 
-Start from `examples/suppliers_template.xlsx`, or use your own workbook. Header names are matched
-loosely, so `GST #`, `GST/HST Number` and `HST` all work. The header row can be anywhere in the
-first 15 rows.
+Start from `examples/suppliers_template.xlsx`, or use your own workbook (.xlsx, .xlsm) or CSV. The
+results are always saved as .xlsx. Header names are matched loosely, so `GST #`, `GST/HST Number` and
+`HST` all work. The header row can be anywhere in the first 15 rows. Old `.xls` files need to be saved
+as `.xlsx` first.
+
+If a CSV was opened and saved in Excel, long numbers may have become scientific notation
+(`8.57306E+08`). Those digits are lost, so the script flags them as INVALID NUMBER; format the column as
+Text and re-enter them.
 
 | Column | Required | Notes |
 |---|---|---|
