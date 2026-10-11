@@ -22,8 +22,9 @@ class BcPstChecker:
         # eTaxBC keeps search state per session, so each lookup gets a clean one.
         with self.browser.page() as page:
             try:
-                page.goto(ETAXBC, wait_until="networkidle")
-                page.get_by_text("Provincial Sales Tax (PST) verification service").click()
+                self.browser.check_response(page.goto(ETAXBC, wait_until="networkidle"), "eTaxBC")
+                # A short wait: if the link isn't there, the site is showing something else (e.g. maintenance).
+                page.get_by_text("Provincial Sales Tax (PST) verification service").click(timeout=15000)
                 page.wait_for_load_state("networkidle")
                 page.get_by_label("Business Number").fill(bn9)
                 page.get_by_label(re.compile("PST Number")).fill(pst)

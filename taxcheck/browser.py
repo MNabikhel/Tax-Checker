@@ -86,6 +86,12 @@ class Browser:
         page.set_default_timeout(30000)
         return page
 
+    @staticmethod
+    def check_response(response, site):
+        """Fail fast when a site answers with an error page (e.g. 502/503 during maintenance)."""
+        if response is not None and response.status >= 400:
+            raise RuntimeError(f"{site} answered HTTP {response.status} (down or under maintenance?)")
+
     def record_failure(self, page, label):
         """Log the page text and save a screenshot next to the log, for debugging a failed lookup."""
         with contextlib.suppress(Exception):
@@ -94,4 +100,4 @@ class Browser:
             shot = self.debug_dir / f"{label}_fail_{dt.datetime.now():%H%M%S_%f}.png"
             with contextlib.suppress(Exception):
                 page.screenshot(path=str(shot), full_page=True)
-                log.info("Saved failure screenshot: %s", shot)
+                log.debug("Saved failure screenshot: %s", shot)

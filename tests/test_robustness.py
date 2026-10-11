@@ -53,6 +53,16 @@ class FailingBrowser:
 
 
 class SiteDown(unittest.TestCase):
+    def test_error_page_fails_fast(self):
+        from taxcheck.browser import Browser
+
+        class Resp:
+            status = 502
+
+        with self.assertRaisesRegex(RuntimeError, "HTTP 502"):
+            Browser.check_response(Resp(), "eTaxBC")
+        Browser.check_response(None, "eTaxBC")  # no response object (e.g. same-page navigation) is fine
+
     def test_health_counts_consecutive_failures(self):
         h = SiteHealth("X", limit=2)
         h.record(False, "boom")

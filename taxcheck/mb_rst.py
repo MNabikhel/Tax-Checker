@@ -59,7 +59,7 @@ class MbRstChecker:
         """One registry search. Returns a list of (status, legal name, operating name); empty if none found."""
         with self.browser.page() as page:
             try:
-                page.goto(TAXCESS_RST, wait_until="networkidle")
+                self.browser.check_response(page.goto(TAXCESS_RST, wait_until="networkidle"), "Manitoba TAXcess")
                 if rst:
                     page.get_by_label("RST Number").fill(rst)
                 if bn9:
