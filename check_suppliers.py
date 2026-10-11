@@ -19,7 +19,7 @@ from pathlib import Path
 
 from taxcheck.bc_pst import BcPstChecker
 from taxcheck.browser import Browser
-from taxcheck.checks import RowChecker
+from taxcheck.checks import DryRun, RowChecker
 from taxcheck.fedcorp import FederalCorporations
 from taxcheck.gst import GstChecker, cra_today
 from taxcheck.logsetup import setup_logging
@@ -29,6 +29,29 @@ from taxcheck.sk_pst import SkPstAssistant
 from taxcheck.workbook import InputError, SupplierSheet, parse_date
 
 log = logging.getLogger("check_suppliers")
+
+
+def check_columns(args):
+    """--check-columns: show how the file's columns are read and what each row would check, offline."""
+    from openpyxl.utils import get_column_letter
+
+    try:
+        sheet = SupplierSheet(Path(args.workbook), args.sheet)
+    except InputError as e:
+        log.error("%s", e)
+        return 1
+    for line in sheet.describe_columns():
+        log.info(line)
+    rows = list(sheet.rows())
+    log.info("%d supplier rows. What the first %d would check (no lookups are made):", len(rows), min(len(rows), args.preview))
+    dry = DryRun()
+    checker = RowChecker(dry, dry, bc=dry, mb=dry, sk=dry)
+    for r, values in rows[: args.preview]:
+        date = parse_date(values.get("date")) or cra_today()
+        log.info("  row %d: %s", r, {k: v for k, v in values.items() if v not in (None, "")})
+        for tax, res in checker.check(values, date).items():
+            log.info("      %-7s %-14s %s", tax, res.status, res.detail)
+    return 0
 
 
 def save_workbook(sheet, results, out, notes):
@@ -131,6 +154,9 @@ def main(argv=None):
     ap.add_argument("--nr-list", help="saved copy of Revenu Québec's NR registrant list page, if it can't be downloaded")
     ap.add_argument("--log-dir", default="logs", help="folder for run logs (default: logs)")
     ap.add_argument("-v", "--verbose", action="store_true", help="show the detailed log on screen too")
+    ap.add_argument("--check-columns", action="store_true",
+                    help="don't check anything: show how the columns are read and what the first rows would check")
+    ap.add_argument("--preview", type=int, default=10, help="rows to show with --check-columns (default: 10)")
     args = ap.parse_args(argv)
     if args.date and not parse_date(args.date):
         ap.error("--date must look like 2026-09-30")
@@ -139,6 +165,8 @@ def main(argv=None):
     log.info("Log file: %s", log_path)
     log.debug("Arguments: %s", vars(args))
     log.debug("Python %s on %s", sys.version.split()[0], platform.platform())
+    if args.check_columns:
+        return check_columns(args)
     try:
         run(args, log_path)
     except InputError as e:

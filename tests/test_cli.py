@@ -109,6 +109,24 @@ class Cli(unittest.TestCase):
         self.assertTrue(any(str(n).startswith("STOPPED EARLY") for n in notes), notes)
         self.assertIn("Stopped early after 1 of 4", log_text)
 
+    def test_check_columns_is_offline_and_explains_mapping(self):
+        with mock.patch.object(FakeGst, "check", side_effect=AssertionError("no lookups in --check-columns")):
+            code, log_text = self.run_cli("--check-columns", "--preview", "2")
+        self.assertEqual(code, 0)
+        self.assertIn("'GST/HST Number' -> gst", log_text)
+        self.assertIn("WOULD CHECK", log_text)
+        self.assertIn("What the first 2 would check", log_text)
+        self.assertFalse((self.dir / "suppliers_tax_check.xlsx").exists())
+
+    def test_check_columns_on_unrecognized_headers_lists_them(self):
+        wb = openpyxl.Workbook()
+        wb.active.append(["Vendor ID", "Entity", "Tax Reg #"])
+        wb.save(self.src)
+        code, log_text = self.run_cli("--check-columns")
+        self.assertEqual(code, 1)
+        self.assertIn("'Tax Reg #'", log_text)
+        self.assertIn("COLUMNS", log_text)
+
     def test_missing_file_fails_cleanly_with_log(self):
         self.src = self.dir / "nope.xlsx"
         code, log_text = self.run_cli()

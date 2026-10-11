@@ -41,6 +41,12 @@ class RowChecker:
         sk_pst = row.get("sk_pst") if not _blank(row.get("sk_pst")) else (pst if prov == "SK" else None)
         mb_rst = row.get("mb_rst") if not _blank(row.get("mb_rst")) else (pst if prov == "MB" else None)
 
+        if not _blank(pst) and prov not in ("BC", "SK", "MB") and _blank(row.get("bc_pst")) and _blank(row.get("sk_pst")) and _blank(row.get("mb_rst")):
+            log.warning(
+                "%s: PST number %r not checked: province %r isn't BC, SK or MB (only those provinces have PST/RST "
+                "lookups). Fix the province, or use a BC/SK/MB-specific PST column.",
+                row.get("name"), pst, row.get("province"),
+            )
         log.debug("Row input: %s | province=%r date=%s", row, prov, date)
         out = {}
         out["gst"] = self._guard(self._gst, row.get("gst"), names, date)
@@ -121,3 +127,16 @@ class RowChecker:
         if self.sk is None:
             return Result(MANUAL, SK_MANUAL)
         return self.sk.check(names)
+
+
+class DryRun:
+    """Stand-in for every checker, for --check-columns: shows what would be looked up, without going online."""
+
+    WOULD = "WOULD CHECK"
+
+    def check(self, *args, **kwargs):
+        shown = ", ".join([*(repr(a) for a in args), *(f"{k}={v!r}" for k, v in kwargs.items() if v)])
+        return Result(self.WOULD, shown)
+
+    def check_nr(self, number):
+        return Result(self.WOULD, f"NR list lookup for {number}")

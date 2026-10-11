@@ -135,6 +135,34 @@ class InputFiles(unittest.TestCase):
             SupplierSheet(self.dir / "in.xlsx", "Vendors")
 
 
+class DatesAndHeaders(unittest.TestCase):
+    def test_common_date_formats(self):
+        import datetime as dt
+
+        from taxcheck.workbook import parse_date
+
+        want = dt.date(2026, 9, 15)
+        for text in ("2026-09-15", "2026/09/15", "15/09/2026", "15-Sep-2026", "15 Sep 2026", "September 15, 2026",
+                     "Sep 15 2026", "2026-09-15 00:00:00", "2026-09-15T13:45:00", "20260915", "15-09-2026"):
+            self.assertEqual(parse_date(text), want, text)
+        self.assertEqual(parse_date("09/10/2026"), dt.date(2026, 10, 9))  # ambiguous: day first
+        self.assertIsNone(parse_date("next tuesday"))
+
+    def test_suggestions_for_near_miss_headers(self):
+        from taxcheck.workbook import suggest_field
+
+        self.assertEqual(suggest_field("QC Tax No")[1], "qst")
+        self.assertEqual(suggest_field("GST Reg No.")[1], "gst")
+        self.assertIsNone(suggest_field("Amount"))
+
+    def test_common_company_headers_are_recognized(self):
+        from taxcheck.workbook import _ALIASES, _key
+
+        for header, field in [("Legal Entity", "name"), ("DBA Name", "trade_name"), ("State/Prov", "province"),
+                              ("Operating As", "trade_name"), ("GST #", "gst"), ("QST No", "qst")]:
+            self.assertEqual(_ALIASES.get(_key(header)), field, header)
+
+
 class ScientificNotation(unittest.TestCase):
     def test_excel_mangled_numbers_are_flagged(self):
         from taxcheck.numbers import BadNumber, parse_gst, parse_qst

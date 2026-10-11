@@ -35,6 +35,7 @@ This writes `suppliers_tax_check.xlsx` next to the input. Options:
 | `--nr-list saved.html` | Use a saved copy of Revenu Québec's NR registrant list if the download is blocked. |
 | `--log-dir folder` | Where run logs go (default: `logs`). |
 | `-v` | Also show the detailed log on screen. |
+| `--check-columns` | Check nothing: show how your columns are read and what the first rows would check (offline). |
 
 To fix a name and re-check, edit the results file and run the script on it. It overwrites its own
 result columns rather than adding new ones.
@@ -135,7 +136,7 @@ for that run. The log records:
   and CRA result messages;
 - warnings (an unreadable date, a list that didn't download) and full error tracebacks.
 
-When a BC lookup fails, a screenshot of the eTaxBC page is saved next to the log. Logs contain
+When a BC or Manitoba lookup fails, a screenshot of the page is saved next to the log. Logs contain
 supplier names and tax numbers, so treat them like the workbook itself. `logs/` is git-ignored.
 
 ## Tests
@@ -150,6 +151,10 @@ parsing change gets checked against what the sites actually send. Run the live t
 look wrong: a failure there usually means a government site changed.
 
 ## Adapting to your workbook
+
+Start with `python check_suppliers.py your_file.xlsx --check-columns`. It doesn't go online: it shows
+which column feeds which field, suggests aliases for headers it doesn't recognize, and previews what
+each row would check.
 
 Column names are matched in `COLUMNS` at the top of `taxcheck/workbook.py`. To support a header
 the script doesn't recognize, add its spelling to the right list. The log shows which column each

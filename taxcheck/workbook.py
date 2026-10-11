@@ -17,9 +17,11 @@ log = logging.getLogger(__name__)
 
 # Accepted header spellings (compared lowercase with spaces/punctuation removed).
 COLUMNS = {
-    "name": ["supplier name", "legal name", "business name", "vendor name", "company name", "supplier", "vendor", "company", "name"],
-    "trade_name": ["trade name", "operating name", "dba", "doing business as"],
-    "province": ["province", "prov", "province/territory", "province / territory", "region"],
+    "name": ["supplier name", "legal name", "legal entity", "legal entity name", "business name", "vendor name",
+             "company name", "supplier", "vendor", "company", "name"],
+    "trade_name": ["trade name", "operating name", "operating as", "dba", "dba name", "doing business as"],
+    "province": ["province", "prov", "province/territory", "province / territory", "province/state", "state/prov",
+                 "state/province", "region"],
     "gst": ["gst/hst number", "gst/hst no", "gst/hst #", "gst/hst", "gst number", "gst no", "gst #", "gst", "hst number", "hst #", "hst"],
     "bn": ["business number", "bn", "cra business number"],
     "qst": ["qst number", "qst no", "qst #", "qst", "tvq", "qst/tvq"],
@@ -58,6 +60,20 @@ def _key(s):
 _ALIASES = {_key(a): col for col, names in COLUMNS.items() for a in names}
 
 
+def suggest_field(header):
+    """For an unrecognized header, the closest known alias and its field, or None (used by --check-columns)."""
+    import difflib
+
+    key = _key(header)
+    if not key:
+        return None
+    match = difflib.get_close_matches(key, list(_ALIASES), n=1, cutoff=0.6)
+    if not match:
+        # Partial words: "Legal Entity" contains "legal", "Tax Reg #" contains "tax"...
+        match = [a for a in _ALIASES if len(a) >= 3 and (a in key or key in a)][:1]
+    return (match[0], _ALIASES[match[0]]) if match else None
+
+
 def normalize_province(value):
     s = str(value or "").strip()
     if s.upper() in PROVINCES:
@@ -75,7 +91,13 @@ def parse_date(value):
     if isinstance(value, dt.date):
         return value
     s = str(value or "").strip()
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y"):
+    # Order matters for ambiguous dates: 09/10/2026 is read day-first (9 October), as in Canadian usage.
+    for fmt in (
+        "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y%m%d",
+        "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
+        "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y", "%d %B %Y",
+        "%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%b %d %Y",
+    ):
         try:
             return dt.datetime.strptime(s, fmt).date()
         except ValueError:
@@ -155,10 +177,45 @@ class SupplierSheet:
                     cols[col] = c
             if "name" in cols and len(cols) >= 2:
                 return r, cols
+        seen = [
+            str(v).strip()
+            for row in self.values_ws.iter_rows(min_row=1, max_row=min(self.values_ws.max_row, 5), values_only=True)
+            for v in row
+            if v not in (None, "")
+        ]
         raise InputError(
-            "Couldn't find a header row with a supplier name column plus at least one tax-number column. "
-            "See the README for accepted column names."
+            "Couldn't find a header row: it needs a supplier-name column plus at least one other recognized "
+            f"column. Text in the first rows: {', '.join(repr(v) for v in seen[:20]) or '(none)'}. "
+            "Run with --check-columns for suggestions, and add your header names to COLUMNS in taxcheck/workbook.py."
         )
+
+    def describe_columns(self):
+        """Lines explaining the column mapping, for --check-columns."""
+        lines = [f"Header row: {self.header_row} on sheet '{self.ws.title}'", "Recognized columns:"]
+        for col, c in self.cols.items():
+            lines.append(f"  {get_column_letter(c):>3} '{self.values_ws.cell(self.header_row, c).value}' -> {col}")
+        used = set(self.cols.values())
+        others = []
+        for c in range(1, self.values_ws.max_column + 1):
+            header = self.values_ws.cell(self.header_row, c).value
+            if c in used or header in (None, "") or header == "Overall":
+                continue
+            hint = suggest_field(header)
+            known = _ALIASES.get(_key(header))
+            if known:
+                note = f"also matches '{known}', but column {get_column_letter(self.cols[known])} is used (leftmost wins)"
+            elif hint:
+                note = f"not recognized; closest alias '{hint[0]}' ({hint[1]}). If it's that field, add '{header}' to COLUMNS['{hint[1]}']"
+            else:
+                note = "not used"
+            others.append(f"  {get_column_letter(c):>3} '{header}': {note}")
+        if others:
+            lines.append("Other columns:")
+            lines.extend(others)
+        missing = [col for col in ("gst", "province", "qst", "pst", "trade_name", "date") if col not in self.cols]
+        if missing:
+            lines.append(f"Fields with no column: {', '.join(missing)}")
+        return lines
 
     def rows(self):
         """Yield (row_number, {column: value}) for every non-empty supplier row."""

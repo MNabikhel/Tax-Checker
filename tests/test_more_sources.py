@@ -210,6 +210,12 @@ class Routing(unittest.TestCase):
         out = RowChecker(self.Gst(), None, mb=self.Mb()).check({"name": "A", "province": "MB"}, TODAY)
         self.assertEqual(out["mb_rst"].status, MISSING)
 
+    def test_pst_with_unknown_province_is_warned_about(self):
+        with self.assertLogs("taxcheck.checks", "WARNING") as logs:
+            out = RowChecker(self.Gst(), None).check({"name": "A", "province": "ON", "pst": "999"}, TODAY)
+        self.assertEqual(set(out), {"gst"})
+        self.assertIn("isn't BC, SK or MB", logs.output[0])
+
     def test_saskatchewan_without_assist_is_manual(self):
         out = RowChecker(self.Gst(), None).check({"name": "Prairie Co", "province": "SK"}, TODAY)
         self.assertEqual(out["sk_pst"].status, MANUAL)

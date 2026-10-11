@@ -4,8 +4,9 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-11 · **Branch:** `main` (work happens on `claude/magical-cerf-3mm20q` and
-is merged to `main`) · **Tests:** 79 offline + 8 live
+**Last updated:** 2026-10-11 · **Branch:** `main` (work is done on `claude/magical-cerf-3mm20q` and
+fast-forwarded to `main`; if `git log origin/main` is behind that branch, use the branch) ·
+**Tests:** 85 offline + 8 live
 
 ---
 
@@ -77,7 +78,8 @@ check_suppliers.main()
   └─ run()
       ├─ workbook.SupplierSheet(path)    find header row, map columns via COLUMNS aliases
       ├─ build checkers                  GstChecker(+FederalCorporations), QstChecker,
-      │                                  Browser (lazy) → BcPstChecker, MbRstChecker, SkPstAssistant
+      │                                  shared headless Browser (lazy) → BcPstChecker, MbRstChecker, QST NR fallback
+      │                                  separate visible Browser (only with --sk-assist) → SkPstAssistant
       ├─ for each row: checks.RowChecker.check(values, date)
       │     decides which taxes apply (numbers present / province), calls checkers,
       │     catches every exception → Result(ERROR), caches duplicate lookups
@@ -121,9 +123,19 @@ the log only).
 
 `Overall` is `OK` only if every status in the row is REGISTERED, otherwise `REVIEW`.
 
-Which taxes are checked for a row: GST/HST always (NO NUMBER if blank). QST if a QST number is given
-or province is QC. BC/SK/MB if their column has a value, or a generic `PST` column has a value and the
-province matches, or the province is BC/SK/MB.
+Which taxes are checked for a row (`RowChecker.check`):
+
+| Tax | Looked up when | Otherwise |
+|---|---|---|
+| GST/HST | a GST/HST number is given | always reported: NO NUMBER if blank |
+| QST | a QST number is given | NO NUMBER if province is QC; else not reported |
+| BC PST | a BC PST number is given (BC PST column, or generic PST column + province BC); BN from the GST or Business Number column | NO NUMBER if province is BC |
+| MB RST | province is MB or an RST number is given; searches with the RST number and/or the BN from the GST column | NO NUMBER if neither number exists |
+| SK PST | province is SK or an SK PST number is given (name-only search, so the trade name matters) | MANUAL CHECK without `--sk-assist` |
+
+A generic `PST` value whose province isn't BC, SK or MB (blank, ON, a US state...) isn't checked; a
+warning is logged for it. Non-Canadian suppliers (unrecognized province) only get the GST/HST row,
+which is NO NUMBER if they have none, so they show as REVIEW. See §8 for options.
 
 ## 7. Source-by-source details and gotchas
 
@@ -182,13 +194,23 @@ to bypass the CAPTCHA.**
 
 ## 8. Tailoring to a new dataset (the likely next job)
 
-1. **Look before changing.** Run on the real file with `-v` (or read the log). The first lines show
-   the header row found and which column each field was mapped to (`column gst <- 'GST #' (column E)`).
-2. **Unrecognized headers:** add the spelling to `COLUMNS` in `taxcheck/workbook.py` (compared
-   lowercase with spaces and punctuation removed, so `GST #` ≡ `gst#`). Don't add very generic words
-   that could match unrelated columns ("date" is already generic; watch for "Date Added").
-3. **Province values** in an unusual form (e.g. "Ont.", full addresses): extend `PROVINCES` or derive
-   the province from an address column in `RowChecker.check`.
+1. **Look before changing, offline:**
+   `python check_suppliers.py their_file.xlsx --check-columns` makes **no lookups**. It prints the header
+   row found, which column feeds which field, unrecognized headers with the closest known alias, fields
+   with no column, and what the first 10 rows would check (`--preview N` for more). If no header row is
+   found, the error lists the text it saw in the first rows.
+2. **Unrecognized headers:** add the spelling to `COLUMNS` in `taxcheck/workbook.py`. Matching rules
+   (`_key`): lowercase, then remove everything except letters, digits and `#`, then require an **exact**
+   match with an alias treated the same way. So `GST #` → `gst#` and `GST No` → `gstno` are different
+   keys, and `Legal Entity Name` won't match `legal entity`. If two columns match the same field, the
+   **leftmost** wins. The header row needs a name column plus at least one other recognized column.
+   Don't add very generic words that could match unrelated columns ("date" is already generic; watch for
+   "Date Added"). The suggestions from `--check-columns` are hints; confirm what the column holds.
+3. **Province values** in an unusual form (e.g. "Ont.", full addresses): extend `PROVINCES`. To derive
+   the province from an address, add an `address` key to `COLUMNS` and parse it in `RowChecker.check`.
+   US/foreign suppliers: decide with the user whether they should be skipped, reported as "not
+   applicable", or checked only if they have a GST number (non-residents selling digital services may
+   be simplified registrants); implement that in `RowChecker.check`.
 4. **Several numbers in one cell** (e.g. "GST 123... / QST 456..."): split them in
    `SupplierSheet.rows()` or a pre-processing step, rather than loosening the number parsers.
 5. **Header not in the first 15 rows**, or multiple sheets: `_find_header` scans 15 rows; `--sheet`
@@ -197,14 +219,21 @@ to bypass the CAPTCHA.**
    `SupplierSheet.write_results`. Keep `as_text()` for external strings.
 7. **Add tests for every adaptation**: a small synthetic workbook in `tests/test_workbook_io.py`
    style. Keep the real dataset out of git.
-8. Run `python -m unittest discover tests` and, after changes to any checker,
+8. **Dates:** `parse_date` accepts ISO (with or without time), `YYYYMMDD`, `15/09/2026` (day first:
+   `09/10/2026` is 9 October), `15-Sep-2026`, `15 Sep 2026`, `September 15, 2026`, and Excel date cells.
+   Anything else falls back to today with a warning in the log. Confirm a "date" column really holds
+   transaction dates (not invoice numbers) before mapping it.
+9. Run `python -m unittest discover tests` and, after changes to any checker,
    `TAXCHECK_LIVE=1 python -m unittest tests.test_live -v`.
+
+To poke at the code from another folder, run Python from the repo root or set `PYTHONPATH` to it
+(`taxcheck` isn't an installed package).
 
 Performance: about 3.5 s per supplier when the GST name matches first time (throttled ~1.5 s per CRA
 request, ~4–5 s per browser lookup). 500 suppliers ≈ 30 minutes. Duplicate numbers are looked up once.
 Ctrl+C saves what's done; re-running on the output file overwrites its result columns.
 
-## 9. Tests
+## 9. Tests and examples
 
 - `tests/test_offline.py`, `test_workbook_io.py`, `test_responses.py`, `test_gst_logic.py`,
   `test_more_sources.py`, `test_robustness.py`, `test_cli.py`: no network, < 1 s total.
@@ -212,6 +241,10 @@ Ctrl+C saves what's done; re-running on the output file overwrites its result co
   page into a fixture and add a case to `test_responses.py`.
 - `tests/test_live.py`: real services with publicly published registrations (UBC, Amazon.com.ca,
   Avient, AIRGSM, a random federal corporation). Opt-in with `TAXCHECK_LIVE=1`; ~1–2 minutes.
+
+`examples/`: `suppliers_template.xlsx` (blank headers), `sample_suppliers.xlsx` (11 public test
+suppliers covering every outcome), `sample_suppliers_results.xlsx` and `sample_run.log` (a full run's
+output and log, 2026-10-08, useful to see what a log looks like).
 
 Public test data used: UBC GST `108161779RT0001` + BC PST `PST-1000-7572`; Amazon.com.ca ULC
 `857305932RT0001` (also active for Manitoba RST); Avient Canada ULC QST `1019288451TQ0004`
@@ -230,15 +263,23 @@ Inc. `774075766`.
 | QST NR rows ERROR "couldn't load ... NR list" | log | Save the NR page from a browser, re-run with `--nr-list file.html` |
 | SK rows MANUAL "CAPTCHA wasn't completed" | | Nobody ticked it within 5 minutes; re-run with `--sk-assist` and watch for the window |
 | Browser rows MANUAL "browser couldn't start" | log | `pip install playwright` and `playwright install chromium` |
+| "Couldn't find a header row" | `--check-columns` output | Add the file's header spellings to `COLUMNS` |
+| A whole tax column is missing from results | `--check-columns` "Fields with no column" | Map that column; for PST, check the province values |
 
 ## 11. Ground rules
 
 - Use only official government sources; respect throttling (`Throttle`) and `SiteHealth`.
 - Never bypass CAPTCHAs or disable TLS verification.
-- Logs, outputs and caches contain supplier data: keep them out of git (already in `.gitignore`).
+- Logs, outputs and caches contain supplier data: keep them out of git. `.gitignore` covers `logs/`,
+  `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
 
+- **2026-10-11 (later)**: A cold read of this handoff by a fresh agent found gaps, now fixed: added
+  `--check-columns` (offline column mapping and routing preview with alias suggestions); header-not-found
+  error lists the headers seen; more date formats; warning when a PST number is ignored because of the
+  province; common headers like "Legal Entity", "DBA Name", "State/Prov" recognized; quiet library
+  logging. Docs: exact matching rules, routing table, non-Canadian suppliers, examples.
 - **2026-10-11**: Fresh-clone testing on Python 3.11–3.13 with the browser `playwright install` gives
   (Chromium 153). Fixed: CRA "future date" rejection on clocks ahead of Ottawa; slow failures when a
   site is down (site-down detection, fail fast on HTTP errors; sample run 3.5 min → 31 s); CRA page-change
