@@ -40,7 +40,9 @@ class BcPstChecker:
                 else:
                     raise RuntimeError("couldn't tick the terms-of-use checkbox")
                 page.get_by_role("button", name="Next").click()
-                page.wait_for_function("document.body.innerText.includes('Search Date')", timeout=20000)
+                # eTaxBC's content security policy (added in the October 2026 maintenance) blocks
+                # wait_for_function, so wait on the results text itself.
+                page.get_by_text("Search Date").first.wait_for(timeout=20000)
                 m = re.search(r"Result:\s*(.+)", page.inner_text("body"))
                 return m.group(1).strip() if m else ""
             except Exception:

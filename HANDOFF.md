@@ -25,7 +25,7 @@ a status and an explanation per tax, plus a summary sheet and a detailed log fil
 | GST/HST number-only | CRA registry, date-before-name behaviour (§7) | `requests` | Automated, verified live |
 | QST (`TQ` numbers) | Revenu Québec validation API (JSON) | `requests` | Automated, verified live |
 | QST (`NR` numbers) | Revenu Québec's published NR list | `requests` → browser → saved file | **Untested live** (see §2) |
-| BC PST | eTaxBC "PST Number Verification Service" | Playwright | Automated, verified live with Chromium 141 |
+| BC PST | eTaxBC "PST Number Verification Service" | Playwright | Automated, verified live with Chromium 153 (2026-10-13) |
 | MB RST | Manitoba TAXcess "RST Registration Registry" | Playwright | Automated, verified live with Chromium 153 |
 | SK PST | SETS "PST On-Line Registry" | Playwright, **person completes a reCAPTCHA** | Assisted (`--sk-assist`); results page **unseen** (see §2) |
 
@@ -33,29 +33,24 @@ Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need th
 
 ## 2. Open items: verify these on the new PC first
 
-Three parts couldn't be verified from the cloud environment this was built in. Each has a live test
+Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
 that settles it in one command on a normal Canadian connection. Run them first and record the result
 in the change log (§12).
 
 ```
-TAXCHECK_LIVE=1 python -m unittest tests.test_live -v                        # items 1 and 2 (plus everything else)
-TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSaskatchewanAssisted -v   # item 3
+TAXCHECK_LIVE=1 python -m unittest tests.test_live -v                        # item 1 (plus everything else)
+TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSaskatchewanAssisted -v   # item 2
 ```
 (Windows PowerShell: `$env:TAXCHECK_LIVE=1; $env:TAXCHECK_SK_ASSIST=1; python -m unittest ...`)
 
-1. **BC with the current Chromium** (`test_etaxbc`). Verified with Chromium 141. On 2026-10-11 eTaxBC was
-   down for scheduled maintenance (Oct 9, 4 PM – Oct 13, 7 AM Pacific), so it couldn't be re-verified
-   with Chromium 153, which `playwright install chromium` now gives. Manitoba runs on the same platform
-   (FAST/GenTax) and passes with 153, so BC most likely does too. The test skips itself if eTaxBC is
-   unreachable; a *failure* means a real problem (see the `etaxbc_*_fail_*.png` screenshot).
-2. **Québec NR list** (`test_nr_list_loads_and_checks`). Revenu Québec's website refused the build
+1. **Québec NR list** (`test_nr_list_loads_and_checks`). Revenu Québec's website refused the build
    environment with HTTP 403 (plain download, headless browser, archive sites and a separate fetch
    service all blocked), so the parser has never seen the real page. It reads the documented layout
    (a table: trade name, legal name, number like `NR 0013 0061`) in any column order and falls back to
    list/paragraph layouts. The test skips only if every source answers with an HTTP error; if the page
    loads but no NR numbers are found it **fails**, meaning `qst.parse_nr_list` needs updating: save the
    page from a browser and add it as a fixture.
-3. **Saskatchewan results page** (`test_known_vendor`). Needs a person to tick the reCAPTCHA in the
+2. **Saskatchewan results page** (`test_known_vendor`). Needs a person to tick the reCAPTCHA in the
    window that opens. The reCAPTCHA only guards the terms page (confirmed from the site's
    `pstLookup.js`); the search page has a `#pstSearch` box (min. 4 characters). The results layout is
    unknown, so `sk_pst.classify()` is conservative: REGISTERED only when a table row contains the
@@ -220,7 +215,9 @@ the official name and the other 6 got a definite NOT REGISTERED (CRA's date answ
 - 9-digit "QST numbers" belong to listed financial institutions (CRA administers them) → GST check.
 - The revenuquebec.ca website (not the API) is behind Cloudflare and blocks some networks.
 
-**eTaxBC** (`bc_pst.py`): needs BN + PST number (the BN is taken from the GST column). Quirks: each
+**eTaxBC** (`bc_pst.py`): needs BN + PST number (the BN is taken from the GST column). Since its October
+2026 maintenance it has a content security policy that blocks `page.wait_for_function` (like TAXcess):
+wait on elements/text instead. Quirks: each
 lookup needs a fresh browser context (state sticks otherwise); the terms checkbox sometimes ignores a
 click, so it's re-clicked until checked (this caused intermittent timeouts before the fix). Results:
 "PST number is valid" / "No Match Found". Has multi-day maintenance windows.
@@ -331,6 +328,10 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-13**: Re-verified BC after eTaxBC's maintenance with Chromium 153. The maintenance added a
+  content security policy that broke the result wait (`wait_for_function`); now waits on the "Search
+  Date" text. 12 lookups in a row, no failures. Full live suite: everything passes except the two items in
+  §2 that need the new PC (Québec NR list refused this network; Saskatchewan needs a person).
 - **2026-10-11 (more name sources)**: Researched other ways to identify a business from its GST number
   (see §7 "Researched and rejected"). Added OrgBook BC as an official name source, and the GST check now
   also tries the legal name Revenu Québec returns for the same supplier's QST number. Misnamed BC
