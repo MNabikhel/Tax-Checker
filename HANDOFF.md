@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-13 · **Branch:** `main` (current; all work is merged) · **Tests:** 97 offline + 12 live
+**Last updated:** 2026-10-13 · **Branch:** `main` (current; all work is merged) · **Tests:** 100 offline + 12 live
 
 ---
 
@@ -25,8 +25,8 @@ Work in this order:
    real supplier file, results or logs (§11).
 5. **Run the live tests** once on the user's PC, including the two open items in §2, and record the
    outcome in the change log (§12).
-6. **Small real run first:** a copy of the file trimmed to ~10 rows, check the results and the log in
-   `logs/`, then the full file.
+6. **Small real run first:** a copy of the file trimmed to ~10 rows, check the results and the log in the
+   `logs` folder next to it, then the full file.
 
 Rules: keep the government-site code (`gst.py`, `qst.py`, `bc_pst.py`, `mb_rst.py`, `sk_pst.py`,
 `orgbook.py`, `fedcorp.py`) unchanged unless a live test or a run shows a site changed; never bypass a
@@ -84,6 +84,9 @@ TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSask
 
 Python 3.9+ (tested on 3.11, 3.12, 3.13; code parses as 3.9).
 
+Windows: double-click `Setup.bat` (creates `.venv`, installs requirements and Chromium, runs the
+offline tests), then `Run Tax Check.bat` (file picker → run → pauses at the end). By hand:
+
 ```
 git clone https://github.com/MNabikhel/Tax-Checker.git
 cd Tax-Checker
@@ -95,8 +98,15 @@ python -m unittest discover tests      # offline, < 1 s, should say OK
 python check_suppliers.py examples/sample_suppliers.xlsx
 ```
 
-The first run downloads the federal corporations data (~110 MB) into `cache/`, only if some GST
-name doesn't match; `--no-name-lookup` skips it. `logs/` and `cache/` are git-ignored.
+**Where things go.** With no path argument, `choose_workbook()` opens a tkinter file picker (starting in
+the folder used last time, remembered in `.last_folder`), or asks for a typed path when there's no
+display or no tkinter (python.org installers for Windows include tkinter). Outputs follow the chosen
+workbook: results as `<workbook>_tax_check.xlsx` beside it, logs and failure screenshots in a `logs`
+folder beside it (`default_log_dir`). Reference data shared between runs (federal corporations CSVs,
+Québec NR list) lives in the tool's own `cache/`, whatever the current directory. The first run downloads
+the federal data (~110 MB), only if some GST name doesn't match; `--no-name-lookup` skips it. `logs/`,
+`cache/` and `.last_folder` are git-ignored. `Setup.bat`/`Run Tax Check.bat` haven't been run on Windows
+by the original author (built on Linux); if one misbehaves, the commands above do the same thing.
 
 `TAXCHECK_CHROMIUM=/path/to/chrome` points Playwright at a specific browser binary (used in the
 build environment; normally not needed). `HTTPS_PROXY`, if set, is passed to the browser.
@@ -105,7 +115,8 @@ build environment; normally not needed). `HTTPS_PROXY`, if set, is passed to the
 
 ```
 check_suppliers.main()
-  ├─ logsetup.setup_logging()            logs/tax_check_<ts>.log (DEBUG) + console (INFO)
+  ├─ choose_workbook()                   file picker (or typed path) when no path is given
+  ├─ logsetup.setup_logging()            <workbook folder>/logs/tax_check_<ts>.log (DEBUG) + console (INFO)
   └─ run()
       ├─ workbook.SupplierSheet(path)    find header row, map columns via COLUMNS aliases
       ├─ build checkers                  GstChecker(+FederalCorporations, OrgBookBC name sources), QstChecker,
@@ -125,7 +136,8 @@ the log only).
 
 | File | Responsibility | Key names |
 |---|---|---|
-| `check_suppliers.py` | CLI, run orchestration, notes on the summary sheet, Ctrl+C keeps partial results | `main`, `run`, `save_workbook` |
+| `check_suppliers.py` | CLI, file picker, output locations, run orchestration, summary-sheet notes, Ctrl+C keeps partial results | `main`, `choose_workbook`, `default_log_dir`, `run`, `save_workbook` |
+| `Setup.bat`, `Run Tax Check.bat` | Windows double-click setup and launcher | |
 | `taxcheck/workbook.py` | Read .xlsx/.xlsm/.csv, header detection, column aliases, provinces, dates, write results | `COLUMNS`, `PROVINCES`, `SupplierSheet`, `InputError`, `as_text` |
 | `taxcheck/checks.py` | Per-row routing: which checks apply, number parsing, caching, error containment | `RowChecker` |
 | `taxcheck/numbers.py` | Offline parsing/validation of every number format; CRA Luhn check digit | `parse_gst`, `parse_bn`, `parse_qst`, `parse_bc_pst`, `parse_mb_rst`, `BadNumber` |
@@ -335,7 +347,7 @@ Inc. `774075766`.
 | Many GST "REGISTERED - NAME NOT MATCHED" | "Name on Government Record" column, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's legal names: update the vendor master, or use `--trust-gst-number` if only the number matters |
 | `Transaction date cannot be a future date` | system clock | `cra_today()` should prevent it; check the PC's clock |
 | BC/MB all ERROR, "answered HTTP 5xx" or "wasn't responding" | site status | Maintenance; re-run later |
-| BC/MB ERROR with a timeout on a specific element | failure screenshot in `logs/` | The site's layout changed; update selectors in `_lookup` |
+| BC/MB ERROR with a timeout on a specific element | failure screenshot in the `logs` folder next to the workbook | The site's layout changed; update selectors in `_lookup` |
 | `the CRA registry search page has changed` | log | Re-capture the form, update `_registry_lookup` and fixtures |
 | QST NR rows ERROR "couldn't load ... NR list" | log | Save the NR page from a browser, re-run with `--nr-list file.html` |
 | SK rows MANUAL "CAPTCHA wasn't completed" | | Nobody ticked it within 5 minutes; re-run with `--sk-assist` and watch for the window |
@@ -352,6 +364,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-13 (file picker)**: Running without a path opens a file picker (typed-path fallback without a
+  display), starting in the last folder used. Logs and screenshots now go to a `logs` folder next to the
+  workbook (results already did); the shared cache is anchored to the tool's folder. Added `Setup.bat` and
+  `Run Tax Check.bat`. Tested: the real tkinter dialog on a virtual display (driven with xdotool), the
+  typed fallback with a quoted path containing spaces, cancel, and the remembered folder.
 - **2026-10-13 (handoff)**: Fresh clone of `main` re-verified end to end (install, offline tests, full
   sample run: all 11 rows correct in 40 s); example outputs refreshed. Added §0 and
   `.github/copilot-instructions.md` for the Copilot handoff.

@@ -1,9 +1,11 @@
 """Check suppliers' Canadian sales-tax registrations from an Excel workbook.
 
+    python check_suppliers.py                 (a window opens to choose the workbook)
     python check_suppliers.py suppliers.xlsx
     python check_suppliers.py suppliers.xlsx -o results.xlsx --date 2026-09-30
 
-Each run writes a detailed log to logs/tax_check_<timestamp>.log for debugging.
+Results are saved next to the chosen workbook, and each run's detailed log (plus any failure
+screenshots) goes to a "logs" folder beside it.
 See README.md for the expected columns and what each check does.
 """
 
@@ -31,6 +33,61 @@ from taxcheck.sk_pst import SkPstAssistant
 from taxcheck.workbook import InputError, SupplierSheet, header_hints, parse_date
 
 log = logging.getLogger("check_suppliers")
+
+HERE = Path(__file__).resolve().parent  # the tool's own folder, for data shared between runs
+LAST_FOLDER = HERE / ".last_folder"  # where the file picker opens next time
+
+
+def _start_folder():
+    try:
+        folder = Path(LAST_FOLDER.read_text(encoding="utf-8").strip())
+        if folder.is_dir():
+            return str(folder)
+    except OSError:
+        pass
+    return str(Path.home())
+
+
+def _remember_folder(path):
+    try:
+        LAST_FOLDER.write_text(str(Path(path).resolve().parent), encoding="utf-8")
+    except OSError:
+        pass  # only a convenience
+
+
+def choose_workbook():
+    """Ask for the supplier file: a file-picker window when there's a screen, otherwise a typed path.
+
+    Returns the chosen path, or None if the person cancelled.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)  # don't let the window open behind the console
+        path = filedialog.askopenfilename(
+            title="Choose the supplier workbook to check",
+            initialdir=_start_folder(),
+            filetypes=[("Supplier lists", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")],
+        )
+        root.destroy()
+        if path:
+            _remember_folder(path)
+        return path or None
+    except Exception:  # no tkinter, or no display (e.g. a server): ask in the console instead
+        try:
+            typed = input("Path to the supplier workbook (.xlsx, .xlsm or .csv): ").strip().strip('"')
+        except EOFError:
+            return None
+        return typed or None
+
+
+def default_log_dir(workbook):
+    """Logs go in a "logs" folder next to the workbook, so outputs stay together."""
+    folder = Path(workbook).resolve().parent
+    return folder / "logs" if folder.is_dir() else HERE / "logs"
 
 
 def check_columns(args):
@@ -164,13 +221,14 @@ def run(args, log_path):
         notes.append("--trust-gst-number: 'REGISTERED - NAME NOT MATCHED' counts as OK in the Overall column.")
     saved = save_workbook(sheet, results, out, notes, ok_statuses)
     log.info("Results written to %s", saved)
+    log.info("Log written to %s", log_path)
     return saved
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("workbook", help="supplier list (.xlsx, .xlsm or .csv)")
-    ap.add_argument("-o", "--output", help="where to write results (default: <workbook>_tax_check.xlsx)")
+    ap.add_argument("workbook", nargs="?", help="supplier list (.xlsx, .xlsm or .csv); leave out to choose it in a window")
+    ap.add_argument("-o", "--output", help="where to write results (default: <workbook>_tax_check.xlsx next to the workbook)")
     ap.add_argument("--sheet", help="sheet name (default: first sheet)")
     ap.add_argument("--date", help="date to confirm registration on, YYYY-MM-DD (default: each row's date column, else today)")
     ap.add_argument("--no-browser", action="store_true", help="skip BC and Manitoba lookups, which need a headless browser")
@@ -178,9 +236,10 @@ def main(argv=None):
                     help="check Saskatchewan PST: opens a browser window where you tick its CAPTCHA once")
     ap.add_argument("--no-name-lookup", action="store_true",
                     help="don't look up official names (federal registry ~110 MB download, OrgBook BC) for GST/HST name mismatches")
-    ap.add_argument("--cache-dir", default="cache", help="folder for downloaded reference data (default: cache)")
+    ap.add_argument("--cache-dir", default=str(HERE / "cache"),
+                    help="folder for downloaded reference data (default: cache in the tool's folder)")
     ap.add_argument("--nr-list", help="saved copy of Revenu Québec's NR registrant list page, if it can't be downloaded")
-    ap.add_argument("--log-dir", default="logs", help="folder for run logs (default: logs)")
+    ap.add_argument("--log-dir", help="folder for run logs and failure screenshots (default: logs next to the workbook)")
     ap.add_argument("-v", "--verbose", action="store_true", help="show the detailed log on screen too")
     ap.add_argument("--trust-gst-number", action="store_true",
                     help="count 'REGISTERED - NAME NOT MATCHED' (GST number registered, name not confirmed) as OK")
@@ -190,8 +249,14 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.date and not parse_date(args.date):
         ap.error("--date must look like 2026-09-30")
+    if not args.workbook:
+        args.workbook = choose_workbook()
+        if not args.workbook:
+            print("No workbook chosen; nothing to do.")
+            return 1
+        print(f"Checking {args.workbook}")
 
-    log_path = setup_logging(args.log_dir, args.verbose)
+    log_path = setup_logging(args.log_dir or default_log_dir(args.workbook), args.verbose)
     log.info("Log file: %s", log_path)
     log.debug("Arguments: %s", vars(args))
     log.debug("Python %s on %s", sys.version.split()[0], platform.platform())

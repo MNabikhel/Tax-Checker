@@ -127,6 +127,26 @@ class Cli(unittest.TestCase):
         self.assertIn("'Tax Reg #'", log_text)
         self.assertIn("COLUMNS", log_text)
 
+    def test_no_path_opens_picker_and_outputs_go_next_to_workbook(self):
+        with mock.patch.object(check_suppliers, "choose_workbook", return_value=str(self.src)) as picker:
+            code = check_suppliers.main(["--no-browser", "--no-name-lookup"])
+        self.assertEqual(code, 0)
+        picker.assert_called_once()
+        self.assertTrue((self.dir / "suppliers_tax_check.xlsx").exists())
+        self.assertEqual(len(list((self.dir / "logs").glob("tax_check_*.log"))), 1)  # logs beside the workbook
+
+    def test_cancelled_picker_does_nothing(self):
+        with mock.patch.object(check_suppliers, "choose_workbook", return_value=None):
+            self.assertEqual(check_suppliers.main(["--no-browser"]), 1)
+        self.assertFalse((self.dir / "suppliers_tax_check.xlsx").exists())
+
+    def test_picker_falls_back_to_typed_path_without_a_screen(self):
+        import builtins
+
+        with mock.patch.dict("sys.modules", {"tkinter": None}), \
+                mock.patch.object(builtins, "input", return_value=f'"{self.src}"'):
+            self.assertEqual(check_suppliers.choose_workbook(), str(self.src))  # quotes from "Copy as path" removed
+
     def test_missing_file_fails_cleanly_with_log(self):
         self.src = self.dir / "nope.xlsx"
         code, log_text = self.run_cli()

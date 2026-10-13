@@ -8,20 +8,36 @@ Taking over development or adapting it to a new dataset? Start with [HANDOFF.md]
 
 ## Setup
 
-Requires Python 3.9+.
+Requires Python 3.9+ ([python.org](https://www.python.org/downloads/); on Windows tick "Add python.exe to
+PATH" when installing).
 
+**Windows:** double-click `Setup.bat` once. It creates a private Python environment in the tool's
+folder, installs everything, downloads the browser used for BC/Manitoba/Saskatchewan, and runs the tests.
+
+**Any system:**
 ```
+python -m venv .venv
+.venv\Scripts\activate            (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
 playwright install chromium      # one-time; needed for BC, Manitoba and Saskatchewan lookups
 ```
 
 ## Usage
 
-```
-python check_suppliers.py suppliers.xlsx
-```
+**Windows:** double-click `Run Tax Check.bat`. A window opens to choose the supplier workbook; the check
+runs and the window stays open at the end so you can read the summary.
 
-This writes `suppliers_tax_check.xlsx` next to the input. Options:
+**Command line:**
+```
+python check_suppliers.py                 # a window opens to choose the workbook
+python check_suppliers.py suppliers.xlsx  # or give the path
+```
+Without a screen (e.g. on a server) it asks you to type or paste the path instead. The picker opens in
+the folder you used last time.
+
+Everything a run produces is saved **next to the chosen workbook**: the results as
+`<workbook>_tax_check.xlsx`, and the log (plus any failure screenshots) in a `logs` folder beside it.
+Downloaded reference data is kept in the tool's own `cache` folder and shared between runs. Options:
 
 | Option | What it does |
 |---|---|
@@ -138,7 +154,8 @@ take several minutes. A number that appears on several rows is only looked up on
 
 ## Logs
 
-Every run writes `logs/tax_check_<date>_<time>.log`. The **Tax Check Summary** sheet names the log
+Every run writes `logs/tax_check_<date>_<time>.log` in a `logs` folder next to the workbook (`--log-dir`
+changes it). The **Tax Check Summary** sheet names the log
 for that run. The log records:
 
 - the arguments, Python version, and which spreadsheet column was matched to each field;

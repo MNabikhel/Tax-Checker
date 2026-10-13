@@ -6,3 +6,4 @@ venv/
 ~$*.xlsx
 logs/
 cache/
+.last_folder
