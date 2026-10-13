@@ -206,6 +206,8 @@ def run(args, log_path):
         "is given), Corporations Canada's open data, and OrgBook BC.",
         "GST/HST numbers whose name doesn't match are still checked by number: 'REGISTERED - NAME NOT MATCHED' means "
         "the number is registered but not under the sheet's name (CRA's name is shown when known).",
+        "Vendor-master shorthand such as '(DNU)', 'O/A' and 'DBA' is removed from names before asking CRA. When a "
+        "transaction date is in the past, registrations are also checked as of today, and ones that have ended are noted.",
     ]
     if gst.simplified.error:
         notes.append(gst.simplified.error)
@@ -221,6 +223,9 @@ def run(args, log_path):
         notes.append("--trust-gst-number: 'REGISTERED - NAME NOT MATCHED' counts as OK in the Overall column.")
     saved = save_workbook(sheet, results, out, notes, ok_statuses)
     log.info("Results written to %s", saved)
+    follow_up = sum(1 for by_tax in results.values() if (g := by_tax.get("gst")) and (g.status == NAME_NOT_MATCHED or g.ended))
+    if follow_up:
+        log.info("%d GST/HST numbers need a person to look at the vendor name or status: see the 'Name Follow-up' sheet.", follow_up)
     log.info("Log written to %s", log_path)
     return saved
 

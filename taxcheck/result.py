@@ -17,3 +17,5 @@ class Result:
     status: str
     detail: str = ""
     registered_name: str = ""
+    # GST/HST only: registered on the check date, but CRA says it isn't any more (see GstChecker.check).
+    ended: bool = False

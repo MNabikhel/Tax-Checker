@@ -105,9 +105,11 @@ so save the workbook in Excel before running. A QST number without its `TQ` suff
 Before going online, numbers are checked for format and for the CRA check digit, so typos are caught
 without a lookup.
 
-**GST/HST name mismatches.** CRA only confirms a number when the name matches its records, and it gives
-the same answer for a wrong name as for an unregistered number. The script tries the sheet's name,
-without "The", and the trade name. If none match, it looks up the business number in
+**GST/HST name mismatches.** CRA only confirms a number when the name matches its records exactly
+(the legal name or a trade name CRA has on file; case and punctuation don't matter, but every word
+does, so "ACME" won't match "ACME LTD"). The script tries the sheet's name, the same name cleaned of
+vendor-master shorthand (`(DNU)`, `*`, and either side of `O/A`, `DBA`, `C.O.B.`), without "The", and
+the trade name. If none match, it looks up the business number in
 [Corporations Canada's open data](https://open.canada.ca/data/en/dataset/0032ce54-c5dd-4b66-99a0-320a7b5e99f2)
 (all federal corporations, updated weekly), [OrgBook BC](https://orgbook.gov.bc.ca) (companies and other
 organizations registered in BC, via its public API), and, when the row has a QST number, the legal name
@@ -120,6 +122,14 @@ or unknown to CRA. A number registered under a name other than the one in your s
 but it isn't confirmed to be this supplier's (it could be another business's number), so it shows as REVIEW.
 If your vendor names are unreliable and you only need the number checked, `--trust-gst-number` counts it
 as OK.
+
+**Registrations that have ended.** When a row's date is in the past and the number was registered
+then, the script also checks today. If the registration has since ended, the details say so (the
+status stays REGISTERED, because it was valid on the date asked about).
+
+**Name Follow-up sheet.** When any GST/HST result needs a person (registered under another name, or no
+longer registered), the results workbook gets a **Name Follow-up** sheet listing just those suppliers:
+your name, the number, the name on the government record when known, and what to do.
 
 **Québec NR list.** Revenu Québec's website blocks some networks, such as cloud servers. The script tries
 a plain download, then a real browser, and keeps a copy for a week. If both are blocked, save the page
@@ -136,7 +146,7 @@ column. If nobody completes the CAPTCHA within 5 minutes, the Saskatchewan rows 
 
 Each tax gets a **Status** and a **Details** column, and each row gets an **Overall** column (`OK`
 when every applicable check came back `REGISTERED`). A **Tax Check Summary** sheet has counts per
-tax and notes from the run.
+tax and notes from the run, and a **Name Follow-up** sheet appears when GST/HST names need fixing.
 
 | Status | Meaning |
 |---|---|

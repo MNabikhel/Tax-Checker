@@ -203,9 +203,21 @@ These were all learned by testing; don't "simplify" them away.
   number is registered, **not** that it belongs to the supplier, hence the separate status. Any match via a
   name that didn't come from the sheet (CRA's simplified list, Revenu Québec, federal registry, OrgBook BC)
   gets the same status.
-- Name matching ignores case and punctuation but **not extra words**: "The University of British
-  Columbia" fails, "University of British Columbia" passes. Hence `name_variants` (drop "The", trade
-  name) and the official-name sources below.
+- Name matching ignores case and punctuation but **not extra or missing words**: "The University of
+  British Columbia" fails, "University of British Columbia" passes. Tested 2026-10-13 on 15 registered
+  corporations: dropping the suffix ("ACME LTD" → "ACME") failed 15/15, swapping it (LTD → INC) 15/15,
+  spelling it out (INC → INCORPORATED) 14/15. The 2012-era claim that CRA only compares the first 10
+  characters is false. CRA accepts the legal name **or** an operating/trade name it has on file, each
+  exactly. So guessing spellings is pointless; `name_variants` only tries the name as given, then with
+  vendor-master shorthand removed (`clean_name_parts`: bracketed tags like "(DNU)", "*", and splits on
+  "O/A", "DBA", "C.O.B.", "operating as"...), each with and without a leading "The". Add other
+  shorthand your vendor master uses to `_TAGS` / `_OPERATING_AS` in `gst.py`, with a test in
+  `tests/test_gst_logic.py` (`VendorMasterNames`).
+- **Registrations that have ended.** When the check date is in the past and the answer is REGISTERED or
+  REGISTERED - NAME NOT MATCHED, `GstChecker._note_if_ended` asks about today too (one extra lookup,
+  placeholder name). If CRA says not registered today, the status stays (it was valid on the date asked
+  about) but `Result.ended` is set and the details say so. Example found in real data: a "(DNU)" vendor
+  registered on 2026-04-24 and closed by 2026-06-30. A failed extra lookup is logged and ignored.
 - Rejects dates after **Ottawa's** today. `cra_today()` uses UTC-5 (never ahead of Ottawa; tested
   every hour of a year). Using the local date broke lookups on a UTC machine after 8 PM Eastern.
 - Simplified registrants (`RT9999` etc.) are confirmed by the same form; the published list adds
@@ -319,7 +331,8 @@ To poke at the code from another folder, run Python from the repo root or set `P
 (`taxcheck` isn't an installed package).
 
 Performance: about 3.5 s per supplier when the GST name matches first time (throttled ~1.5 s per CRA
-request, ~4–5 s per browser lookup). 500 suppliers ≈ 30 minutes. Duplicate numbers are looked up once.
+request, ~4–5 s per browser lookup). 500 suppliers ≈ 30 minutes. A past check date adds one CRA lookup (~1.5 s) per registered number, to see
+whether it's still registered. Duplicate numbers are looked up once.
 Ctrl+C saves what's done; re-running on the output file overwrites its result columns.
 
 ## 9. Tests and examples
@@ -344,7 +357,7 @@ Inc. `774075766`.
 
 | Symptom | Look at | Likely fix |
 |---|---|---|
-| Many GST "REGISTERED - NAME NOT MATCHED" | "Name on Government Record" column, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's legal names: update the vendor master, or use `--trust-gst-number` if only the number matters |
+| Many GST "REGISTERED - NAME NOT MATCHED" | the **Name Follow-up** sheet, "Name on Government Record" column, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's: update the vendor master to the legal name on the supplier's invoice, add the vendor master's shorthand to `_TAGS`/`_OPERATING_AS`, or use `--trust-gst-number` if only the number matters |
 | `Transaction date cannot be a future date` | system clock | `cra_today()` should prevent it; check the PC's clock |
 | BC/MB all ERROR, "answered HTTP 5xx" or "wasn't responding" | site status | Maintenance; re-run later |
 | BC/MB ERROR with a timeout on a specific element | failure screenshot in the `logs` folder next to the workbook | The site's layout changed; update selectors in `_lookup` |
@@ -364,6 +377,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-13 (vendor names)**: Real JDE vendor names ("(DNU) IMPERIAL PRINTING O/A") gave many
+  REGISTERED - NAME NOT MATCHED. Names are now cleaned of vendor-master shorthand before asking CRA;
+  past-dated registrations are re-checked for today and flagged if they've ended; the output has a
+  **Name Follow-up** sheet (only when needed) listing those rows with the government name and what to do.
+  Measured CRA's name strictness (§7) to confirm suffix guessing can't help.
 - **2026-10-13 (file picker)**: Running without a path opens a file picker (typed-path fallback without a
   display), starting in the last folder used. Logs and screenshots now go to a `logs` folder next to the
   workbook (results already did); the shared cache is anchored to the tool's folder. Added `Setup.bat` and

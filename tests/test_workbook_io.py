@@ -87,6 +87,30 @@ class WorkbookIO(unittest.TestCase):
         self.assertEqual(openpyxl.load_workbook(self.dir / "default.xlsx")["Sheet"]["C2"].value, "REVIEW")
         self.assertEqual(openpyxl.load_workbook(self.dir / "trusted.xlsx")["Sheet"]["C2"].value, "OK")
 
+    def test_name_follow_up_sheet_lists_what_needs_a_person(self):
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
+        make_workbook(path, [["Supplier Name", "GST/HST Number"], ["(DNU) A CO O/A", "108161779RT0001"],
+                             ["B Co", "857305932RT0001"], ["C Co", "869744920RT0001"], ["D Co", "813072139RT0001"]])
+        results = {
+            2: {"gst": Result(NAME_NOT_MATCHED, "", "A COMPANY LTD")},
+            3: {"gst": Result(REGISTERED, "")},
+            4: {"gst": Result(NAME_NOT_MATCHED, "")},
+            5: {"gst": Result(REGISTERED, "", "D CO", ended=True)},
+        }
+        SupplierSheet(path).write_results(results, out, [])
+        rows = list(openpyxl.load_workbook(out)["Name Follow-up"].iter_rows(values_only=True))
+        self.assertEqual([r[0] for r in rows[1:]], [2, 4, 5])
+        self.assertEqual(rows[1][1:5], ("(DNU) A CO O/A", "108161779RT0001", NAME_NOT_MATCHED, "A COMPANY LTD"))
+        self.assertIn("update the vendor name", rows[1][5])
+        self.assertIn("legal name on the supplier's invoice", rows[2][5])
+        self.assertIn("No longer registered today", rows[3][5])
+
+        # Nothing to follow up: no sheet, and a re-run removes the old one.
+        SupplierSheet(out).write_results({2: {"gst": Result(REGISTERED, "")}}, self.dir / "out2.xlsx", [])
+        self.assertNotIn("Name Follow-up", openpyxl.load_workbook(self.dir / "out2.xlsx").sheetnames)
+
     def test_overall_review_when_anything_not_registered(self):
         path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
         make_workbook(path, [["Supplier Name", "Province"], ["A Co", "SK"]])

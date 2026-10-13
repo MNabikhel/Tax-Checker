@@ -36,18 +36,42 @@ def _name_key(name):
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+# Vendor-master shorthand that is never part of a name CRA has on file.
+_OPERATING_AS = re.compile(
+    r"\s*(?<![A-Za-z0-9])(?:o/a|o\.a\.?|d/b/a|d\.b\.a\.?|dba|operating as|doing business as|"
+    r"carrying on business as|c\.o\.b\.?|cob)(?![A-Za-z0-9])\s*",
+    re.I,
+)
+_TAGS = re.compile(r"\([^)]*\)|\[[^\]]*\]|\*+")
+
+
+def clean_name_parts(name):
+    """The plausible CRA names inside a vendor-master name.
+
+    "(DNU) IMPERIAL PRINTING O/A" -> ["IMPERIAL PRINTING"]; "1234 AB LTD O/A ACME PAINTING" ->
+    ["1234 AB LTD", "ACME PAINTING"]. CRA accepts a business's legal, operating or trade name, but only
+    exactly as given to CRA, so tags like "(DNU)" and "O/A" guarantee a mismatch.
+    """
+    text = re.sub(r"\s+", " ", _TAGS.sub(" ", str(name)))
+    parts = [p.strip(" -–,;:") for p in _OPERATING_AS.split(text)]
+    return [p for p in parts if re.search(r"[A-Za-z0-9]", p)]
+
+
 def name_variants(*names):
-    """The CRA registry ignores case and punctuation but not extra words, so try a few spellings."""
+    """Spellings to try with CRA: each name as given, then cleaned of vendor-master shorthand, then
+    without a leading "The". The registry ignores case and punctuation but not extra or missing words
+    (even "Inc." vs "Incorporated" fails), so guessing suffixes is pointless and isn't done."""
     seen, out = set(), []
     for name in names:
         if not name:
             continue
         name = str(name).strip()
-        for candidate in (name, re.sub(r"^the\s+", "", name, flags=re.I)):
-            key = _name_key(candidate)
-            if key and key not in seen:
-                seen.add(key)
-                out.append(candidate)
+        for candidate in (name, *clean_name_parts(name)):
+            for spelling in (candidate, re.sub(r"^the\s+", "", candidate, flags=re.I)):
+                key = _name_key(spelling)
+                if key and key not in seen:
+                    seen.add(key)
+                    out.append(spelling)
     return out
 
 
@@ -217,7 +241,25 @@ class GstChecker:
         result = self._check(bn9, names, date, listed, extra_names)
         if future_note:
             result.detail = f"{future_note} {result.detail}"
+        if result.status in (REGISTERED, NAME_NOT_MATCHED) and date < today:
+            self._note_if_ended(bn9, result, today)
         return result
+
+    def _note_if_ended(self, bn9, result, today):
+        """Add a note when a registration that was valid on the (past) check date has since ended.
+
+        One extra lookup. CRA answers "not registered" for a number and date whatever name is given, so
+        a placeholder name is enough. It doesn't change the status: the registration was valid on the
+        date asked about, which is what matters for that invoice.
+        """
+        try:
+            outcome = self.registry_lookup(bn9, PLACEHOLDER_NAME, today)
+        except Exception as e:  # the main answer stands without this
+            log.warning("Couldn't check whether bn=%s is still registered today: %s", bn9, e)
+            return
+        if outcome == "not_registered":
+            result.ended = True
+            result.detail += f" Note: CRA says this number is no longer registered for GST/HST as of {today}."
 
     def _candidates(self, bn9, names, listed, extra_names=()):
         """Names to try, best first: the sheet's, CRA's simplified list, names from other checks, then

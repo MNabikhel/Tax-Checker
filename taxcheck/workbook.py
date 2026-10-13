@@ -54,6 +54,9 @@ STATUS_FILL = {
 TAXES = [("gst", "GST/HST"), ("qst", "QST"), ("bc_pst", "BC PST"), ("sk_pst", "SK PST"), ("mb_rst", "MB RST")]
 
 
+FOLLOW_UP = "Name Follow-up"
+
+
 def _key(s):
     return re.sub(r"[^a-z0-9#]", "", str(s or "").lower())
 
@@ -263,8 +266,9 @@ class SupplierSheet:
             (c for c in range(1, ws.max_column + 1) if ws.cell(self.header_row, c).value == "Overall"),
             ws.max_column + 1,
         )
-        if "Tax Check Summary" in self.wb.sheetnames:
-            del self.wb["Tax Check Summary"]
+        for old_sheet in ("Tax Check Summary", FOLLOW_UP):
+            if old_sheet in self.wb.sheetnames:
+                del self.wb[old_sheet]
         headers = ["Overall"]
         for key, label in TAXES:
             headers += [f"{label} Status", f"{label} Details"]
@@ -317,4 +321,39 @@ class SupplierSheet:
             cell.font = bold
         summary["A1"].font = Font(bold=True, size=14)
         summary.column_dimensions["A"].width = 30
+        self._write_follow_up(results)
         self.wb.save(out_path)
+
+    def _write_follow_up(self, results):
+        """A worklist of GST/HST numbers that need a person: registered under another name, or no
+        longer registered. Only added when there's something on it."""
+        rows = []
+        for r, by_tax in results.items():
+            res = by_tax.get("gst")
+            if not res or not (res.status == NAME_NOT_MATCHED or res.ended):
+                continue
+            value = lambda col: self.values_ws.cell(r, self.cols[col]).value if col in self.cols else None
+            if res.status == NAME_NOT_MATCHED and res.registered_name:
+                action = (f"Registered as '{res.registered_name}'. If that's this supplier, update the vendor name; "
+                          "if not, ask the supplier for their GST/HST number.")
+            elif res.status == NAME_NOT_MATCHED:
+                action = ("Number is registered, under a name not in your records. Check the legal name on the "
+                          "supplier's invoice and update the vendor name to match it exactly.")
+            else:
+                action = ""
+            if res.ended:
+                action = " ".join(filter(None, [action, "No longer registered today: don't accept new invoices with GST/HST "
+                                                        "on this number until the supplier confirms their status."]))
+            rows.append([r, value("name"), value("gst"), res.status, res.registered_name, action])
+        if not rows:
+            return
+        ws = self.wb.create_sheet(FOLLOW_UP)
+        ws.append(["Row", "Supplier Name (your records)", "GST/HST Number", "GST/HST Status", "Name on Government Record",
+                   "What to do"])
+        for row in rows:
+            ws.append([as_text(v) if isinstance(v, str) else v for v in row])
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        for letter, width in zip("ABCDEF", (6, 40, 20, 32, 40, 90)):
+            ws.column_dimensions[letter].width = width
+        ws.freeze_panes = "A2"
