@@ -4,11 +4,33 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-11 · **Branch:** `main` (work is done on `claude/magical-cerf-3mm20q` and
-fast-forwarded to `main`; if `git log origin/main` is behind that branch, use the branch) ·
-**Tests:** 97 offline + 12 live
+**Last updated:** 2026-10-13 · **Branch:** `main` (current; all work is merged) · **Tests:** 97 offline + 12 live
 
 ---
+
+## 0. Start here (for GitHub Copilot or any AI agent tailoring this tool)
+
+Your job is almost certainly **adapting the tool to the user's supplier file**, not rewriting how the
+checks work. The checks are verified against live government sites and full of hard-won quirks (§7).
+Work in this order:
+
+1. **Set up and prove the baseline** (§3): install, `python -m unittest discover tests` must say OK.
+2. **Map the user's file offline:** `python check_suppliers.py <their file> --check-columns`. This makes
+   no lookups. Add header spellings to `COLUMNS` in `taxcheck/workbook.py` and re-run until every column
+   that matters is mapped and the preview rows route correctly (§8).
+3. **Ask the user** (don't guess) about anything that is a business decision: which column holds the
+   GST/HST number when the header is ambiguous ("Tax Reg #"), what to do with US/foreign suppliers, which
+   date to confirm registration on, whether `--trust-gst-number` is wanted (§8, §6).
+4. **Add a test** for each adaptation with made-up rows in the same format (§8 step 7). Never commit the
+   real supplier file, results or logs (§11).
+5. **Run the live tests** once on the user's PC, including the two open items in §2, and record the
+   outcome in the change log (§12).
+6. **Small real run first:** a copy of the file trimmed to ~10 rows, check the results and the log in
+   `logs/`, then the full file.
+
+Rules: keep the government-site code (`gst.py`, `qst.py`, `bc_pst.py`, `mb_rst.py`, `sk_pst.py`,
+`orgbook.py`, `fedcorp.py`) unchanged unless a live test or a run shows a site changed; never bypass a
+CAPTCHA, loosen TLS, or remove the throttling; update this file's change log with what you changed.
 
 ## 1. What it does
 
@@ -86,7 +108,7 @@ check_suppliers.main()
   ├─ logsetup.setup_logging()            logs/tax_check_<ts>.log (DEBUG) + console (INFO)
   └─ run()
       ├─ workbook.SupplierSheet(path)    find header row, map columns via COLUMNS aliases
-      ├─ build checkers                  GstChecker(+FederalCorporations), QstChecker,
+      ├─ build checkers                  GstChecker(+FederalCorporations, OrgBookBC name sources), QstChecker,
       │                                  shared headless Browser (lazy) → BcPstChecker, MbRstChecker, QST NR fallback
       │                                  separate visible Browser (only with --sk-assist) → SkPstAssistant
       ├─ for each row: checks.RowChecker.check(values, date)
@@ -167,10 +189,11 @@ These were all learned by testing; don't "simplify" them away.
   on 27 registered and 11 unregistered federal corporations, de-registered simplified accounts (correct
   both inside and after their registration period), and made-up numbers: no disagreement. It proves the
   number is registered, **not** that it belongs to the supplier, hence the separate status. Any match via a
-  name that didn't come from the sheet (CRA's simplified list, federal registry) gets the same status.
+  name that didn't come from the sheet (CRA's simplified list, Revenu Québec, federal registry, OrgBook BC)
+  gets the same status.
 - Name matching ignores case and punctuation but **not extra words**: "The University of British
   Columbia" fails, "University of British Columbia" passes. Hence `name_variants` (drop "The", trade
-  name) and the federal-name fallback.
+  name) and the official-name sources below.
 - Rejects dates after **Ottawa's** today. `cra_today()` uses UTC-5 (never ahead of Ottawa; tested
   every hour of a year). Using the local date broke lookups on a UTC machine after 8 PM Eastern.
 - Simplified registrants (`RT9999` etc.) are confirmed by the same form; the published list adds
@@ -201,8 +224,9 @@ CRA charities open data (only historical yearly files found; few suppliers are c
 **Federal corporations** (`fedcorp.py`): open.canada.ca dataset `0032ce54-...`, CSVs on CloudFront.
 Columns used: `Business number (BN)`, `Corporate name - form 1/2`. Only federally incorporated
 companies (~694k BNs); provincial companies, sole proprietors and partnerships aren't there. In a
-30-supplier live test, 10 rows used shortened vendor-master names: 4 were recovered as REGISTERED via
-the official name and the other 6 got a definite NOT REGISTERED (CRA's date answer ignores the name).
+30-supplier live test, 10 rows used shortened vendor-master names: 4 were matched via the official name
+(now reported as REGISTERED - NAME NOT MATCHED with that name) and the other 6 got a definite NOT
+REGISTERED (CRA's date answer ignores the name).
 
 **Revenu Québec QST** (`qst.py`)
 - API: `GET https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/{1234567890TQ0001}`, no key.
@@ -297,7 +321,7 @@ Ctrl+C saves what's done; re-running on the output file overwrites its result co
 
 `examples/`: `suppliers_template.xlsx` (blank headers), `sample_suppliers.xlsx` (11 public test
 suppliers covering every outcome), `sample_suppliers_results.xlsx` and `sample_run.log` (a full run's
-output and log, 2026-10-08, useful to see what a log looks like).
+output and log from a fresh clone on 2026-10-13, useful to see what a log looks like).
 
 Public test data used: UBC GST `108161779RT0001` + BC PST `PST-1000-7572`; Amazon.com.ca ULC
 `857305932RT0001` (also active for Manitoba RST); Avient Canada ULC QST `1019288451TQ0004`
@@ -328,6 +352,9 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-13 (handoff)**: Fresh clone of `main` re-verified end to end (install, offline tests, full
+  sample run: all 11 rows correct in 40 s); example outputs refreshed. Added §0 and
+  `.github/copilot-instructions.md` for the Copilot handoff.
 - **2026-10-13**: Re-verified BC after eTaxBC's maintenance with Chromium 153. The maintenance added a
   content security policy that broke the result wait (`wait_for_function`); now waits on the "Search
   Date" text. 12 lookups in a row, no failures. Full live suite: everything passes except the two items in
