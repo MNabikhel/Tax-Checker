@@ -69,7 +69,7 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 | `--accept-number-only` | Count "REGISTERED - NAME NOT MATCHED" (number registered, vendor name not confirmed) as OK, for a quick number-only pass. Off by default: the number may be another business's, and these are the vendor names to fix. The summary sheet says so at the top when it's used. (`--trust-gst-number` is the old name.) |
 | `--paid-since 2022-01-01` | Only check vendors last paid on or after this date (never by amount). Others stay in the output as **NOT CHECKED**; vendors with a blank or unreadable date are always checked. The launcher's menu asks (Enter = everyone). |
 | `--paid-within 4` | The same, as a number of years back from today. |
-| `--no-name-lookup` | Don't look up official names for GST/HST name mismatches (skips the ~110 MB federal download and OrgBook BC). |
+| `--no-name-lookup` | Don't look up official names for GST/HST name mismatches (skips the ~110 MB federal download, Canada's Business Registries and OrgBook BC). |
 | `--cache-dir folder` | Where downloaded reference data is kept (default: `cache`, refreshed weekly). |
 | `--nr-list saved.html` | Use a saved copy of Revenu Québec's NR registrant list if the download is blocked. |
 | `--log-dir folder` | Where run logs go (default: `logs`). |
@@ -175,7 +175,7 @@ so save the workbook in Excel before running. A QST number without its `TQ` suff
 **Sites contacted.** Only these, all government services: the CRA GST/HST Registry
 (`businessregistration-inscriptionentreprise.gc.ca`), canada.ca (CRA's simplified-registrant list), Revenu
 Québec (`svcnab2b.revenuquebec.ca` for the QST API, `revenuquebec.ca` for the NR list), OrgBook BC
-(`orgbook.gov.bc.ca`), Corporations Canada's open data (the download address open.canada.ca publishes, on
+(`orgbook.gov.bc.ca`), Canada's Business Registries (`ised-isde.canada.ca`), Corporations Canada's open data (the download address open.canada.ca publishes, on
 `cloudfront.net`), eTaxBC (`etax.gov.bc.ca`), Manitoba TAXcess (`taxcess.gov.mb.ca`) and Saskatchewan SETS
 (`sets.saskatchewan.ca`). The browser lookups load those sites' own pages and scripts.
 
@@ -196,7 +196,9 @@ does, so "ACME" won't match "ACME LTD"). The script tries the sheet's name, the 
 vendor-master shorthand (`(DNU)`, `*`, and either side of `O/A`, `DBA`, `C.O.B.`), without "The", and
 the trade name. If none match, it looks up the business number in
 [Corporations Canada's open data](https://open.canada.ca/data/en/dataset/0032ce54-c5dd-4b66-99a0-320a7b5e99f2)
-(all federal corporations, updated weekly), [OrgBook BC](https://orgbook.gov.bc.ca) (companies and other
+(all federal corporations, updated weekly), [Canada's Business Registries](https://ised-isde.canada.ca/cbr/srch/)
+(provincial companies: Alberta, Manitoba, Ontario, Québec, Nova Scotia..., and the full name behind a vendor
+name cut off by the vendor master), [OrgBook BC](https://orgbook.gov.bc.ca) (companies and other
 organizations registered in BC, via its public API), and, when the row has a QST number, the legal name
 Revenu Québec returns. It retries with each official name it finds.
 

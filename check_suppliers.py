@@ -34,6 +34,7 @@ from taxcheck.fedcorp import FederalCorporations
 from taxcheck.gst import GstChecker, cra_today
 from taxcheck.logsetup import setup_logging
 from taxcheck.mb_rst import MbRstChecker
+from taxcheck.cbr import BusinessRegistries
 from taxcheck.orgbook import OrgBookBC
 from taxcheck.progress import ProgressReport, load_resume
 from taxcheck.qst import QstChecker
@@ -427,12 +428,15 @@ def run(args, log_path):
     offline = args.offline
     if offline:
         log.info("--offline: no government site is contacted; numbers are only checked for format and check digit")
-        corporations = orgbook = None
+        corporations = orgbook = registries = None
         gst = Offline()
     else:
         corporations = None if args.no_name_lookup else FederalCorporations(cache_dir=args.cache_dir)
         orgbook = None if args.no_name_lookup else OrgBookBC()
-        gst = GstChecker(corporations=corporations, name_sources=[orgbook] if orgbook else None, cache_dir=args.cache_dir)
+        # Provincial companies (and full names behind cut-off vendor names), after the federal data.
+        registries = None if args.no_name_lookup else BusinessRegistries()
+        gst = GstChecker(corporations=corporations, name_sources=[s for s in (registries, orgbook) if s],
+                         cache_dir=args.cache_dir)
 
     progress = ProgressReport(log_path.parent, len(to_check), every_rows=args.progress_every)
     for r, values in rows:  # carry resumed rows into the new progress file, so the latest file is complete
@@ -490,12 +494,16 @@ def run(args, log_path):
                 qst._load_nr_list()
             pool, worker_orgbooks = [], []
             for _ in range(workers):
-                worker_orgbook = None
+                worker_orgbook = worker_registries = None
                 if orgbook:
                     worker_orgbook = OrgBookBC()
                     worker_orgbook.health = orgbook.health
                     worker_orgbooks.append(worker_orgbook)
-                g = GstChecker(corporations=corporations, name_sources=[worker_orgbook] if worker_orgbook else None,
+                if registries:
+                    worker_registries = BusinessRegistries(cache=registries._cache)
+                    worker_registries.health = registries.health
+                    worker_orgbooks.append(worker_registries)
+                g = GstChecker(corporations=corporations, name_sources=[s for s in (worker_registries, worker_orgbook) if s],
                                cache_dir=args.cache_dir)
                 g.simplified = gst.simplified
                 if hasattr(gst, "answers"):
@@ -602,7 +610,7 @@ def run(args, log_path):
         "SK PST: SETS PST On-Line Registry, searched in a browser window after a person ticks its CAPTCHA once "
         "(--sk-assist, or Y in the menu); otherwise a manual check.",
         "GST/HST names that don't match CRA are retried with official names: Revenu Québec's (when a QST number "
-        "is given), Corporations Canada's open data, and OrgBook BC.",
+        "is given), Corporations Canada's open data, Canada's Business Registries (provincial companies) and OrgBook BC.",
         "GST/HST numbers whose name doesn't match are still checked by number: 'REGISTERED - NAME NOT MATCHED' means "
         "the number is registered but not under the sheet's name (CRA's name is shown when known).",
     ]
@@ -636,7 +644,7 @@ def run(args, log_path):
         pass
     elif gst.simplified.error:
         notes.append(gst.simplified.error)
-    for source in (corporations, orgbook, *worker_orgbooks):
+    for source in (corporations, orgbook, registries, *worker_orgbooks):
         if source and source.error and source.error not in notes:
             notes.append(source.error)
     if qst and qst.nr_error:
@@ -677,7 +685,8 @@ def main(argv=None):
     ap.add_argument("--sk-assist", action="store_true",
                     help="check Saskatchewan PST: opens a browser window where you tick its CAPTCHA once")
     ap.add_argument("--no-name-lookup", action="store_true",
-                    help="don't look up official names (federal registry ~110 MB download, OrgBook BC) for GST/HST name mismatches")
+                    help="don't look up official names (federal registry ~110 MB download, Canada's Business Registries, "
+                         "OrgBook BC) for GST/HST name mismatches")
     ap.add_argument("--cache-dir", default=str(HERE / "cache"),
                     help="folder for downloaded reference data (default: cache in the tool's folder)")
     ap.add_argument("--nr-list", help="saved copy of Revenu Québec's NR registrant list page, if it can't be downloaded")

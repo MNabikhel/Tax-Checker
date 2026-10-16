@@ -46,6 +46,7 @@ a status and an explanation per tax, plus a summary sheet and a detailed log fil
 | GST/HST (simplified, non-resident digital sellers) | CRA registry + CRA's published registrant list | `requests` | Automated, verified live |
 | GST/HST name recovery | Corporations Canada open data (federal corporations CSV, ~110 MB) | download, cached 7 days | Automated, verified live |
 | GST/HST name recovery (BC) | OrgBook BC public API (search by business number) | `requests` | Automated, verified live |
+| GST/HST name recovery (provinces) | Canada's Business Registries search API (by business number) | `requests` | Automated, verified live 2026-10-16 |
 | GST/HST number-only | CRA registry, date-before-name behaviour (§7) | `requests` | Automated, verified live |
 | GST/HST registration dates | CRA registry asked about specific days (`gst_dates.py`, §7) | `requests` | Automated, verified live against CRA's published dates (2026-10-16) |
 | Digital-economy registrants with no number on file | CRA's simplified list matched by name, then confirmed with the registry | `requests` | Automated, verified live (2026-10-16) |
@@ -187,6 +188,7 @@ the log only).
 | `taxcheck/numbers.py` | Offline parsing/validation of every number format; CRA Luhn check digit; free-form "Tax ID" normalization | `parse_gst`, `parse_bn`, `normalize_tax_id`, `tax_id_problem`, `BadNumber` |
 | `taxcheck/gst.py` | CRA registry form, result parsing, name variants, simplified list, federal-name fallback, Ottawa date | `GstChecker`, `parse_registry_result`, `SimplifiedList`, `cra_today`, `name_variants` |
 | `taxcheck/fedcorp.py` | Corporations Canada CSVs → `{bn9: [official names]}`, weekly cache | `FederalCorporations` |
+| `taxcheck/cbr.py` | Canada's Business Registries search → registered names by business number (all provinces) | `BusinessRegistries`, `parse_docs` |
 | `taxcheck/orgbook.py` | OrgBook BC API → official names for BC-registered organizations by business number | `OrgBookBC`, `parse_topics` |
 | `taxcheck/qst.py` | Revenu Québec API; NR list with download → browser → file fallbacks and cache | `QstChecker`, `parse_nr_list` |
 | `taxcheck/browser.py` | Shared lazily-started browser (Chromium → Edge → Chrome), fresh context per lookup, failure screenshots, fail-fast on HTTP errors | `Browser`, `BrowserUnavailable` |
@@ -286,7 +288,7 @@ These were all learned by testing; don't "simplify" them away.
 **Official-name sources for GST/HST.** When the sheet's names don't match, `GstChecker._candidates`
 tries, in order: CRA's simplified list names; names other checks returned for the same row (Revenu
 Québec's legal and trade name, because `RowChecker` runs QST before GST); then each `name_sources`
-entry (federal registry, then OrgBook BC), consulted lazily. Any match through these gives REGISTERED -
+entry (federal registry, then Canada's Business Registries, then OrgBook BC), consulted lazily. Any match through these gives REGISTERED -
 NAME NOT MATCHED with that name in "GST/HST Name Accepted by CRA"; `RowChecker._confirm_official` turns it
 into REGISTERED when the official name is the vendor's own apart from spacing, punctuation, "&"/"and", legal
 suffix, a successor year, one half of a bilingual name, or a vendor name cut off at the ERP's 40
@@ -298,7 +300,15 @@ Each result ("topic") has `names` (types `entity_name`, `business_number`) and `
 `ACT` = active). Covers BC-incorporated companies, extraprovincial registrations (companies from elsewhere
 registered in BC), societies, firms. Verified 2026-10-11: for 20 BC-incorporated companies absent from the
 federal data, CRA accepted OrgBook's name for all 19 GST-registered ones. Not covered: companies only
-registered in other provinces (Ontario, Alberta... have no free BN-searchable API found), sole proprietors.
+registered in other provinces (now covered by Canada's Business Registries, below), sole proprietors.
+
+**Canada's Business Registries** (`cbr.py`): `GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword:{<bn9>}&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc`,
+no key (the JSON the ISED search page uses). `docs[]` have `BN` (sometimes with RC0001), `Company_Name` (or the
+name inside `text`), `Status_State`, `Jurisdiction`. It's a keyword search, so docs whose own `BN` isn't the one
+asked are dropped (Amazon's MB registration under another number came back for Amazon's BC number). Found
+2026-10-16 replaying the user's trial: it named 4 of 6 unconfirmed suppliers (a 40-character cut-off name's full
+name, numbered Manitoba/Alberta companies behind trade names), CRA accepted all 4, and a Manitoba RST account was
+then found under the numbered company's name. Sole proprietors and some Ontario/Québec records have no BN.
 
 **Researched and rejected (2026-10-11)**, so nobody repeats it: Québec's open enterprise register
 (Données Québec) has only the NEQ, no CRA business number; third-party "number-only" GST APIs
@@ -465,6 +475,14 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-16 (improvement sweep)**: Replaying the user's 27 Canadian trial suppliers live found: (1) Canada's
+  Business Registries gives provincial legal names by BN (`cbr.py`, new name source after the federal data):
+  4 of 6 "name not confirmed" now confirmed by CRA, one Manitoba RST found through the new name; (2) report
+  notes for GST/HST numbers shared by differently named vendors and for names at the vendor master's length limit
+  ("probably cut off"); (3) asterisks left around DO NOT USE markers dropped; (4) Saskatchewan issue labels say
+  why (name too short, daily limit, searches stopped, only similar names). Also checked: CRA's form token is
+  single-use and the results page has none, so 3 requests per CRA lookup is the minimum.
 
 - **2026-10-16 (Manitoba: one word per name, plus CRA's name)**: TAXcess needs every typed word in the registered
   name, so a full-name search can only find less than its first distinctive word does. Each name is now searched

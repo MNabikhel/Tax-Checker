@@ -200,6 +200,22 @@ class LiveOrgBook(unittest.TestCase):
 
 
 @unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
+class LiveBusinessRegistries(unittest.TestCase):
+    def test_provincial_name_by_number(self):
+        from taxcheck.cbr import BusinessRegistries
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        cbr = BusinessRegistries()
+        names = cbr.names("857305932")
+        self.assertIn("AMAZON.COM.CA ULC", names)
+        self.assertNotIn("AMAZON.COM.CA, ULC", names)  # that registration is under another number (791188063)
+        res = GstChecker(delay=1.0, name_sources=[cbr]).check("857305932", ["AMAZON MARKETPLACE"], TODAY)
+        self.assertEqual(res.status, NAME_NOT_MATCHED, res.detail)
+        self.assertEqual(res.registered_name, "AMAZON.COM.CA ULC")
+        self.assertIn("Canada's Business Registries", res.detail)
+
+
+@unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")
 class LiveFederalNames(unittest.TestCase):
     def test_name_mismatch_recovered(self):
         from taxcheck.fedcorp import FederalCorporations
