@@ -23,7 +23,8 @@ from taxcheck.browser import Browser, BrowserUnavailable
 from taxcheck.checks import RowChecker
 from taxcheck.result import MANUAL, NOT_CONFIRMED, REGISTERED, Result
 
-LICENSED = {"PRAIRIE HARDWARE LTD": "Vendor's Licence", "NORTHERN SUPPLY": "Registered Consumer"}
+LICENSED = {"PRAIRIE HARDWARE LTD": "PSTVEND", "NORTHERN SUPPLY": "Registered Consumer",
+            "SASKATCHEWAN TELECOMMUNICATIONS HOLDING CORPORATION": "PSTVEND"}
 
 TERMS = """<html><body><h1>PST On-Line Registry</h1><form id="terms" method="post" action="/accept">
 <input type="checkbox" id="termsChkBox"> I agree <div id="captcha_container">[I'm not a robot]</div>
@@ -32,16 +33,34 @@ TERMS = """<html><body><h1>PST On-Line Registry</h1><form id="terms" method="pos
 # Like the real portal, every page has a site-wide search in its header; it must never be the one clicked.
 HEADER = """<form method="get" action="/site-search"><input name="search_query"><button type="submit" title="Search">Search
 </button></form>"""
-SEARCH = HEADER + """<html><body><h1>Search</h1><form method="post" action="/search">
-<input id="pstSearch" name="q"> <button type="submit">Search</button></form></body></html>"""
+
+
+def search_page(term="", result=""):
+    """Laid out like the real page (2026-10-16): the search form echoes the term, its Search control is a
+    javascript: link, and results follow the form. The submit is delayed, as a slow registry's would be, so a
+    reader that doesn't wait for the new page reads the previous search's results."""
+    return HEADER + f"""<html><body><h3>Instruction Box</h3>{result[0] if result else ""}
+<p>The search ignores punctuation ... the number of searches in a 24-hour period is restricted to 100.</p>
+<form id="pstSearchForm" method="post" action="/search">
+<input id="pstSearch" name="pstSearch" value="{html.escape(term)}" maxlength="256">
+<a href="javascript:submitPSTSearch('pstSearchForm')" class="btn btn-default search">Search</a></form>
+<script>function submitPSTSearch(id) {{ setTimeout(() => document.getElementById(id).submit(), 300); }}</script>
+{result[1] if result else ""}</body></html>"""
+
+
+SEARCH = search_page()
 
 
 def results_page(term):
     rows = [(n, kind) for n, kind in LICENSED.items() if term.upper().replace(" ", "") in n.replace(" ", "")]
-    body = ("<table><tr><th>Business Name</th><th>Type</th></tr>"
-            + "".join(f"<tr><td>{html.escape(n)}</td><td>{k}</td></tr>" for n, k in rows) + "</table>"
-            if rows else "<p>No records found.</p>")
-    return f"<html><body><h1>Results</h1>{body}<a href='/registry'>New Search</a></body></html>"
+    if not rows:
+        return search_page(term, ('<div role="alert" class="alert alert-danger">No results found, please try a '
+                                  'different search.</div>', ""))
+    found = "Only 1 company found." if len(rows) == 1 else f"A total of {len(rows)} companies were found."
+    table = ('<table id="pstLookUp" class="table dataTable table-bordered"><caption>Search Results</caption>'
+             '<thead><tr><th scope="col">Business Name</th><th scope="col">Type</th></tr></thead><tbody>'
+             + "".join(f"<tr><td>{html.escape(n)}</td><td>{k}</td></tr>" for n, k in rows) + "</tbody></table>")
+    return search_page(term, ("", found + table))
 
 
 class FakeRegistry(http.server.BaseHTTPRequestHandler):
@@ -91,7 +110,7 @@ class FakeRegistry(http.server.BaseHTTPRequestHandler):
             return
         if sid not in FakeRegistry.accepted:
             return self.do_GET()
-        term = form.get("q", [""])[0]
+        term = form.get("pstSearch", [""])[0]
         FakeRegistry.searches.append(term)
         if FakeRegistry.every_search:
             FakeRegistry.accepted.discard(sid)
@@ -138,6 +157,20 @@ class AssistedFlow(unittest.TestCase):
         self.assertEqual(sk.captchas, 1)  # the person was asked once
         self.assertEqual(FakeRegistry.terms_shown, 1)
         self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "NORTHERN SUPPLY", "UNKNOWN WIDGETS"])
+
+    def test_each_search_reads_its_own_results(self):
+        # Seen on a real run: the second search read the first one's results, because the results page loads
+        # after the click returns. The stand-in delays its submit the same way.
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        first = sk.check(["Prairie Hardware Ltd"])
+        self.assertEqual(first.status, REGISTERED)
+        self.assertEqual(first.registered_name, "PRAIRIE HARDWARE LTD | PSTVEND")
+        sasktel = sk.check(["Saskatchewan Telecommunications"])
+        self.assertEqual(sasktel.status, NOT_CONFIRMED)  # a similar name isn't this supplier's name
+        self.assertIn("SASKATCHEWAN TELECOMMUNICATIONS HOLDING CORPORATION", sasktel.detail)
+        self.assertNotIn("PRAIRIE", sasktel.detail)
+        nothing = sk.check(["Zzqx Imaginary Widgets"])
+        self.assertIn("found no business", nothing.detail)
 
     def test_saskatchewan_and_the_other_browser_checks_in_one_run(self):
         # Seen on a real run: the Saskatchewan window started first, then the hidden browser for Manitoba couldn't
@@ -219,6 +252,37 @@ class AssistedFlow(unittest.TestCase):
         self.assertEqual(out[0]["sk_pst"].status, REGISTERED)
         self.assertNotIn("sk_pst", out[1])
         self.assertEqual(out[2]["sk_pst"].status, REGISTERED)
+
+
+class RealResultsPage(unittest.TestCase):
+    """What the real registry returned on 2026-10-16 (probe run), read the way the tool reads it."""
+
+    FEDERATED = [["FEDERATED CO-OPERATIVES LTD", "PSTVEND"], ["FEDERATED CO-OPERATIVES       LIMITED", "PSTVEND"],
+                 ["FEDERATED CO-OPERATIVES LIMITED", "PSTVEND"]]
+
+    def test_vendor_licence_code(self):
+        status, detail, row = sk_pst.classify(self.FEDERATED, "A total of 3 companies were found.",
+                                              ["Federated Co-operatives Limited"])
+        self.assertEqual(status, REGISTERED)
+        self.assertIn("vendor's licence", detail)
+        self.assertEqual(row, "FEDERATED CO-OPERATIVES LTD | PSTVEND")
+
+    def test_similar_name_only(self):
+        status, detail, _ = sk_pst.classify([["SASKATCHEWAN TELECOMMUNICATIONS HOLDING CORPORATION", "PSTVEND"]],
+                                            "Only 1 company found.", ["Saskatchewan Telecommunications"])
+        self.assertEqual(status, NOT_CONFIRMED)
+        self.assertIn("similar names", detail)
+
+    def test_no_results_and_too_many(self):
+        self.assertIn("found no business", sk_pst.classify(
+            [], "No results found, please try a different search.", ["Zzqx Imaginary Widgets"])[1])
+        self.assertIn("More than 25", sk_pst.classify(
+            [], "The search resulted in more than 25 companies.  Please refine your search criteria", ["Acme"])[1])
+
+    def test_instructions_dont_look_like_a_limit_or_no_result(self):
+        instructions = ("Results will display to a maximum of 25 matches and the number of searches in a 24-hour "
+                        "period is restricted to 100.")
+        self.assertEqual(sk_pst.classify([], instructions, ["Acme Widgets"])[1], "Couldn't read the registry's answer.")
 
 
 class Menu(unittest.TestCase):

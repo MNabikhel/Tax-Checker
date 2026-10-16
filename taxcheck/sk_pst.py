@@ -8,10 +8,12 @@ ordinary form, and the script runs every Saskatchewan search in that same sessio
 The registry searches by business name only and confirms whether the business holds a vendor's
 licence or a registered consumer number, without showing the number.
 
-NOTE: the results page couldn't be inspected while building this (it sits behind the CAPTCHA), so
-results are read conservatively: REGISTERED only when a result row contains the supplier's name and
-names a licence type. Anything else is NOT CONFIRMED with a screenshot saved next to the log. The
-full page text is logged, so the reading can be tightened after the first real run.
+The results page (seen on a real run, 2026-10-16) has a "Business Name | Type" table (#pstLookUp), Type being a
+code such as PSTVEND (vendor's licence), with "A total of 3 companies were found." / "Only 1 company found." above
+it, or "No results found, please try a different search." instead. The search is a full page load (a form post),
+so the results are read only once the new page has replaced the old one. REGISTERED only when a row's name is the
+supplier's (apart from punctuation, spacing, case and legal ending); anything else is NOT CONFIRMED with a
+screenshot saved next to the log.
 """
 
 import datetime as dt
@@ -32,6 +34,8 @@ SEARCH_LIMIT = re.compile(r"(?:search|daily)\s+limit|limit\s+(?:has\s+been\s+)?(
                           r"exceeded\s+the\s+(?:maximum|number)|too\s+many\s+searches", re.I)
 DAILY_LIMIT = 100  # "the number of searches in a 24-hour period is restricted to 100" (the registry's own page)
 NO_RESULTS = re.compile(r"no (records|results|matches|businesses)|not found|could not find|0 results", re.I)
+TOO_MANY = re.compile(r"more than \d+ companies", re.I)  # "The search resulted in more than 25 companies. ..."
+LOAD_TIMEOUT_S = 60
 
 
 def _key(s):
@@ -78,40 +82,63 @@ def _core(text):
     return _key(search_term(text))
 
 
+def _licence(row):
+    """What a result row's Type says: 'vendor', 'consumer' or None. The registry shows codes ("PSTVEND")."""
+    kind = " ".join(row[1:]).upper() if len(row) > 1 else ""
+    words = " ".join(row).lower()
+    if "VEND" in kind or "vendor" in words:
+        return "vendor"
+    if "CONS" in kind or "consumer" in words:
+        return "consumer"
+    return None
+
+
 def classify(rows, page_text, names):
     """Decide what a results page says about this supplier.
 
-    rows: table rows as lists of cell text. Returns (status, detail, matched_row_text).
+    rows: result rows as lists of cell text (business name first, then type). Returns (status, detail, matched_row).
     """
     # A portion search returns similar names too ("ACME" finds "ACME SUPPLY"): only a result whose name is the
     # vendor's (apart from punctuation, spacing, case and legal ending) is this supplier.
     wanted = {_core(n) for n in names if n and len(_core(n)) >= 4}
-    matching = [" | ".join(c for c in r if c) for r in rows if any(_core(c) in wanted for c in r if c)]
-    for row in matching:
-        low = row.lower()
-        if "vendor" in low:
-            return REGISTERED, "Saskatchewan PST registry: holds a vendor's licence.", row
-        if "consumer" in low:
-            return (
-                REGISTERED,
-                "Saskatchewan PST registry: holds a registered consumer number (it buys taxable goods for its own "
-                "use; this number can't be used for tax-exempt purchases for resale).",
-                row,
-            )
+    rows = [[re.sub(r"\s+", " ", c).strip() for c in r] for r in rows]
+    matching = [r for r in rows if r and r[0] and _core(r[0]) in wanted]
+    text = lambda r: " | ".join(c for c in r if c)
+    kinds = {}
+    for r in matching:
+        kinds.setdefault(_licence(r), r)
+    if "vendor" in kinds:
+        return REGISTERED, "Saskatchewan PST registry: holds a vendor's licence.", text(kinds["vendor"])
+    if "consumer" in kinds:
+        return (
+            REGISTERED,
+            "Saskatchewan PST registry: holds a registered consumer number (it buys taxable goods for its own "
+            "use; this number can't be used for tax-exempt purchases for resale).",
+            text(kinds["consumer"]),
+        )
     if matching:
-        return NOT_CONFIRMED, "Found a matching name but couldn't read its licence type: " + "; ".join(matching[:3]), ""
+        return NOT_CONFIRMED, ("Found the name but couldn't read its licence type: "
+                               + "; ".join(text(r) for r in matching[:3])), ""
     if SEARCH_LIMIT.search(page_text):
         raise DailyLimitReached("Saskatchewan's registry says its daily search limit has been reached")
-    if NO_RESULTS.search(page_text):
+    if TOO_MANY.search(page_text):
+        return NOT_CONFIRMED, ("More than 25 businesses in Saskatchewan's registry contain this name, so it shows "
+                               "none of them."), ""
+    if NO_RESULTS.search(page_text) and not rows:
         return NOT_CONFIRMED, "Saskatchewan PST registry found no business under this name.", ""
-    other = [" | ".join(c for c in r if c) for r in rows if any(c for c in r)][:5]
+    other = [text(r) for r in rows if any(r)][:5]
     if other:
-        return NOT_CONFIRMED, "No result matched the supplier's name. Registry returned: " + "; ".join(other), ""
+        return NOT_CONFIRMED, ("No result is exactly the supplier's name; similar names in the registry: "
+                               + "; ".join(other)), ""
     return NOT_CONFIRMED, "Couldn't read the registry's answer.", ""
 
 
 class DailyLimitReached(RuntimeError):
     """The registry's 100 searches per 24 hours are used up."""
+
+
+class ResultsNotLoaded(RuntimeError):
+    """A search was submitted but no results page came back."""
 
 
 class CaptchaEverySearch(RuntimeError):
@@ -214,6 +241,40 @@ class SkPstAssistant:
         return (f"Saskatchewan's registry allows {self.daily_limit} searches per 24 hours and they're used up.{when} "
                 f"Re-run later with --resume, or search by hand at {SK_REGISTRY}")
 
+    # Result rows: from DataTables' own data when it has taken over the table (it keeps only one page of rows on
+    # screen), otherwise from the page. Header rows (no <td>) are left out.
+    _READ_ROWS = """() => {
+        const clean = s => s.replace(/\\s+/g, ' ').trim();
+        const table = document.querySelector('#pstLookUp');
+        const $ = window.jQuery;
+        if (table && $ && $.fn && $.fn.dataTable && $.fn.dataTable.isDataTable(table)) {
+            const cell = h => { const d = document.createElement('div'); d.innerHTML = String(h); return clean(d.textContent); };
+            return $(table).DataTable().rows().data().toArray().map(r => Array.from(r).map(cell));
+        }
+        const trs = table ? table.querySelectorAll('tbody tr') : document.querySelectorAll('table tr');
+        return [...trs].map(tr => [...tr.querySelectorAll('td')].map(c => clean(c.textContent))).filter(r => r.length);
+    }"""
+
+    def _submit_and_wait(self, submit):
+        """Submit the search and wait for the results page to replace this one.
+
+        The search is a form post that reloads the page; reading straight after the click reads the previous
+        search's results (seen on a real run). So the current page is marked, and reading waits until a page
+        without the mark has loaded."""
+        page = self.page
+        page.evaluate("() => { window.__taxcheckOldPage = true; }")
+        submit()
+        deadline = time.monotonic() + LOAD_TIMEOUT_S
+        while True:
+            try:
+                if page.evaluate("() => !window.__taxcheckOldPage && document.readyState !== 'loading'"):
+                    return
+            except Exception:  # the old page is being torn down mid-check
+                pass
+            if time.monotonic() > deadline:
+                raise ResultsNotLoaded(f"Saskatchewan's registry didn't answer within {LOAD_TIMEOUT_S} seconds")
+            page.wait_for_timeout(150)
+
     def _search(self, term):
         if not self.searches_left():
             raise DailyLimitReached("no searches left")
@@ -226,14 +287,11 @@ class SkPstAssistant:
             form.get_by_role("link", name=re.compile(r"^\s*search\s*$", re.I))
         )
         if button.count():
-            button.first.click()
+            self._submit_and_wait(lambda: button.first.click())
         else:
-            page.locator(SEARCH_BOX).press("Enter")
+            self._submit_and_wait(lambda: page.locator(SEARCH_BOX).press("Enter"))
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_load_state("networkidle")
-        rows = page.eval_on_selector_all(
-            "table tr", "trs => trs.map(tr => [...tr.querySelectorAll('th,td')].map(c => c.innerText.trim()))"
-        )
+        rows = page.evaluate(self._READ_ROWS)
         text = page.inner_text("body")
         log.debug("SK registry search %r -> rows %s | page text: %s", term, rows, re.sub(r"\s+", " ", text)[:2000])
         return rows, text
@@ -260,9 +318,13 @@ class SkPstAssistant:
         try:
             last = None
             for term in terms:
-                self._ready()
-                rows, text = self._search(term)
-                self.searches_since_captcha += 1
+                for _ in range(2):
+                    self._ready()
+                    rows, text = self._search(term)
+                    self.searches_since_captcha += 1
+                    if self._search_box_visible():
+                        break
+                    # The search landed on the terms page (the session expired): pass the CAPTCHA, search again.
                 status, detail, row = classify(rows, text, names)
                 last = (status, detail, term)
                 if status == REGISTERED:

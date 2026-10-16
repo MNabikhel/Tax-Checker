@@ -53,7 +53,7 @@ a status and an explanation per tax, plus a summary sheet and a detailed log fil
 | QST (`NR` numbers) | Revenu Québec's published NR list | `requests` → browser → saved file | Page reachable from the user's network; **parser untested** (see §2) |
 | BC PST | eTaxBC "PST Number Verification Service" | Playwright | Automated, verified live (Chromium 141, 2026-10-16; page loads on the user's Edge 155) |
 | MB RST | Manitoba TAXcess "RST Registration Registry" | Playwright | Automated, verified live; ~880 searches in the user's full run on Edge 155 |
-| SK PST | SETS "PST On-Line Registry" | Playwright, **person completes a reCAPTCHA** | Assisted (`--sk-assist`); results page **unseen** (see §2) |
+| SK PST | SETS "PST On-Line Registry" | Playwright, **person completes a reCAPTCHA** | Assisted (`--sk-assist`); results page seen via the probe (2026-10-16) |
 
 Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need the GST/HST check.
 
@@ -358,7 +358,12 @@ punctuation, spacing, special characters and accents", matches "a portion of the
 25 matches and allows **100 searches per 24 hours**. So `search_terms` sends the name without markings ("*",
 brackets), "The" or legal ending, at most 2 per supplier; `classify` only accepts a result whose name equals the
 vendor's apart from those; `SkPstAssistant` counts searches in `cache/saskatchewan_searches.json` and stops at
-100 (MANUAL CHECK with the time searches are possible again). A positive results page hasn't been seen yet.
+100 (MANUAL CHECK with the time searches are possible again). Results page (probe, 2026-10-16): "A total of 3
+companies were found." / "Only 1 company found." then table `#pstLookUp` with columns Business Name | Type, Type
+being a code: `PSTVEND` = vendor's licence (the consumer code hasn't been seen; "CONS"/"consumer" is read as a
+registered consumer). Too many: "The search resulted in more than 25 companies." The search is a full form post
+(`javascript:submitPSTSearch(...)`), so `_submit_and_wait` marks the old page and reads only once a new page has
+loaded; rows come from DataTables' data if it has taken over the table (it shows 5 per page), else the DOM.
 
 ## 8. Tailoring to a new dataset (the likely next job)
 
@@ -459,6 +464,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-16 (Saskatchewan probe results)**: The probe showed two faults: the results' Type is a code
+  (`PSTVEND`), which `classify` didn't recognise as a vendor's licence (so Federated Co-operatives read NOT
+  CONFIRMED), and the second search read the first one's results (it read before the new page loaded). Both fixed;
+  the stand-in registry now mirrors the real page (javascript: Search link, delayed submit, `#pstLookUp`, codes),
+  and the stale-read test fails on the old code. Near names (e.g. "...HOLDING CORPORATION" for "Saskatchewan
+  Telecommunications") stay NOT CONFIRMED and are listed in the details.
 
 - **2026-10-16 (Manitoba results; Saskatchewan probe)**: The trial's 4 Manitoba "not found" are TAXcess's own
   answer: probed live, it needs a name and (RST number or business number) and only finds a business when both
