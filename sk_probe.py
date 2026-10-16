@@ -41,10 +41,8 @@ def main(argv=None):
         for name in names:
             entry = {"name": name, "terms": search_terms(name)}
             try:
-                sk._ready()
                 term = entry["terms"][0]
-                rows, text = sk._search(term)
-                sk.searches_since_captcha += 1
+                rows, text = sk._answered_search(term)
                 stem = out / f"{len(report) + 1}_{''.join(c if c.isalnum() else '_' for c in term)[:30]}"
                 sk.page.screenshot(path=f"{stem}.png", full_page=True)
                 Path(f"{stem}.html").write_text(sk.page.content(), encoding="utf-8")

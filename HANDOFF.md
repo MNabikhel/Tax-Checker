@@ -465,6 +465,18 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-16 (Saskatchewan: one failure no longer stops the rest)**: Three paths ended all remaining
+  Saskatchewan searches after a single bad one: any timeout while the search box was off screen was read as "the
+  CAPTCHA wasn't completed"; one error page followed by the terms page within 3 searches was read as "CAPTCHA
+  needed every search"; and a late answer to an abandoned search could be read as the next one's. Now only the
+  daily limit, an unticked CAPTCHA (timeout while waiting for it), the window being closed, no browser, or the
+  CAPTCHA coming back twice running after <3 searches each stop the run. A failed search is tried once more,
+  then that supplier is ERROR (cached, so the main pass doesn't spend 2 more of the 100 daily searches) and the
+  next is searched. Results are only read from a page whose search box holds the searched name (the real page
+  echoes it); a timed-out page is stopped (`window.stop()`). Checked with the registry's own scripts
+  (pstLookup.js `submitPSTSearch`: >= 4 non-space characters, then `checkPageActions()`, a per-page double-submit
+  guard) and an end-to-end run of check_suppliers against the stand-in with an error page in the middle.
+
 - **2026-10-16 (Saskatchewan probe results)**: The probe showed two faults: the results' Type is a code
   (`PSTVEND`), which `classify` didn't recognise as a vendor's licence (so Federated Co-operatives read NOT
   CONFIRMED), and the second search read the first one's results (it read before the new page loaded). Both fixed;

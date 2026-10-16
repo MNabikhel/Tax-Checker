@@ -708,7 +708,9 @@ class RowChecker:
             log.debug("Traceback for the failure above", exc_info=True)
             result = Result(ERROR, f"{type(e).__name__}: {e} (see log file)")
         finally:
-            if "result" in locals() and result.status != ERROR:  # a failed lookup is worth retrying later
+            # A failed lookup is worth retrying later; except Saskatchewan's, which has already been tried twice and
+            # whose searches are limited to 100 a day.
+            if "result" in locals() and (result.status != ERROR or fn.__name__ == "_sk_noted"):
                 self._cache[key] = result
             self._cache.pop(busy_key, None)
             mine.set()

@@ -21,7 +21,7 @@ from unittest import mock
 from taxcheck import sk_pst
 from taxcheck.browser import Browser, BrowserUnavailable
 from taxcheck.checks import RowChecker
-from taxcheck.result import MANUAL, NOT_CONFIRMED, REGISTERED, Result
+from taxcheck.result import ERROR, MANUAL, NOT_CONFIRMED, REGISTERED, Result
 
 LICENSED = {"PRAIRIE HARDWARE LTD": "PSTVEND", "NORTHERN SUPPLY": "Registered Consumer",
             "SASKATCHEWAN TELECOMMUNICATIONS HOLDING CORPORATION": "PSTVEND"}
@@ -63,8 +63,15 @@ def results_page(term):
     return search_page(term, ("", found + table))
 
 
+ERROR_PAGE = """<html><body><h1>Technical Issue!</h1><p>We are having technical difficulties and are unable to
+complete this action. Please try again later.</p></body></html>"""
+
+
 class FakeRegistry(http.server.BaseHTTPRequestHandler):
     every_search = False  # True: the CAPTCHA is needed again after each search
+    expire_after = None  # the session ends after this many searches (once)
+    broken = set()  # search terms the registry answers with an error page
+    slow = {}  # search term -> seconds before it answers
     accepted = set()  # session ids that passed the terms page
     searches = []
     terms_shown = 0
@@ -114,7 +121,23 @@ class FakeRegistry(http.server.BaseHTTPRequestHandler):
         FakeRegistry.searches.append(term)
         if FakeRegistry.every_search:
             FakeRegistry.accepted.discard(sid)
-        self._send(results_page(term))
+        if FakeRegistry.expire_after is not None and len(FakeRegistry.searches) == FakeRegistry.expire_after:
+            FakeRegistry.accepted.discard(sid)
+            FakeRegistry.expire_after = None
+            return self.do_GET()  # the terms page instead of results, as when a session times out
+        if term.upper() in FakeRegistry.broken:
+            self.send_response(500)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(ERROR_PAGE.encode())
+            return
+        if term.upper() in FakeRegistry.slow:
+            import time
+            time.sleep(FakeRegistry.slow[term.upper()])
+        try:
+            self._send(results_page(term))
+        except OSError:  # the browser gave up on this answer
+            pass
 
 
 def browser_or_skip(test):
@@ -129,7 +152,7 @@ def browser_or_skip(test):
 class AssistedFlow(unittest.TestCase):
     def setUp(self):
         FakeRegistry.every_search, FakeRegistry.searches, FakeRegistry.terms_shown = False, [], 0
-        FakeRegistry.accepted = set()
+        FakeRegistry.accepted, FakeRegistry.broken, FakeRegistry.slow, FakeRegistry.expire_after = set(), set(), {}, None
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeRegistry)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.shutdown)
@@ -224,12 +247,65 @@ class AssistedFlow(unittest.TestCase):
         FakeRegistry.every_search = True
         sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
         self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
-        res = sk.check(["NORTHERN SUPPLY"])
+        # Asked again once (a session can just end), answered; asked again straight after: that's every search.
+        self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)
+        res = sk.check(["SASKATCHEWAN TELECOMMUNICATIONS"])
         self.assertEqual(res.status, MANUAL)
         self.assertIn("asked for the CAPTCHA again", res.detail)
         self.assertEqual(sk.check(["ANOTHER ONE"]).status, MANUAL)  # no more asking
+        self.assertEqual(sk.captchas, 2)
+        self.assertEqual(len(FakeRegistry.searches), 2)
+
+    def test_a_failed_search_doesnt_stop_the_others(self):
+        FakeRegistry.broken = {"BROKEN WIDGETS"}
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        res = sk.check(["BROKEN WIDGETS LTD"])
+        self.assertEqual(res.status, ERROR)
+        self.assertIn("failed twice", res.detail)
+        self.assertEqual(FakeRegistry.searches.count("BROKEN WIDGETS"), 2)  # tried once more, then moved on
+        self.assertIsNone(sk.unavailable)
+        self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)
+        self.assertEqual(sk.check(["Saskatchewan Telecommunications"]).status, NOT_CONFIRMED)
         self.assertEqual(sk.captchas, 1)
-        self.assertEqual(len(FakeRegistry.searches), 1)
+
+    def test_a_search_with_no_answer_doesnt_stop_the_others_or_get_mixed_up(self):
+        FakeRegistry.slow = {"SLOW SUPPLY": 4}
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        with mock.patch.object(sk_pst, "LOAD_TIMEOUT_S", 1.5):
+            self.assertEqual(sk.check(["SLOW SUPPLY"]).status, ERROR)
+            res = sk.check(["PRAIRIE HARDWARE LTD"])
+        self.assertEqual(res.status, REGISTERED)
+        self.assertEqual(res.registered_name, "PRAIRIE HARDWARE LTD | PSTVEND")
+        self.assertEqual(sk.check(["Zzqx Imaginary Widgets"]).status, NOT_CONFIRMED)
+        self.assertIsNone(sk.unavailable)
+
+    def test_session_ending_mid_run_asks_again_and_carries_on(self):
+        FakeRegistry.expire_after = 2
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)  # landed on the terms page, asked again
+        self.assertEqual(sk.check(["Zzqx Imaginary Widgets"]).status, NOT_CONFIRMED)
+        self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        self.assertEqual(sk.captchas, 2)
+        self.assertIsNone(sk.unavailable)
+
+    def test_captcha_not_ticked_stops_without_waiting_again(self):
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        sk._ready = mock.Mock(side_effect=sk_pst.CaptchaNotCompleted("the CAPTCHA wasn't completed in time"))
+        res = sk.check(["PRAIRIE HARDWARE LTD"])
+        self.assertEqual(res.status, MANUAL)
+        self.assertIn("wasn't completed in time", res.detail)
+        self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, MANUAL)
+        self.assertEqual(sk._ready.call_count, 1)
+
+    def test_window_closed_mid_run(self):
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        sk.page.close()
+        res = sk.check(["NORTHERN SUPPLY"])
+        self.assertEqual(res.status, MANUAL)
+        self.assertIn("window was closed", res.detail)
 
     def test_run_does_all_saskatchewan_searches_first_and_rows_reuse_them(self):
         import check_suppliers
@@ -252,6 +328,22 @@ class AssistedFlow(unittest.TestCase):
         self.assertEqual(out[0]["sk_pst"].status, REGISTERED)
         self.assertNotIn("sk_pst", out[1])
         self.assertEqual(out[2]["sk_pst"].status, REGISTERED)
+
+    def test_run_carries_on_past_a_failed_search(self):
+        import check_suppliers
+
+        FakeRegistry.broken = {"BROKEN WIDGETS"}
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        checker = RowChecker(None, None, sk=sk, taxes={"sk_pst"}, available={"name", "province"})
+        rows = [{"name": "PRAIRIE HARDWARE LTD", "province": "SK"},
+                {"name": "BROKEN WIDGETS LTD", "province": "SK"},
+                {"name": "NORTHERN SUPPLY", "province": "SK"},
+                {"name": "ZZQX IMAGINARY WIDGETS", "province": "SK"}]
+        check_suppliers.prefetch_saskatchewan(checker, sk, rows)
+        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "BROKEN WIDGETS", "BROKEN WIDGETS",
+                                                 "NORTHERN SUPPLY", "ZZQX IMAGINARY WIDGETS"])
+        out = [checker.check(r, dt.date(2026, 9, 1))["sk_pst"].status for r in rows]
+        self.assertEqual(out, [REGISTERED, ERROR, REGISTERED, NOT_CONFIRMED])
 
 
 class RealResultsPage(unittest.TestCase):

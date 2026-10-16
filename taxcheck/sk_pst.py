@@ -142,7 +142,19 @@ class ResultsNotLoaded(RuntimeError):
 
 
 class CaptchaEverySearch(RuntimeError):
-    """The registry asked for the CAPTCHA again almost straight away: bulk checking isn't possible."""
+    """The registry asked for the CAPTCHA again almost straight away, twice running: bulk checking isn't possible."""
+
+
+class CaptchaNotCompleted(RuntimeError):
+    """Nobody completed the CAPTCHA within the wait."""
+
+
+class WindowClosed(RuntimeError):
+    """The Saskatchewan browser window was closed during the run."""
+
+
+# Problems that end the Saskatchewan searches for the whole run. Anything else affects only the one supplier.
+_STOPS_THE_RUN = (DailyLimitReached, CaptchaEverySearch, CaptchaNotCompleted, WindowClosed, BrowserUnavailable)
 
 
 class SkPstAssistant:
@@ -153,9 +165,11 @@ class SkPstAssistant:
     4 characters. So one CAPTCHA covers the whole browser session. check_suppliers runs every Saskatchewan
     search straight after the CAPTCHA (prefetch), so the session doesn't sit idle and time out during a long run.
 
-    If the registry shows the terms page again, the person is asked again (the session may have expired). If
-    that happens after fewer than REASK_MIN searches, the CAPTCHA is evidently needed per search, so bulk
-    checking stops and the remaining Saskatchewan rows are left for a manual check.
+    If the registry shows the terms page again, the person is asked again (the session may have expired, or a
+    search hit an error page). Only if that happens twice running after fewer than REASK_MIN searches each is
+    the CAPTCHA evidently needed per search; then bulk checking stops and the remaining Saskatchewan rows are left
+    for a manual check. A search that fails (error page, no answer) is tried once more, then that supplier is
+    marked ERROR and the searches carry on with the next one.
     """
 
     REASK_MIN = 3
@@ -171,6 +185,7 @@ class SkPstAssistant:
         self.unavailable = None
         self.captchas = 0  # times the person was asked to complete it
         self.searches_since_captcha = 0
+        self._per_captcha = []  # searches answered after each earlier CAPTCHA
 
     def _search_box_visible(self):
         box = self.page.locator(SEARCH_BOX)
@@ -199,10 +214,12 @@ class SkPstAssistant:
                 return
         elif self._back_to_search():
             return
-        if self.captchas and self.searches_since_captcha < self.REASK_MIN:
-            raise CaptchaEverySearch(
-                f"Saskatchewan's registry asked for the CAPTCHA again after {self.searches_since_captcha} "
-                "search(es), so it can't be checked in bulk")
+        if self.captchas:
+            self._per_captcha.append(self.searches_since_captcha)
+            if len(self._per_captcha) >= 2 and max(self._per_captcha[-2:]) < self.REASK_MIN:
+                raise CaptchaEverySearch(
+                    "Saskatchewan's registry asked for the CAPTCHA again after only "
+                    f"{' and then '.join(map(str, self._per_captcha[-2:]))} search(es), so it can't be checked in bulk")
         self.captchas += 1
         log.warning(
             "\n>>> Saskatchewan PST registry%s: in the browser window, tick 'I agree', complete 'I'm not a robot', "
@@ -211,7 +228,14 @@ class SkPstAssistant:
             f"{self.wait_ms // 60000} minutes" if self.wait_ms >= 60000 else f"{self.wait_ms // 1000} seconds",
         )
         self.page.bring_to_front()
-        self.page.locator(SEARCH_BOX).wait_for(state="visible", timeout=self.wait_ms)
+        try:
+            self.page.locator(SEARCH_BOX).wait_for(state="visible", timeout=self.wait_ms)
+        except Exception as e:
+            if self.page.is_closed():
+                raise WindowClosed("the Saskatchewan browser window was closed") from e
+            if "Timeout" in type(e).__name__:
+                raise CaptchaNotCompleted("the CAPTCHA wasn't completed in time") from e
+            raise
         self.searches_since_captcha = 0
         log.info("Saskatchewan search page is open; continuing automatically.")
 
@@ -255,23 +279,36 @@ class SkPstAssistant:
         return [...trs].map(tr => [...tr.querySelectorAll('td')].map(c => clean(c.textContent))).filter(r => r.length);
     }"""
 
-    def _submit_and_wait(self, submit):
-        """Submit the search and wait for the results page to replace this one.
+    _NEW_PAGE_FOR = """term => {
+        if (window.__taxcheckOldPage || document.readyState === 'loading') return false;
+        const box = document.querySelector('#pstSearch');
+        return !box || box.value.trim() === term;  // results echo the name searched; no box: terms or error page
+    }"""
+
+    def _submit_and_wait(self, submit, term):
+        """Submit the search and wait for this search's results page to replace the current one.
 
         The search is a form post that reloads the page; reading straight after the click reads the previous
         search's results (seen on a real run). So the current page is marked, and reading waits until a page
-        without the mark has loaded."""
+        without the mark has loaded whose search box holds this search's name (a late answer to an earlier,
+        abandoned search isn't taken for this one)."""
         page = self.page
         page.evaluate("() => { window.__taxcheckOldPage = true; }")
         submit()
         deadline = time.monotonic() + LOAD_TIMEOUT_S
         while True:
             try:
-                if page.evaluate("() => !window.__taxcheckOldPage && document.readyState !== 'loading'"):
+                if page.evaluate(self._NEW_PAGE_FOR, term):
                     return
             except Exception:  # the old page is being torn down mid-check
                 pass
+            if page.is_closed():
+                raise WindowClosed("the Saskatchewan browser window was closed")
             if time.monotonic() > deadline:
+                try:
+                    page.evaluate("() => window.stop()")  # so the late answer can't land on the next search
+                except Exception:
+                    pass
                 raise ResultsNotLoaded(f"Saskatchewan's registry didn't answer within {LOAD_TIMEOUT_S} seconds")
             page.wait_for_timeout(150)
 
@@ -287,9 +324,9 @@ class SkPstAssistant:
             form.get_by_role("link", name=re.compile(r"^\s*search\s*$", re.I))
         )
         if button.count():
-            self._submit_and_wait(lambda: button.first.click())
+            self._submit_and_wait(lambda: button.first.click(), term)
         else:
-            self._submit_and_wait(lambda: page.locator(SEARCH_BOX).press("Enter"))
+            self._submit_and_wait(lambda: page.locator(SEARCH_BOX).press("Enter"), term)
         page.wait_for_load_state("domcontentloaded")
         rows = page.evaluate(self._READ_ROWS)
         text = page.inner_text("body")
@@ -308,6 +345,27 @@ class SkPstAssistant:
         except Exception:
             return ""
 
+    def _answered_search(self, term):
+        """One search, tried a second time if it fails or lands on a page without the search box (an error page,
+        or the terms page when the session ended). Raises if the second try fails too."""
+        for attempt in (1, 2):
+            try:
+                self._ready()
+                rows, text = self._search(term)
+                if self._search_box_visible():
+                    self.searches_since_captcha += 1
+                    return rows, text
+                problem = "the registry showed a page without its search box: " + re.sub(r"\s+", " ", text)[:150]
+            except _STOPS_THE_RUN:
+                raise
+            except Exception as e:
+                if self.page is not None and self.page.is_closed():
+                    raise WindowClosed("the Saskatchewan browser window was closed") from e
+                problem = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
+            if attempt == 1:
+                log.warning("Saskatchewan search for %r didn't work (%s); trying it once more.", term, problem)
+        raise ResultsNotLoaded(problem)
+
     def check(self, names):
         if self.unavailable:
             return Result(MANUAL, self.unavailable)
@@ -318,13 +376,7 @@ class SkPstAssistant:
         try:
             last = None
             for term in terms:
-                for _ in range(2):
-                    self._ready()
-                    rows, text = self._search(term)
-                    self.searches_since_captcha += 1
-                    if self._search_box_visible():
-                        break
-                    # The search landed on the terms page (the session expired): pass the CAPTCHA, search again.
+                rows, text = self._answered_search(term)
                 status, detail, row = classify(rows, text, names)
                 last = (status, detail, term)
                 if status == REGISTERED:
@@ -333,20 +385,14 @@ class SkPstAssistant:
             return Result(status, f"{detail} (searched: {', '.join(terms)}).{self._evidence(term)}")
         except DailyLimitReached:
             self.unavailable = self._limit_message()
-            log.warning("Saskatchewan: %s", self.unavailable)
-            return Result(MANUAL, self.unavailable)
-        except CaptchaEverySearch as e:
-            self.unavailable = f"{e}. Search by hand at {SK_REGISTRY}"
-            log.warning(self.unavailable)
-            return Result(MANUAL, self.unavailable)
+        except (CaptchaEverySearch, CaptchaNotCompleted, WindowClosed) as e:
+            self.unavailable = f"{str(e)[0].upper()}{str(e)[1:]}. Search by hand at {SK_REGISTRY}"
         except BrowserUnavailable as e:
             self.unavailable = f"Couldn't open a browser for the assisted check: {e} Search by hand at {SK_REGISTRY}"
-            return Result(MANUAL, self.unavailable)
         except Exception as e:
-            if "Timeout" in type(e).__name__ and self.page is not None and not self.page.locator(SEARCH_BOX).count():
-                # Nobody completed the CAPTCHA in time; don't make every remaining row wait again.
-                self.unavailable = f"The CAPTCHA wasn't completed in time. Search by hand at {SK_REGISTRY}"
-                log.warning("Saskatchewan: %s", self.unavailable)
-                return Result(MANUAL, self.unavailable)
-            log.exception("Saskatchewan assisted check failed")
-            return Result(ERROR, f"Saskatchewan assisted check failed: {str(e).splitlines()[0]} (see log file)")
+            # Only this supplier: the next one is searched as usual.
+            log.warning("Saskatchewan search failed for %s: %s", terms[0], e, exc_info=not isinstance(e, ResultsNotLoaded))
+            return Result(ERROR, f"Saskatchewan search failed twice ({str(e).splitlines()[0]}). Search by hand at "
+                                 f"{SK_REGISTRY}{self._evidence(terms[0]) if self.page and not self.page.is_closed() else ''}")
+        log.warning("Saskatchewan: %s", self.unavailable)
+        return Result(MANUAL, self.unavailable)
