@@ -30,7 +30,23 @@ class Manitoba(unittest.TestCase):
             parse_mb_rst("12345")
 
     def test_name_variants_end_with_first_word(self):
-        self.assertEqual(mb_names("The Amazon Company Inc", "AMZ"), ["The Amazon Company Inc", "Amazon Company Inc", "AMZ", "Amazon"])
+        # "AMZ" is dropped: under 4 characters TAXcess stays on the search form (live, 2026-10-16).
+        self.assertEqual(mb_names("The Amazon Company Inc", "AMZ"), ["The Amazon Company Inc", "Amazon Company Inc", "Amazon"])
+
+    def test_no_apostrophes_sent_to_taxcess(self):
+        # A term with an apostrophe finds nothing on TAXcess, and in a full run six such names timed out.
+        # TAXcess matches any part of the name, so the longest stretch without an apostrophe is searched.
+        self.assertEqual(mb_names("SMITH'S PLUMBING LTD"), ["S PLUMBING LTD", "SMITH"])
+        self.assertEqual(mb_names("O'BRIEN PLUMBING"), ["BRIEN PLUMBING", "BRIEN"])
+        self.assertEqual(mb_names("JOE\u2019S DINER"), ["S DINER"])
+        self.assertEqual(mb_names("ABC"), [])
+
+    def test_name_too_short_to_search_is_a_manual_check(self):
+        from taxcheck.mb_rst import MbRstChecker
+
+        res = MbRstChecker(browser=None).check(["ABC"], bn9="857305932")
+        self.assertEqual(res.status, MANUAL)
+        self.assertIn("at least 4 letters", res.detail)
 
     def test_results_table(self):
         # Rows as read from the live TAXcess results page.

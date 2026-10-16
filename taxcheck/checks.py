@@ -4,6 +4,7 @@ import copy
 import logging
 import re
 
+from .gst import _name_key
 from .numbers import BadNumber, normalize_tax_id, parse_bc_pst, parse_bn, parse_gst, parse_mb_rst, parse_qst
 from .result import (
     NAME_MATCHES, NAME_UNCONFIRMED, NAME_UPDATE,
@@ -178,7 +179,7 @@ def vendor_name_candidates(name):
     out += trades
     seen, unique = set(), []
     for n in out:
-        key = " ".join(re.sub(r"[^a-z0-9\s]", "", n.lower()).split())  # as gst._name_key: spaces count for CRA
+        key = _name_key(n)  # spellings CRA treats as the same name are one search
         if key and key not in seen:
             seen.add(key)
             unique.append(n)
@@ -471,8 +472,6 @@ class RowChecker:
         The tax result can be REGISTERED after CRA accepted the legal part of "ACME INC. O/A ACE" or an official
         registry spelling; the vendor record still needs fixing, so this says which name to use.
         """
-        from .gst import _name_key
-
         if res.status == REGISTERED:
             accepted = res.facts.get("accepted_name") or res.registered_name
             if not accepted or _name_key(accepted) == _name_key(str(entered or "")):

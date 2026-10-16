@@ -56,5 +56,10 @@ def registration_start(gst, bn9, registered_day):
 
 
 def cancellation_date(gst, bn9, registered_day, not_registered_day):
-    """First day not registered, between a day it was registered and a later day it wasn't."""
-    return first_change(gst, bn9, registered_day, not_registered_day, True)
+    """Last day registered, between a day it was registered and a later day it wasn't.
+
+    CRA's simplified-registrant list gives the last day too (its "deregistered" date): checked live on
+    2026-10-16, a registrant the list shows deregistered 2025-06-30 answers "registered" for 2025-06-30
+    and "not registered" from 2025-07-01. Start dates matched the list exactly for 5 of 5 registrants.
+    """
+    return first_change(gst, bn9, registered_day, not_registered_day, True) - dt.timedelta(days=1)

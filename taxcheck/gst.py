@@ -34,12 +34,16 @@ def _text(fragment):
 
 
 def _name_key(name):
-    """CRA ignores case and punctuation, so names that differ only in those are the same search.
+    """A name the way the CRA registry compares it, so two spellings with the same key are one search.
 
-    Spaces are kept: CRA rejected 'ACME WIDGET CANADA INC.' for a business BC's registry names
-    'AcmeWidget Canada Inc.' (live trial, 2026-10-13), so the two are different searches and both are tried.
+    Measured live on 2026-10-16 (public registrations, e.g. "Amazon.com.ca ULC", "University of British
+    Columbia"): case and extra spaces don't matter; "." and "&" separate words like a space
+    ("Amazon.com.ca" = "Amazon com ca"; "U.L.C." = "U L C", not "ULC"); every other punctuation mark is
+    dropped and joins what's on either side ("British-Columbia" = "BritishColumbia", which fails;
+    "Columbia's" = "Columbias"; "Amazon,com,ca" = "Amazoncomca"). Missing spaces always fail.
     """
-    return " ".join(re.sub(r"[^a-z0-9\s]", "", name.lower()).split())
+    text = re.sub(r"[.&]", " ", str(name).lower())
+    return " ".join(re.sub(r"[^a-z0-9\s]", "", text).split())
 
 
 def name_variants(*names):

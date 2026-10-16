@@ -245,7 +245,7 @@ so dates are found by asking about specific days. The run asks how far to go: *Q
 the full vendor list) confirms each supplier is still registered today and finds the cancellation date if not;
 the start date is found for suppliers that registered after the payment date. *Full* also finds every supplier's
 start date (about 14 lookups each: hours more, best for smaller lists). *None* skips it. Registrations don't
-expire; "Registration End" is a cancellation. Manitoba, BC and Saskatchewan's registries give no dates.
+expire; "Registration End" is a cancellation: for GST/HST it is the last day registered, the same convention as CRA's simplified list (registration dates found by the day search were checked against that list). Manitoba, BC and Saskatchewan's registries give no dates.
 
 
 **Vendor Name Check** (GST/HST, right after Overall) answers a separate question: is the vendor name in your list

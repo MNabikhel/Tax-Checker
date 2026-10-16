@@ -44,7 +44,7 @@ class Search(unittest.TestCase):
     def test_start_and_cancellation_found_to_the_day(self):
         cra = FakeCra(dt.date(2015, 3, 17), dt.date(2026, 5, 2))
         self.assertEqual(gst_dates.registration_start(cra, "x", dt.date(2020, 1, 1)), dt.date(2015, 3, 17))
-        self.assertEqual(gst_dates.cancellation_date(cra, "x", dt.date(2026, 1, 1), TODAY), dt.date(2026, 5, 2))
+        self.assertEqual(gst_dates.cancellation_date(cra, "x", dt.date(2026, 1, 1), TODAY), dt.date(2026, 5, 1))  # last day registered
         self.assertLessEqual(len(cra.asked), 1 + 15 + 10)  # halving: ~14 for 30 years, ~9 for a year
 
     def test_registered_since_the_start_of_gst(self):
@@ -65,9 +65,9 @@ class InTheCheck(unittest.TestCase):
         cra = FakeCra(dt.date(2010, 1, 1), dt.date(2026, 7, 15))
         g = run(cra, dt.date(2026, 6, 1), "end")
         self.assertEqual(g.status, REGISTERED)
-        self.assertEqual(g.facts["registration_end"], "2026-07-15")
+        self.assertEqual(g.facts["registration_end"], "2026-07-14")  # last day registered, as on CRA's list
         self.assertEqual(gst_issue(g)[0], "Registration cancelled since payment date")
-        self.assertIn("2026-07-15", gst_issue(g)[1])
+        self.assertIn("dated after 2026-07-14", gst_issue(g)[1])
 
     def test_full_mode_adds_start_date(self):
         g = run(FakeCra(dt.date(2012, 8, 9)), dt.date(2026, 6, 1), "full")

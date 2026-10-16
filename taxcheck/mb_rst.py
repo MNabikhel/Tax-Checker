@@ -19,13 +19,27 @@ TAXCESS_RST = "https://taxcess.gov.mb.ca/TAXcess/?Link=RSTLookup"
 HEADER = ["Status", "Legal Name(s)", "Operating As Name(s)"]
 
 
+def _searchable(term):
+    """A search term TAXcess can handle, or "".
+
+    Checked live on 2026-10-16: TAXcess matches any part of the name ("mazon" finds AMAZON.COM.CA ULC);
+    a term with an apostrophe finds nothing ("Amazon's"), and a term under 4 characters ("ULC") leaves the
+    page on the search form until the wait times out, as six apostrophe names did in a full run. So the
+    apostrophe is never sent: the longest stretch of the name without one is ("MCDONALD'S" -> "MCDONALD",
+    "O'BRIEN PLUMBING" -> "BRIEN PLUMBING"), which still matches as part of the name.
+    """
+    term = max(re.split(r"['’`]", term), key=len).strip()
+    return term if len(re.sub(r"[^A-Za-z0-9]", "", term)) >= 4 else ""
+
+
 def name_variants(*names):
     """Full names first, then 'The'-less versions, then each name's first distinctive word."""
     out, seen = [], set()
 
     def add(candidate):
+        candidate = _searchable(candidate)
         key = re.sub(r"[^a-z0-9]", "", candidate.lower())
-        if len(key) >= 2 and key not in seen:
+        if key and key not in seen:
             seen.add(key)
             out.append(candidate)
 
@@ -34,7 +48,7 @@ def name_variants(*names):
         add(n)
         add(re.sub(r"^the\s+", "", n, flags=re.I))
     for n in names:
-        words = [w for w in re.findall(r"[\w.&'-]+", n) if w.lower() != "the"]
+        words = [w for w in re.findall(r"[\w.&'’-]+", n) if w.lower() != "the"]
         if words:
             add(words[0])
     return out
@@ -98,8 +112,12 @@ class MbRstChecker:
         if not (bn9 or rst):
             return Result(ERROR, "Manitoba's registry needs the RST number or the business number (GST/HST number).")
         key = f"RST {rst}" if rst else f"BN {bn9}"
+        variants = name_variants(*names)
+        if not variants:
+            return Result(MANUAL, f"Manitoba's registry needs at least 4 letters of the business name to search; the "
+                                  f"vendor name is too short. Search {key} by hand at {TAXCESS_RST}")
         tried = []
-        for name in name_variants(*names):
+        for name in variants:
             tried.append(name)
             if self.health.down:
                 return Result(ERROR, self.health.down_message())

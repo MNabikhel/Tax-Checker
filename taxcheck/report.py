@@ -66,8 +66,8 @@ def gst_issue(res):
     if st in (REGISTERED, NAME_NOT_MATCHED) and f.get("cancelled_after_payment"):
         end = f.get("registration_end", "")
         return ("Registration cancelled since payment date",
-                f"Registered on {date}, but the registration was cancelled on {end}. Don't claim input tax credits on "
-                f"GST/HST charged on invoices dated {end} or later; confirm with the supplier.", SEV_LATE)
+                f"Registered on {date}, but the registration ended after {end} (its last registered day). Don't claim "
+                f"input tax credits on GST/HST charged on invoices dated after {end}; confirm with the supplier.", SEV_LATE)
     if st == REGISTERED:
         fix_id = ""
         if problem and problem != "No Tax ID":
@@ -189,8 +189,9 @@ GENERIC_ACTIONS = {
     "Not registered": "Don't claim input tax credits on GST/HST from these suppliers; confirm with each supplier.",
     "Registered after payment date": "Check GST/HST charged on invoices from before the supplier's registration date "
                                      "('GST/HST Registered Since').",
-    "Registration cancelled since payment date": "Don't claim input tax credits on GST/HST charged on invoices dated on "
-                                                 "or after 'GST/HST Registration End'; confirm with the supplier.",
+    "Registration cancelled since payment date": "Don't claim input tax credits on GST/HST charged on invoices dated "
+                                                 "after 'GST/HST Registration End' (the last registered day); confirm "
+                                                 "with the supplier.",
     "Tax ID not a GST/HST number": "Correct the Tax ID in the vendor record; see 'GST/HST Tax ID Problem'.",
     "Tax ID typo (fails check digit)": "Correct the Tax ID in the vendor record (a digit is wrong).",
 }

@@ -54,9 +54,21 @@ class Candidates(unittest.TestCase):
         self.assertFalse(same_business_name(["SHOP-MOOSE"], "Moose Holdings Ltd."))
         self.assertFalse(same_business_name(["NORTHSTAR GROUP"], "NORTHSTAR SECURITY"))
 
-    def test_spaces_count_for_cra(self):
-        self.assertNotEqual(_name_key("ACME WIDGET CANADA INC."), _name_key("AcmeWidget Canada Inc."))
-        self.assertEqual(_name_key("0999911 B.C. LTD."), _name_key("0999911 BC  LTD"))
+    def test_name_key_follows_cra(self):
+        # Pairs CRA answered the same way / differently in live tests on 2026-10-16 (see gst._name_key).
+        same = [("University of British Columbia", "UNIVERSITY  OF   BRITISH COLUMBIA"),
+                ("Amazon.com.ca ULC", "Amazon com ca ULC"), ("Amazon.com.ca ULC", "Amazon.com.ca, ULC"),
+                ("Amazon.com.ca ULC", "Amazon&com&ca ULC"), ("Amazon.com.ca ULC", "Amazon.com.ca (ULC)"),
+                ("University of British Columbia", "University.of.British.Columbia")]
+        different = [("University of British Columbia", "UniversityofBritish Columbia"),
+                     ("University of British Columbia", "University-of-British-Columbia"),
+                     ("University of British Columbia", "University of British Columbia's"),
+                     ("Amazon.com.ca ULC", "Amazon,com,ca ULC"), ("Amazon.com.ca ULC", "Amazon.com.ca U.L.C."),
+                     ("ACME WIDGET CANADA INC.", "AcmeWidget Canada Inc."), ("0999911 B.C. LTD.", "0999911 BC LTD")]
+        for a, b in same:
+            self.assertEqual(_name_key(a), _name_key(b), (a, b))
+        for a, b in different:
+            self.assertNotEqual(_name_key(a), _name_key(b), (a, b))
 
 
 class AgainstStrictRegistry(unittest.TestCase):
