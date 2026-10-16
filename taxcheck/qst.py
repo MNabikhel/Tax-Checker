@@ -99,9 +99,11 @@ class QstChecker:
             since = (res.get("DateStatut") or "")[:10]
             status = res.get("StatutSousDossierUsager")
             if status == "R":  # Régulier
-                return Result(REGISTERED, f"Revenu Québec: registration valid since {since}.", name)
+                return Result(REGISTERED, f"Revenu Québec: registration valid since {since}.", name,
+                              facts={"registered_since": since, "registration_end": "Active"})
             if status == "A":  # Annulé
-                return Result(NOT_REGISTERED, f"Revenu Québec: registration cancelled since {since}.", name)
+                return Result(NOT_REGISTERED, f"Revenu Québec: registration cancelled since {since}.", name,
+                              facts={"registration_end": since})
             return Result(
                 NOT_CONFIRMED,
                 f"Revenu Québec status '{res.get('DescriptionStatut')}' since {since}; review before relying on it.",

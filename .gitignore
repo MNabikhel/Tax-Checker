@@ -7,3 +7,6 @@ venv/
 logs/
 cache/
 .last_folder
+.last_workbook
+*_tax_check_TRIAL.xlsx
+diagnostics_dir.txt

@@ -14,11 +14,14 @@ import datetime as dt
 import os
 import unittest
 
+from taxcheck.certs import use_system_certificates
 from taxcheck.gst import GstChecker, cra_today
 from taxcheck.qst import QstChecker
 from taxcheck.result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
 
 LIVE = os.environ.get("TAXCHECK_LIVE") == "1"
+if LIVE:
+    use_system_certificates()  # corporate networks re-sign HTTPS traffic; trust Windows' certificates
 
 
 def reachable(url):

@@ -83,9 +83,8 @@ class GstLogic(unittest.TestCase):
         self.assertIn("2021-01-01", res.detail)
 
 
-def cra_like(registered_names, account=True, registered_on_date=True, ended_on=None):
-    """A fake registry that answers the way CRA does: date first, then name. `ended_on`: the first date
-    the number is no longer registered."""
+def cra_like(registered_names, account=True, registered_on_date=True):
+    """A fake registry that answers the way CRA does: date first, then name."""
     from taxcheck.gst import BEFORE_GST
 
     g = GstChecker(delay=0)
@@ -96,7 +95,7 @@ def cra_like(registered_names, account=True, registered_on_date=True, ended_on=N
         g.calls.append((name, date))
         if not account:
             return "no_match"
-        if date <= BEFORE_GST or not registered_on_date or (ended_on and date >= ended_on):
+        if date <= BEFORE_GST or not registered_on_date:
             return "not_registered"
         return "registered" if name in registered_names else "no_match"
 
@@ -124,80 +123,6 @@ class NumberOnly(unittest.TestCase):
 
     def test_matching_name_still_gives_full_registered(self):
         self.assertEqual(cra_like({"Real Inc."}).check("869744920", ["Real Inc."], TODAY).status, REGISTERED)
-
-
-class VendorMasterNames(unittest.TestCase):
-    def test_shorthand_is_cleaned_before_asking_cra(self):
-        from taxcheck.gst import name_variants
-
-        cases = {
-            "(DNU) IMPERIAL PRINTING O/A": ["IMPERIAL PRINTING"],
-            "1234567 ALBERTA LTD O/A ACME PAINTING": ["1234567 ALBERTA LTD", "ACME PAINTING"],
-            "Smith, John DBA Smith Plumbing": ["Smith, John", "Smith Plumbing"],
-            "ACME* (INACTIVE) Supplies - O.A.": ["ACME Supplies"],
-            "C.O.B. Widgets": ["Widgets"],
-            "[DO NOT USE] The Paint Shop": ["The Paint Shop", "Paint Shop"],
-        }
-        for raw, cleaned in cases.items():
-            self.assertEqual(name_variants(raw), [raw, *cleaned], raw)
-
-    def test_words_containing_the_shorthand_are_left_alone(self):
-        from taxcheck.gst import name_variants
-
-        for name in ["Dbacon Foods Ltd.", "Boa Constructors Inc.", "Cobalt Mining Corp.", "Koala Toys"]:
-            self.assertEqual(name_variants(name), [name])
-
-    def test_cleaned_name_confirms_registration(self):
-        g = cra_like({"IMPERIAL PRINTING"})
-        res = g.check("813072139", ["(DNU) IMPERIAL PRINTING O/A"], TODAY)
-        self.assertEqual(res.status, REGISTERED)
-        self.assertIn("IMPERIAL PRINTING", res.detail)
-
-
-class RegistrationEnded(unittest.TestCase):
-    PAST = TODAY - dt.timedelta(days=200)
-
-    def test_past_registration_that_has_ended_is_noted(self):
-        g = cra_like({"Real Inc."}, ended_on=TODAY - dt.timedelta(days=30))
-        res = g.check("813072139", ["Real Inc."], self.PAST)
-        self.assertEqual(res.status, REGISTERED)  # it was registered on the date asked about
-        self.assertTrue(res.ended)
-        self.assertIn(f"no longer registered for GST/HST as of {TODAY}", res.detail)
-        self.assertEqual(g.calls[-1][1], TODAY)
-
-    def test_still_registered_gets_no_note(self):
-        g = cra_like({"Real Inc."})
-        res = g.check("813072139", ["Real Inc."], self.PAST)
-        self.assertFalse(res.ended)
-        self.assertNotIn("no longer", res.detail)
-        self.assertEqual(len(g.calls), 2)  # one extra lookup for today
-
-    def test_name_not_matched_can_also_have_ended(self):
-        res = cra_like({"Real Inc."}, ended_on=TODAY).check("813072139", ["Wrong"], self.PAST)
-        self.assertEqual(res.status, NAME_NOT_MATCHED)
-        self.assertTrue(res.ended)
-
-    def test_no_extra_lookup_for_today_or_unregistered(self):
-        g = cra_like({"Real Inc."})
-        g.check("813072139", ["Real Inc."], TODAY)
-        self.assertEqual(len(g.calls), 1)
-        g = cra_like({"Real Inc."}, registered_on_date=False)
-        g.check("813072139", ["Real Inc."], self.PAST)
-        self.assertEqual(len(g.calls), 1)
-
-    def test_failed_extra_lookup_keeps_the_answer(self):
-        g = cra_like({"Real Inc."})
-        real = g.registry_lookup
-
-        def lookup(bn9, name, date):
-            if date == TODAY:
-                raise ConnectionError("down")
-            return real(bn9, name, date)
-
-        g.registry_lookup = lookup
-        res = g.check("813072139", ["Real Inc."], self.PAST)
-        self.assertEqual(res.status, REGISTERED)
-        self.assertFalse(res.ended)
 
 
 class RegistryRetry(unittest.TestCase):

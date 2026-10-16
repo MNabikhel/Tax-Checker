@@ -1,10 +1,12 @@
 """GST/HST checks: the CRA GST/HST Registry, backed by CRA's published simplified-registrant list."""
 
+import contextlib
 import datetime as dt
 import html
 import logging
 import re
 import time
+from pathlib import Path
 
 import requests
 
@@ -32,72 +34,93 @@ def _text(fragment):
 
 
 def _name_key(name):
-    """CRA ignores case and punctuation, so names that differ only in those are the same search."""
-    return re.sub(r"[^a-z0-9]", "", name.lower())
+    """CRA ignores case and punctuation, so names that differ only in those are the same search.
 
-
-# Vendor-master shorthand that is never part of a name CRA has on file.
-_OPERATING_AS = re.compile(
-    r"\s*(?<![A-Za-z0-9])(?:o/a|o\.a\.?|d/b/a|d\.b\.a\.?|dba|operating as|doing business as|"
-    r"carrying on business as|c\.o\.b\.?|cob)(?![A-Za-z0-9])\s*",
-    re.I,
-)
-_TAGS = re.compile(r"\([^)]*\)|\[[^\]]*\]|\*+")
-
-
-def clean_name_parts(name):
-    """The plausible CRA names inside a vendor-master name.
-
-    "(DNU) IMPERIAL PRINTING O/A" -> ["IMPERIAL PRINTING"]; "1234 AB LTD O/A ACME PAINTING" ->
-    ["1234 AB LTD", "ACME PAINTING"]. CRA accepts a business's legal, operating or trade name, but only
-    exactly as given to CRA, so tags like "(DNU)" and "O/A" guarantee a mismatch.
+    Spaces are kept: CRA rejected 'ACME WIDGET CANADA INC.' for a business BC's registry names
+    'AcmeWidget Canada Inc.' (live trial, 2026-10-13), so the two are different searches and both are tried.
     """
-    text = re.sub(r"\s+", " ", _TAGS.sub(" ", str(name)))
-    parts = [p.strip(" -–,;:") for p in _OPERATING_AS.split(text)]
-    return [p for p in parts if re.search(r"[A-Za-z0-9]", p)]
+    return " ".join(re.sub(r"[^a-z0-9\s]", "", name.lower()).split())
 
 
 def name_variants(*names):
-    """Spellings to try with CRA: each name as given, then cleaned of vendor-master shorthand, then
-    without a leading "The". The registry ignores case and punctuation but not extra or missing words
-    (even "Inc." vs "Incorporated" fails), so guessing suffixes is pointless and isn't done."""
+    """The CRA registry ignores case and punctuation but not extra words, so try a few spellings.
+
+    Vendor-master names are broken into likely legal/operating names before they get here
+    (checks.vendor_name_candidates); official names from registries are used as given.
+    """
     seen, out = set(), []
     for name in names:
         if not name:
             continue
         name = str(name).strip()
-        for candidate in (name, *clean_name_parts(name)):
-            for spelling in (candidate, re.sub(r"^the\s+", "", candidate, flags=re.I)):
-                key = _name_key(spelling)
-                if key and key not in seen:
-                    seen.add(key)
-                    out.append(spelling)
+        for candidate in (name, re.sub(r"^the\s+", "", name, flags=re.I)):
+            key = _name_key(candidate)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(candidate)
     return out
 
 
 class SimplifiedList:
-    """CRA's list of simplified GST/HST registrants, downloaded once per run."""
+    """CRA's list of simplified GST/HST registrants, loaded once per run.
 
-    def __init__(self, session):
+    canada.ca doesn't answer Python's requests on some corporate networks (seen 2026-10-13 on a corporate network: read timeouts
+    while a browser loads it fine), so: a cached copy under a week old, else one quick plain download,
+    else the page through the shared browser. Successful downloads are cached.
+    """
+
+    CACHE_AGE = 7 * 24 * 3600
+
+    def __init__(self, session, browser=None, cache_dir=None):
         self.session = session
+        self.browser = browser  # set by check_suppliers.run once the shared browser exists
+        self.cache_file = Path(cache_dir) / "cra_simplified_list.html" if cache_dir else None
         self._rows = None
         self.error = None
+
+    def _sources(self):
+        """Yield (description, page HTML), best first."""
+        if self.cache_file and self.cache_file.exists() and time.time() - self.cache_file.stat().st_mtime < self.CACHE_AGE:
+            yield "cached copy", self.cache_file.read_text(encoding="utf-8")
+        try:
+            # One quick try without retries: when canada.ca stalls, retrying only wastes minutes.
+            r = requests.get(SIMPLIFIED_LIST, timeout=(10, 25), headers={"User-Agent": self.session.headers.get("User-Agent", "")})
+            r.raise_for_status()
+            yield "download", r.text
+        except Exception as e:
+            log.info("Plain download of the CRA simplified list failed (%s: %s); trying the browser",
+                     type(e).__name__, str(e).splitlines()[0][:150] if str(e) else "")
+        if self.browser:
+            with self.browser.page() as page:
+                resp = page.goto(SIMPLIFIED_LIST, wait_until="domcontentloaded", timeout=60000)
+                log.debug("Browser load of the CRA simplified list -> HTTP %s", resp and resp.status)
+                if resp is None or resp.status < 400:
+                    yield "browser", page.content()
+
+    def _load(self):
+        self._rows = {}
+        errors = []
+        try:
+            for source, page in self._sources():
+                rows = self.parse(page)
+                if rows:
+                    self._rows = rows
+                    log.info("Loaded CRA simplified GST/HST list from %s: %d business numbers", source, len(rows))
+                    if self.cache_file and source != "cached copy":
+                        with contextlib.suppress(OSError):
+                            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+                            self.cache_file.write_text(page, encoding="utf-8")
+                    return
+                errors.append(f"{source}: no business numbers found (page layout changed?)")
+        except Exception as e:  # the main registry check still works without it
+            errors.append(f"{type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}")
+        self.error = "couldn't load CRA simplified registrant list (" + ("; ".join(errors) or "plain download failed, no browser") + ")"
+        log.warning(self.error)
 
     def lookup(self, bn9, date):
         """The entry for this business number that applies on `date`, else its most recent one."""
         if self._rows is None:
-            self._rows = {}
-            try:
-                r = self.session.get(SIMPLIFIED_LIST, timeout=60)
-                r.raise_for_status()
-                self._rows = self.parse(r.text)
-                log.info("Loaded CRA simplified GST/HST list: %d business numbers", len(self._rows))
-                if not self._rows:
-                    self.error = "CRA simplified registrant list was empty; its page layout may have changed"
-            except Exception as e:  # the main registry check still works without it
-                self.error = f"couldn't download CRA simplified registrant list: {e}"
-            if self.error:
-                log.warning(self.error)
+            self._load()
         entries = self._rows.get(bn9)
         if not entries:
             return None
@@ -169,7 +192,7 @@ def _parse_date(s):
 
 
 class GstChecker:
-    def __init__(self, delay=1.5, corporations=None, name_sources=None):
+    def __init__(self, delay=1.5, corporations=None, name_sources=None, cache_dir=None):
         """Name sources are tried, in order, when the sheet's names don't match CRA's records.
 
         Each has `.label` and `.names(bn9) -> [official names]` (FederalCorporations, OrgBookBC).
@@ -177,7 +200,7 @@ class GstChecker:
         """
         self.session = new_session()
         self.throttle = Throttle(delay)
-        self.simplified = SimplifiedList(self.session)
+        self.simplified = SimplifiedList(self.session, cache_dir=cache_dir)
         self.corporations = corporations
         self.name_sources = [s for s in [corporations, *(name_sources or [])] if s]
         self.health = SiteHealth("The CRA GST/HST Registry")
@@ -241,25 +264,7 @@ class GstChecker:
         result = self._check(bn9, names, date, listed, extra_names)
         if future_note:
             result.detail = f"{future_note} {result.detail}"
-        if result.status in (REGISTERED, NAME_NOT_MATCHED) and date < today:
-            self._note_if_ended(bn9, result, today)
         return result
-
-    def _note_if_ended(self, bn9, result, today):
-        """Add a note when a registration that was valid on the (past) check date has since ended.
-
-        One extra lookup. CRA answers "not registered" for a number and date whatever name is given, so
-        a placeholder name is enough. It doesn't change the status: the registration was valid on the
-        date asked about, which is what matters for that invoice.
-        """
-        try:
-            outcome = self.registry_lookup(bn9, PLACEHOLDER_NAME, today)
-        except Exception as e:  # the main answer stands without this
-            log.warning("Couldn't check whether bn=%s is still registered today: %s", bn9, e)
-            return
-        if outcome == "not_registered":
-            result.ended = True
-            result.detail += f" Note: CRA says this number is no longer registered for GST/HST as of {today}."
 
     def _candidates(self, bn9, names, listed, extra_names=()):
         """Names to try, best first: the sheet's, CRA's simplified list, names from other checks, then
@@ -298,6 +303,19 @@ class GstChecker:
         return ""
 
     def _check(self, bn9, names, date, listed, extra_names=()):
+        res = self._decide(bn9, names, date, listed, extra_names)
+        res.facts.setdefault("date_checked", str(date))
+        if listed:
+            # CRA's published list gives the dates for simplified (non-resident digital seller) registrations.
+            res.facts["simplified_registrant"] = True
+            if listed.get("registered"):
+                res.facts["registered_since"] = str(listed["registered"])
+            if listed.get("deregistered"):
+                res.facts["registration_end"] = str(listed["deregistered"])
+            res.facts["dates_source"] = "CRA simplified registrant list"
+        return res
+
+    def _decide(self, bn9, names, date, listed, extra_names=()):
         note = SIMPLIFIED_NOTE if listed else ""
         tried, sheet_tried = [], []
         for name, source in self._candidates(bn9, names, listed, extra_names):
@@ -308,25 +326,35 @@ class GstChecker:
             if outcome == "registered":
                 if source == "sheet":
                     detail = f"CRA GST/HST Registry confirms registration on {date} (matched name '{name}')."
-                    return Result(REGISTERED, " ".join(filter(None, [detail, note])), listed and listed["legal_name"] or name)
+                    return Result(REGISTERED, " ".join(filter(None, [detail, note])), listed and listed["legal_name"] or name,
+                                  facts={"accepted_name": name, "name_source": "sheet", "cra_answer": "registered"})
                 # Registered, but under a name from CRA's list or the federal registry, not the sheet's:
                 # the number is fine; whether it's this supplier's number is for a person to judge.
-                return Result(NAME_NOT_MATCHED, " ".join(filter(None, [self._other_name_detail(name, source, sheet_tried, date), note])), name)
+                return Result(NAME_NOT_MATCHED, " ".join(filter(None, [self._other_name_detail(name, source, sheet_tried, date), note])), name,
+                              facts={"accepted_name": name, "name_source": source, "official_name": name,
+                                     "cra_answer": "registered"})
             if outcome == "invalid":
-                return Result(INVALID, "CRA says this GST/HST number is not valid.")
+                return Result(INVALID, "CRA says this GST/HST number is not valid.", facts={"cra_answer": "invalid"})
             if outcome == "not_registered":
                 # CRA gives this answer about the number and date whatever name is entered,
                 # so it's definite about the number but says nothing about the name.
-                return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.")
+                return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.",
+                              facts={"cra_answer": "not_registered_on_date"})
 
         if listed:
             dereg = listed["deregistered"]
             if dereg and dereg <= date:
-                return Result(NOT_REGISTERED, f"Simplified GST/HST registration ended {dereg}.", listed["legal_name"])
+                return Result(NOT_REGISTERED, f"Simplified GST/HST registration ended {dereg}.", listed["legal_name"],
+                              facts={"cra_answer": "deregistered", "official_name": listed["legal_name"],
+                                     "name_source": "CRA's simplified registrant list"})
             if listed["registered"] and listed["registered"] > date:
-                return Result(NOT_REGISTERED, f"Simplified GST/HST registration only starts {listed['registered']}.", listed["legal_name"])
+                return Result(NOT_REGISTERED, f"Simplified GST/HST registration only starts {listed['registered']}.", listed["legal_name"],
+                              facts={"cra_answer": "not_registered_on_date", "official_name": listed["legal_name"],
+                                     "name_source": "CRA's simplified registrant list"})
             detail = self._other_name_detail(listed["legal_name"], "CRA's simplified registrant list", sheet_tried, date)
-            return Result(NAME_NOT_MATCHED, f"{detail} {note}", listed["legal_name"])
+            return Result(NAME_NOT_MATCHED, f"{detail} {note}", listed["legal_name"],
+                          facts={"accepted_name": listed["legal_name"], "official_name": listed["legal_name"],
+                                 "name_source": "CRA's simplified registrant list", "cra_answer": "registered"})
 
         return self._number_only(bn9, date, tried, extra_names)
 
@@ -356,9 +384,10 @@ class GstChecker:
         if not tried:  # no name at all in the sheet: ask about the date itself first
             outcome = self.registry_lookup(bn9, PLACEHOLDER_NAME, date)
             if outcome == "not_registered":
-                return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.")
+                return Result(NOT_REGISTERED, f"CRA: this number was not registered for GST/HST on {date}.",
+                              facts={"cra_answer": "not_registered_on_date"})
             if outcome == "invalid":
-                return Result(INVALID, "CRA says this GST/HST number is not valid.")
+                return Result(INVALID, "CRA says this GST/HST number is not valid.", facts={"cra_answer": "invalid"})
         official = [n for n in [self._official_name(bn9, extra_names)] if n]
         tried_text = "; ".join(f"'{n}'" for n in tried) or "(no name in the sheet)"
         if date <= BEFORE_GST:
@@ -372,9 +401,12 @@ class GstChecker:
                 "Confirm the number belongs to this supplier (e.g. the legal name on their invoice) before "
                 "relying on it for input tax credits.",
                 official[0] if official else "",
+                facts={"official_name": official[0] if official else "", "cra_answer": "registered_number_only",
+                       "names_tried": tried},
             )
         return Result(
             NOT_REGISTERED,
             f"CRA has no GST/HST account under this number (it isn't recognized for any date). It's most likely "
             "a typo or not a GST/HST number; ask the supplier for it again.",
+            facts={"cra_answer": "unknown_number"},
         )

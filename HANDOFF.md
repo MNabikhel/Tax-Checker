@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-13 · **Branch:** `main` (current; all work is merged) · **Tests:** 100 offline + 12 live
+**Last updated:** 2026-10-16 · **Branch:** working copy from a second agent, not committed (see §12) · **Tests:** 146 offline + 12 live
 
 ---
 
@@ -151,6 +151,7 @@ the log only).
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA | `SkPstAssistant`, `classify`, `search_terms` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection | `new_session`, `Throttle`, `SiteHealth` |
 | `taxcheck/logsetup.py` | Log file + console handlers | `setup_logging` |
+| `taxcheck/progress.py` | Per-supplier progress CSV, periodic progress/ETA lines, `--resume` loader | `ProgressReport`, `load_resume` |
 | `taxcheck/result.py` | Status constants and `Result` | |
 
 ## 6. Statuses
@@ -165,6 +166,8 @@ the log only).
 | NO NUMBER | Tax applies (by province) but no number given | Missing data |
 | MANUAL CHECK | Not checked automatically | SK without `--sk-assist`; no browser; CAPTCHA not completed |
 | ERROR | Lookup failed (network, site down, page changed) | Re-run later; see log |
+| NOT APPLICABLE | Foreign supplier with no explicit Canadian GST/HST number | Country column not CA |
+| NOT LOOKED UP | `--offline` run; passed offline checks | |
 
 `Overall` is `OK` only if every status in the row is REGISTERED (or REGISTERED - NAME NOT MATCHED with
 `--trust-gst-number`), otherwise `REVIEW`.
@@ -208,16 +211,11 @@ These were all learned by testing; don't "simplify" them away.
   corporations: dropping the suffix ("ACME LTD" → "ACME") failed 15/15, swapping it (LTD → INC) 15/15,
   spelling it out (INC → INCORPORATED) 14/15. The 2012-era claim that CRA only compares the first 10
   characters is false. CRA accepts the legal name **or** an operating/trade name it has on file, each
-  exactly. So guessing spellings is pointless; `name_variants` only tries the name as given, then with
-  vendor-master shorthand removed (`clean_name_parts`: bracketed tags like "(DNU)", "*", and splits on
-  "O/A", "DBA", "C.O.B.", "operating as"...), each with and without a leading "The". Add other
-  shorthand your vendor master uses to `_TAGS` / `_OPERATING_AS` in `gst.py`, with a test in
-  `tests/test_gst_logic.py` (`VendorMasterNames`).
-- **Registrations that have ended.** When the check date is in the past and the answer is REGISTERED or
-  REGISTERED - NAME NOT MATCHED, `GstChecker._note_if_ended` asks about today too (one extra lookup,
-  placeholder name). If CRA says not registered today, the status stays (it was valid on the date asked
-  about) but `Result.ended` is set and the details say so. Example found in real data: a "(DNU)" vendor
-  registered on 2026-04-24 and closed by 2026-06-30. A failed extra lookup is logged and ignored.
+  exactly. Vendor-master names are split into the likely legal and operating names before CRA is
+  asked (`checks.vendor_name_candidates`: do-not-use markers, bracketed status notes, "O/A", "DBA",
+  "C.O.B.", "operating as", padded vendor numbers, "-REMIT"...). `gst.name_variants` only adds
+  "without a leading The"; official registry names are used as given. Add other shorthand your vendor
+  master uses to the patterns at the top of `checks.py`, with a test in `tests/test_vendor_names.py`.
 - Rejects dates after **Ottawa's** today. `cra_today()` uses UTC-5 (never ahead of Ottawa; tested
   every hour of a year). Using the local date broke lookups on a UTC machine after 8 PM Eastern.
 - Simplified registrants (`RT9999` etc.) are confirmed by the same form; the published list adds
@@ -357,7 +355,7 @@ Inc. `774075766`.
 
 | Symptom | Look at | Likely fix |
 |---|---|---|
-| Many GST "REGISTERED - NAME NOT MATCHED" | the **Name Follow-up** sheet, "Name on Government Record" column, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's: update the vendor master to the legal name on the supplier's invoice, add the vendor master's shorthand to `_TAGS`/`_OPERATING_AS`, or use `--trust-gst-number` if only the number matters |
+| Many GST "REGISTERED - NAME NOT MATCHED" | the **Action List** sheet, "GST/HST Registry Name" and "Details" columns, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's: update the vendor master to the legal name on the supplier's invoice, add the vendor master's shorthand to the patterns in `checks.py`, or use `--trust-gst-number` if only the number matters |
 | `Transaction date cannot be a future date` | system clock | `cra_today()` should prevent it; check the PC's clock |
 | BC/MB all ERROR, "answered HTTP 5xx" or "wasn't responding" | site status | Maintenance; re-run later |
 | BC/MB ERROR with a timeout on a specific element | failure screenshot in the `logs` folder next to the workbook | The site's layout changed; update selectors in `_lookup` |
@@ -377,11 +375,7 @@ Inc. `774075766`.
 
 ## 12. Change log
 
-- **2026-10-13 (vendor names)**: Real JDE vendor names ("(DNU) IMPERIAL PRINTING O/A") gave many
-  REGISTERED - NAME NOT MATCHED. Names are now cleaned of vendor-master shorthand before asking CRA;
-  past-dated registrations are re-checked for today and flagged if they've ended; the output has a
-  **Name Follow-up** sheet (only when needed) listing those rows with the government name and what to do.
-  Measured CRA's name strictness (§7) to confirm suffix guessing can't help.
+- **2026-10-16 (merge)**: CHANGELOG-PLACEHOLDER
 - **2026-10-13 (file picker)**: Running without a path opens a file picker (typed-path fallback without a
   display), starting in the last folder used. Logs and screenshots now go to a `logs` folder next to the
   workbook (results already did); the shared cache is anchored to the tool's folder. Added `Setup.bat` and

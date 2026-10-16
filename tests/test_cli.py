@@ -65,7 +65,8 @@ class Cli(unittest.TestCase):
 
     def run_cli(self, *extra):
         logs = self.dir / "logs"
-        code = check_suppliers.main([str(self.src), "--log-dir", str(logs), "--no-browser", "--no-name-lookup", *extra])
+        code = check_suppliers.main([str(self.src), "--log-dir", str(logs), "--no-browser", "--no-name-lookup",
+                                    "--workers", "1", *extra])
         log_files = list(logs.glob("tax_check_*.log"))
         self.assertEqual(len(log_files), 1)
         return code, log_files[0].read_text(encoding="utf-8")

@@ -14,7 +14,8 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-INSTALL_HINT = "Run 'pip install playwright' and 'playwright install chromium' to enable browser-based checks."
+INSTALL_HINT = ("Run Test Setup.bat (it installs Playwright), or make sure Microsoft Edge is installed; "
+                "'playwright install chromium' also works where downloads aren't blocked.")
 
 
 class BrowserUnavailable(RuntimeError):
@@ -29,6 +30,7 @@ class Browser:
         self.debug_dir = Path(debug_dir) if debug_dir else None
         self._pw = self._browser = None
         self._start_error = None
+        self.engine = None  # which browser actually started, e.g. "Microsoft Edge 141.0..."
 
     def __enter__(self):
         return self
@@ -53,19 +55,38 @@ class Browser:
             from playwright.sync_api import sync_playwright
 
             self._pw = sync_playwright().start()
-            kwargs = {"headless": self.headless}
-            if os.environ.get("TAXCHECK_CHROMIUM"):
-                kwargs["executable_path"] = os.environ["TAXCHECK_CHROMIUM"]
-            if os.environ.get("HTTPS_PROXY"):
-                kwargs["proxy"] = {"server": os.environ["HTTPS_PROXY"]}
-            self._browser = self._pw.chromium.launch(**kwargs)
-            log.debug("Started Chromium %s (headless=%s)", self._browser.version, self.headless)
         except Exception as e:
             self.close()
             self._start_error = f"browser couldn't start ({str(e).splitlines()[0]}). {INSTALL_HINT}"
-            log.exception("Browser start failed")
-            log.error(self._start_error)
+            log.exception("Playwright start failed")
             raise BrowserUnavailable(self._start_error) from e
+        base = {"headless": self.headless}
+        if os.environ.get("HTTPS_PROXY"):
+            base["proxy"] = {"server": os.environ["HTTPS_PROXY"]}
+        # Try, in order: a browser named in TAXCHECK_CHROMIUM, Playwright's own Chromium, then the Microsoft Edge
+        # or Google Chrome already installed on the PC. Edge is on every Windows PC and needs no download, which
+        # matters on corporate networks where 'playwright install chromium' can't download (seen 2026-10-13).
+        attempts = []
+        if os.environ.get("TAXCHECK_CHROMIUM"):
+            attempts.append(("TAXCHECK_CHROMIUM", {"executable_path": os.environ["TAXCHECK_CHROMIUM"]}))
+        attempts += [("Playwright Chromium", {}), ("Microsoft Edge", {"channel": "msedge"}), ("Google Chrome", {"channel": "chrome"})]
+        errors = []
+        for label, extra in attempts:
+            try:
+                self._browser = self._pw.chromium.launch(**base, **extra)
+                self.engine = f"{label} {self._browser.version}"
+                log.debug("Started %s (headless=%s)", self.engine, self.headless)
+                if errors:
+                    log.info("Using %s for browser lookups (%s)", self.engine, "; ".join(errors))
+                return
+            except Exception as e:
+                first = str(e).splitlines()[0] if str(e) else type(e).__name__
+                errors.append(f"{label}: {first[:150]}")
+                log.debug("Couldn't start %s: %s", label, first)
+        self.close()
+        self._start_error = f"browser couldn't start ({' | '.join(errors)}). {INSTALL_HINT}"
+        log.error(self._start_error)
+        raise BrowserUnavailable(self._start_error)
 
     @contextlib.contextmanager
     def page(self):

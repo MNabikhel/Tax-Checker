@@ -7,6 +7,7 @@ companies only, not provincial ones. The CSVs (~110 MB) are cached locally and r
 """
 
 import csv
+import threading
 import logging
 import re
 import time
@@ -31,6 +32,7 @@ class FederalCorporations:
         self.session = session or new_session()
         self._names = None
         self.error = None
+        self._lock = threading.Lock()  # parallel lookups share one copy; load it once
 
     def _fetch(self, url):
         path = self.cache_dir / url.rsplit("/", 1)[-1]
@@ -49,7 +51,8 @@ class FederalCorporations:
         return path
 
     def _load(self):
-        self._names = {}
+        self._names = None
+        names = {}
         try:
             for url in SOURCES:
                 with open(self._fetch(url), encoding="utf-8-sig", newline="") as f:
@@ -57,18 +60,21 @@ class FederalCorporations:
                         bn = (row.get("Business number (BN)") or "").strip()
                         if not re.fullmatch(r"\d{9}", bn):
                             continue
-                        names = self._names.setdefault(bn, [])
+                        found = names.setdefault(bn, [])
                         for key in ("Corporate name - form 1", "Corporate name - form 2"):
                             name = (row.get(key) or "").strip()
-                            if name and name not in names:
-                                names.append(name)
-            log.info("Loaded federal corporate names for %d business numbers", len(self._names))
+                            if name and name not in found:
+                                found.append(name)
+            log.info("Loaded federal corporate names for %d business numbers", len(names))
         except Exception as e:
             self.error = f"couldn't load federal corporations data: {e}"
             log.warning(self.error)
+        self._names = names  # published only when complete
 
     def names(self, bn9):
         """Official corporate names for a business number (empty list if it's not a federal corporation)."""
         if self._names is None:
-            self._load()
+            with self._lock:
+                if self._names is None:
+                    self._load()
         return self._names.get(bn9, [])

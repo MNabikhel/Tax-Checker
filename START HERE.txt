@@ -1,0 +1,50 @@
+TAX-CHECKER: HOW TO RUN IT
+==========================
+
+THE REAL RUN (what you do each time)
+------------------------------------
+1. If you keep the tool in a synced cloud folder, copy the project folder to a local folder
+   (e.g. Downloads) and choose "Replace the files in the destination". That keeps the installed
+   environment (.venv) local. Only needed when the tool or the workbook changed.
+2. In the local Tax-Checker folder, double-click "Run Tax Check.bat".
+3. Pick the supplier workbook in the window that opens.
+4. Choose which taxes to check:
+     1  GST/HST only (fastest)
+     2  Everything (press Enter)
+     3  Choose letters, e.g.  G M   (G GST/HST, Q QST, B BC PST, M Manitoba RST, S Saskatchewan)
+   GST/HST is always included.
+   Then choose GST/HST registration dates:
+     1  Quick (press Enter): still registered today? cancellation date if not (about +1 hour)
+     2  Full: also every supplier's GST/HST start date (hours more; for smaller lists)
+     3  None (fastest)
+5. Leave it running (about 3.5-4.5 hours with everything and quick dates; GST/HST only with no
+   dates is about 2.5 hours). Keep the PC awake and on the network/VPN.
+   A progress line every 25 suppliers shows how many are done and the time left.
+6. When it finishes, File Explorer opens on  <workbook>_tax_check.xlsx  next to the workbook.
+
+If it stops part way (restart, network drop, Ctrl+C), open Command Prompt in the Tax-Checker
+folder and run (use the newest file in the logs folder next to the workbook):
+   "Run Tax Check.bat" --resume "<...>\logs\progress_<date>_<time>.csv"
+Suppliers already finished are kept; ones with errors are tried again.
+
+DO I NEED "Test Setup.bat"?
+---------------------------
+- Not for every run. "Run Tax Check.bat" is all you need once the tool is set up.
+- Run "Test Setup.bat" only: the first time on a PC, after copying an update of the tool,
+  or when something fails (it repairs the install and says what's wrong).
+- "Run Trial (25 suppliers).bat" is an optional 2-minute check before a long run.
+- There is no other setup file (Test Setup.bat replaced Setup.bat).
+
+READING THE RESULTS
+-------------------
+- Start with the "Action List" sheet: only suppliers that need something done, worst first,
+  with the Main Issue and the Action Needed for each.
+- On the main sheet every result column has a filter. Filter "Main Issue" or "GST/HST Issue"
+  to work through one kind of problem at a time (e.g. "Registered under another name").
+- README.md lists every column and every Issue value.
+- Overall: OK / REVIEW / NOT APPLICABLE (foreign supplier).
+- Vendor Name Check: MATCHES / UPDATE NAME (correct the vendor record to the name in the
+  GST/HST details) / NOT CONFIRMED (get the legal name from the supplier).
+- Tax Check Summary sheet: counts and notes for the run.
+- Your workbook is never changed; results are a new file in the same folder.
+- Copies of every log go to your diagnostics folder, if you set one up (see diagnostics_dir.example.txt).

@@ -39,7 +39,7 @@ class WorkbookIO(unittest.TestCase):
         path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
         make_workbook(path, [["Supplier Name", "GST/HST Number", "Note"], ["A Co", "108161779RT0001", "=1+1"]])
         sheet = SupplierSheet(path)
-        sheet.write_results({2: {"gst": Result(REGISTERED, "ok", "A CO")}}, out, ["note"])
+        sheet.write_results({2: {"gst": Result(REGISTERED, "ok", "A CO", facts={"accepted_name": "A CO"})}}, out, ["note"])
         ws = openpyxl.load_workbook(out)["Sheet"]
         headers = [c.value for c in ws[1]]
         self.assertEqual(headers[:4], ["Supplier Name", "GST/HST Number", "Note", "Overall"])
@@ -47,8 +47,10 @@ class WorkbookIO(unittest.TestCase):
         row = dict(zip(headers, [c.value for c in ws[2]]))
         self.assertEqual(row["Overall"], "OK")
         self.assertEqual(row["GST/HST Status"], REGISTERED)
-        self.assertEqual(row["Name on Government Record"], "A CO")
+        self.assertEqual(row["GST/HST Name Accepted by CRA"], "A CO")
+        self.assertEqual(row["Main Issue"], "None")
         self.assertIn("Tax Check Summary", openpyxl.load_workbook(out).sheetnames)
+        self.assertIn("Action List", openpyxl.load_workbook(out).sheetnames)
 
     def test_rerun_on_results_file_overwrites_result_columns(self):
         path, out1, out2 = self.dir / "in.xlsx", self.dir / "r1.xlsx", self.dir / "r2.xlsx"
@@ -69,11 +71,12 @@ class WorkbookIO(unittest.TestCase):
     def test_external_text_never_becomes_a_formula(self):
         path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
         make_workbook(path, [["Supplier Name", "GST/HST Number"], ["A Co", "108161779"]])
-        SupplierSheet(path).write_results({2: {"gst": Result(REGISTERED, "=HYPERLINK(\"x\")", "=1+1")}}, out, [])
+        SupplierSheet(path).write_results(
+            {2: {"gst": Result(REGISTERED, "=HYPERLINK(\"x\")", "=1+1", facts={"accepted_name": "=1+1"})}}, out, [])
         ws = openpyxl.load_workbook(out)["Sheet"]
         headers = [c.value for c in ws[1]]
         row = dict(zip(headers, [c.value for c in ws[2]]))
-        self.assertEqual(row["Name on Government Record"], "'=1+1")
+        self.assertEqual(row["GST/HST Name Accepted by CRA"], "'=1+1")
         self.assertTrue(row["GST/HST Details"].startswith("'="))
 
     def test_trusting_gst_number_counts_name_not_matched_as_ok(self):
@@ -86,30 +89,6 @@ class WorkbookIO(unittest.TestCase):
         SupplierSheet(path).write_results(results, self.dir / "trusted.xlsx", [], (REGISTERED, NAME_NOT_MATCHED))
         self.assertEqual(openpyxl.load_workbook(self.dir / "default.xlsx")["Sheet"]["C2"].value, "REVIEW")
         self.assertEqual(openpyxl.load_workbook(self.dir / "trusted.xlsx")["Sheet"]["C2"].value, "OK")
-
-    def test_name_follow_up_sheet_lists_what_needs_a_person(self):
-        from taxcheck.result import NAME_NOT_MATCHED
-
-        path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"
-        make_workbook(path, [["Supplier Name", "GST/HST Number"], ["(DNU) A CO O/A", "108161779RT0001"],
-                             ["B Co", "857305932RT0001"], ["C Co", "869744920RT0001"], ["D Co", "813072139RT0001"]])
-        results = {
-            2: {"gst": Result(NAME_NOT_MATCHED, "", "A COMPANY LTD")},
-            3: {"gst": Result(REGISTERED, "")},
-            4: {"gst": Result(NAME_NOT_MATCHED, "")},
-            5: {"gst": Result(REGISTERED, "", "D CO", ended=True)},
-        }
-        SupplierSheet(path).write_results(results, out, [])
-        rows = list(openpyxl.load_workbook(out)["Name Follow-up"].iter_rows(values_only=True))
-        self.assertEqual([r[0] for r in rows[1:]], [2, 4, 5])
-        self.assertEqual(rows[1][1:5], ("(DNU) A CO O/A", "108161779RT0001", NAME_NOT_MATCHED, "A COMPANY LTD"))
-        self.assertIn("update the vendor name", rows[1][5])
-        self.assertIn("legal name on the supplier's invoice", rows[2][5])
-        self.assertIn("No longer registered today", rows[3][5])
-
-        # Nothing to follow up: no sheet, and a re-run removes the old one.
-        SupplierSheet(out).write_results({2: {"gst": Result(REGISTERED, "")}}, self.dir / "out2.xlsx", [])
-        self.assertNotIn("Name Follow-up", openpyxl.load_workbook(self.dir / "out2.xlsx").sheetnames)
 
     def test_overall_review_when_anything_not_registered(self):
         path, out = self.dir / "in.xlsx", self.dir / "out.xlsx"

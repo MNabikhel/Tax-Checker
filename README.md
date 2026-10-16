@@ -22,6 +22,26 @@ pip install -r requirements.txt
 playwright install chromium      # one-time; needed for BC, Manitoba and Saskatchewan lookups
 ```
 
+## Quick start (Windows)
+
+1. Double-click **`Test Setup.bat`**: installs/repairs what's needed, checks every government site, the
+   browser and your workbook, does a few real lookups, and ends with READY / NOT READY and the fixes. Its
+   report (and every run's log) is also copied to a diagnostics folder if you set one up (below).
+   It doesn't create a results workbook; when READY it offers the trial.
+2. **`Run Trial (25 suppliers).bat`** (or answer Y at the end of the setup test): 25 real lookups, about 2 minutes;
+   saves `<workbook>_tax_check_TRIAL.xlsx` next to the workbook and opens that folder.
+3. **`Run Tax Check.bat`**: the full run; saves `<workbook>_tax_check.xlsx` next to the workbook and opens that folder.
+
+On corporate networks that inspect and re-sign web traffic, Python's own certificate list makes every lookup fail
+with `CERTIFICATE_VERIFY_FAILED`. The tool uses the operating system's certificate store through the `truststore`
+package (in `requirements.txt`); certificate checking stays on. Where `playwright install chromium` can't download,
+the browser lookups use the installed Microsoft Edge (or Chrome) instead.
+
+**Diagnostics folder (optional).** To have setup reports, run logs and failure screenshots copied to a folder
+someone helping you can read (e.g. a cloud-synced folder), copy `diagnostics_dir.example.txt` to
+`diagnostics_dir.txt` and put the folder on its first line (environment variables like `%OneDriveCommercial%`
+work), or set `TAXCHECK_DIAGNOSTICS_DIR`. Off by default; `diagnostics_dir.txt` is git-ignored.
+
 ## Usage
 
 **Windows:** double-click `Run Tax Check.bat`. A window opens to choose the supplier workbook; the check
@@ -53,6 +73,15 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 | `--log-dir folder` | Where run logs go (default: `logs`). |
 | `-v` | Also show the detailed log on screen. |
 | `--check-columns` | Check nothing: show how your columns are read and what the first rows would check (offline). |
+| `--offline` | Look nothing up: check every row's number format, CRA check digit and routing, and write the results file. Rows that pass show `NOT LOOKED UP` (Overall `PENDING`). |
+| `--limit 25` | Trial run: only check the first 25 suppliers. |
+| `--resume logs\progress_<date>.csv` | Continue a run that stopped: suppliers finished in that run are kept, ones with errors are re-checked. |
+| `--checkpoint-every 2000` | Save the results workbook every N suppliers during the run (default 2000; `0` = only at the end). |
+| `--progress-every 25` | Write a progress line (done, speed, time left, counts) every N suppliers (default 25). |
+| `--gst-dates end` | GST/HST registration dates: `none`, `end` (default: still registered today; cancellation date) or `full` (also every start date; slow). The .bat launchers ask. |
+| `--taxes gst` | Which taxes to check: `gst`, `qst`, `bc`, `mb`, `sk` (comma-separated) or `all` (default). GST/HST is always checked. The .bat launchers ask with a menu (`--ask`). |
+| `--workers 3` | Parallel lookups (default 3, max 6; `1` = one at a time). Each keeps its own pacing; Manitoba/BC browser checks run alongside on the main thread. |
+| `--as-of-today` | Ignore the date column and confirm every registration as of today (or `--date`). |
 
 To fix a name and re-check, edit the results file and run the script on it. It overwrites its own
 result columns rather than adding new ones.
@@ -63,6 +92,42 @@ after two failed suppliers, stops trying that site for the rest of the run, and 
 ERROR so you can re-run later.
 
 To try it out, run it on `examples/sample_suppliers.xlsx`, which uses publicly published numbers.
+
+## ERP vendor-master exports (Company Name / Tax ID / Country layout)
+
+The tool reads a typical ERP vendor-master export as it comes, with these headers (any other columns are left
+alone):
+
+| Export column | Used as |
+|---|---|
+| Company Name | Supplier name (legal name) |
+| Tax ID | GST/HST number. Tidied first: `RC0001`/`RP0001`/`RR0001` and other CRA program accounts, old `R123456789` numbers and 3- or 5-digit references are checked by their 9-digit business number, with a note in the details. `000000000RT0001` placeholders are NO NUMBER. A QST number in this column is checked as QST. |
+| Country | `CA` rows get the Canadian checks. Other countries are **NOT APPLICABLE**, unless the Tax ID is an explicit Canadian GST/HST number (9 digits + `RT`), which is checked. A bare 9-digit Tax ID on a foreign vendor is usually a US EIN and is not sent to CRA. |
+| State | Province. When blank (or `CA`) on a Canadian vendor, it's taken from the postal code. |
+| Postal Code | Fills in the province (see above); a blank country with a Canadian postal code counts as Canada. |
+| Check/ Itm Date | Last payment date: GST/HST is confirmed as of that date (future dates use today). Use `--as-of-today` to confirm as of today instead. |
+
+The export has no QST or PST columns, so Québec and BC vendors aren't flagged NO NUMBER for those taxes.
+Manitoba RST is still checked (Manitoba's registry searches by name plus the business number from the Tax
+ID), and Saskatchewan PST is a manual check unless you run with `--sk-assist`.
+
+Suggested order for a large list: `--check-columns`, then `--offline` (2 minutes, fix any
+INVALID NUMBER / NO NUMBER rows you can), then `--limit 25` for a live trial, then the full run.
+
+## Long runs: progress, checkpoints and resuming
+
+A full run of a 20,000-row export (about half Canadian) took about 2 h 45 min with the default 3 parallel lookups
+and all taxes (registration dates off); expect roughly 3x that one at a time. Foreign suppliers and rows with a missing or invalid number take no time: they're never sent online. While it runs:
+
+- **Progress file** `logs\progress_<date>_<time>.csv`: one line per supplier, written as each one finishes:
+  every status and detail, the province used, seconds taken and any error. Open it in Excel at any time.
+- **Progress lines** in the log and on screen every 25 suppliers (or 2 minutes): done/total, percent, seconds
+  per supplier, time left, and status counts so far.
+- **Checkpoint saves** of the results workbook every 2,000 suppliers, marked "IN PROGRESS" on the summary sheet.
+
+If the run stops (Ctrl+C, PC restart, network drop), start it again with
+`--resume logs\progress_<date>_<time>.csv`. Finished suppliers are kept, suppliers with errors are re-checked,
+and the new progress file includes both, so the latest one is always complete.
 
 ## Input columns
 
@@ -123,14 +188,6 @@ but it isn't confirmed to be this supplier's (it could be another business's num
 If your vendor names are unreliable and you only need the number checked, `--trust-gst-number` counts it
 as OK.
 
-**Registrations that have ended.** When a row's date is in the past and the number was registered
-then, the script also checks today. If the registration has since ended, the details say so (the
-status stays REGISTERED, because it was valid on the date asked about).
-
-**Name Follow-up sheet.** When any GST/HST result needs a person (registered under another name, or no
-longer registered), the results workbook gets a **Name Follow-up** sheet listing just those suppliers:
-your name, the number, the name on the government record when known, and what to do.
-
 **Québec NR list.** Revenu Québec's website blocks some networks, such as cloud servers. The script tries
 a plain download, then a real browser, and keeps a copy for a week. If both are blocked, save the page
 from your browser and pass it with `--nr-list`.
@@ -144,9 +201,66 @@ column. If nobody completes the CAPTCHA within 5 minutes, the Saskatchewan rows 
 
 ## Reading the results
 
+Results are added to the right of your columns (your workbook itself is never changed), with filter buttons on
+every header. Two extra sheets: **Action List** (only the suppliers that need something done, worst first) and
+**Tax Check Summary** (counts per issue with what to do, and notes from the run).
+
+**Per supplier**
+
+| Column | What it tells you |
+|---|---|
+| Overall | OK / REVIEW / NOT APPLICABLE (foreign supplier). |
+| Main Issue | The most important problem for this supplier, e.g. "GST/HST: Registered under another name". Filter on it. |
+| Action Needed | What to do about the Main Issue. |
+| Other Issues | Any other problems (other taxes). |
+| Vendor Name Check | MATCHES / UPDATE NAME / NOT CONFIRMED: is the vendor name the name CRA has? |
+| Suggested Vendor Name | The name CRA accepted, when the vendor name should change (check it's the same business). |
+| Do-Not-Use Vendor | "Yes" when the vendor name carries a DNU / DO NOT USE marker. |
+| Province Used | The province the checks were based on ("(from postal code)" when the State column was blank or wrong). |
+
+**Per tax** (GST/HST, QST, BC PST, MB RST, SK PST; only the taxes chosen for the run)
+
+| Column | What it tells you |
+|---|---|
+| Status | The government source's answer (REGISTERED, NOT REGISTERED...). |
+| Issue | What that means, as a short fixed phrase you can filter on (list below). |
+| Number Checked | The number actually looked up (after tidying the Tax ID). |
+| Registered Since / Registration End | Registration dates where known (see below). "Active on <date>" = still registered that day. |
+| Name on Record (provincial) | The name the provincial registry has. |
+| Details | The full explanation. |
+
+GST/HST also has: **Tax ID Problem** (e.g. "Corporate income tax account (RC), not GST/HST (RT)", "Old R-format",
+"Wrong length", "Placeholder"), **Date Checked** (the payment date used), **Status Today**, **Name Accepted by
+CRA**, **Name Source** (vendor name as entered / reworded / BC or federal registry) and **Registry Name**.
+
+GST/HST Issue values: Registered - name matches · Registered - vendor name differs from CRA · Registered - Tax ID
+needs correcting · Registered under another name · Registered - legal name not confirmed · Registered after
+payment date · Registration cancelled since payment date · Not registered · Registration cancelled · Number not
+known to CRA · No GST/HST number · No GST/HST number (placeholder Tax ID) · Tax ID not a GST/HST number · Tax ID
+typo (fails check digit) · Foreign supplier - not applicable · Lookup failed.
+
+**Registration dates.** Revenu Québec gives QST start/cancellation dates, and CRA's simplified list gives them for
+non-resident digital sellers. The CRA GST/HST registry gives no dates: it only answers "registered on this day?",
+so dates are found by asking about specific days. The run asks how far to go: *Quick* (default, about +1 hour on
+the full vendor list) confirms each supplier is still registered today and finds the cancellation date if not;
+the start date is found for suppliers that registered after the payment date. *Full* also finds every supplier's
+start date (about 14 lookups each: hours more, best for smaller lists). *None* skips it. Registrations don't
+expire; "Registration End" is a cancellation. Manitoba, BC and Saskatchewan's registries give no dates.
+
+
+**Vendor Name Check** (GST/HST, right after Overall) answers a separate question: is the vendor name in your list
+the name CRA has? The tool never invents names and never edits your workbook; it only tries forms of your own
+vendor name (e.g. the legal part before "O/A") and official registry names, and CRA must accept one.
+
+| Vendor Name Check | Meaning |
+|---|---|
+| MATCHES | CRA accepted the vendor name exactly as entered. |
+| UPDATE NAME | Registration confirmed, but CRA accepted a different form of the name (shown in the GST/HST details and Name on Government Record). Correct the vendor record. |
+| NOT CONFIRMED | The number is registered, but CRA accepted no name we have. Get the legal name from the supplier (e.g. their invoice). |
+
 Each tax gets a **Status** and a **Details** column, and each row gets an **Overall** column (`OK`
 when every applicable check came back `REGISTERED`). A **Tax Check Summary** sheet has counts per
-tax and notes from the run, and a **Name Follow-up** sheet appears when GST/HST names need fixing.
+tax and notes from the run.
 
 | Status | Meaning |
 |---|---|
@@ -158,6 +272,8 @@ tax and notes from the run, and a **Name Follow-up** sheet appears when GST/HST 
 | NO NUMBER | The tax looks applicable, but no number was provided. |
 | MANUAL CHECK | Wasn't checked automatically (SK without `--sk-assist`, or no browser available). The details say how to check it. |
 | ERROR | A lookup failed (site down, network). Re-run later. |
+| NOT APPLICABLE | Non-Canadian supplier with no Canadian tax number; no Canadian check applies. Overall `NOT APPLICABLE`. |
+| NOT LOOKED UP | `--offline` only: passed the offline checks, still needs the online run. Overall `PENDING`. |
 
 Lookups are spaced out (about 1.5 s per CRA lookup and 5 s per BC lookup), so a few hundred suppliers
 take several minutes. A number that appears on several rows is only looked up once.

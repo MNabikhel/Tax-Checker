@@ -1,0 +1,4 @@
+# Optional: copy setup reports, run logs and failure screenshots to this folder (e.g. a cloud-synced folder),
+# so someone helping remotely can read them. Rename this file to diagnostics_dir.txt and put the path on the
+# first line that isn't a comment. Environment variables are expanded. Leave it out to turn copying off.
+%OneDriveCommercial%\Projects\Tax-Checker\Diagnostics

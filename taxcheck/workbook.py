@@ -11,7 +11,12 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .result import ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
+from .report import generic_action
+from .result import (
+    NAME_MATCHES, NAME_UNCONFIRMED, NAME_UPDATE,
+    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NOT_APPLICABLE, NOT_CONFIRMED, NOT_LOOKED_UP, NOT_REGISTERED,
+    REGISTERED,
+)
 
 log = logging.getLogger(__name__)
 
@@ -21,15 +26,23 @@ COLUMNS = {
              "company name", "supplier", "vendor", "company", "name"],
     "trade_name": ["trade name", "operating name", "operating as", "dba", "dba name", "doing business as"],
     "province": ["province", "prov", "province/territory", "province / territory", "province/state", "state/prov",
-                 "state/province", "region"],
-    "gst": ["gst/hst number", "gst/hst no", "gst/hst #", "gst/hst", "gst number", "gst no", "gst #", "gst", "hst number", "hst #", "hst"],
+                 "state/province", "region", "state"],
+    "gst": ["gst/hst number", "gst/hst no", "gst/hst #", "gst/hst", "gst number", "gst no", "gst #", "gst", "hst number", "hst #", "hst",
+            # ERP vendor export: "Tax ID" holds the GST/HST number for Canadian vendors
+            # (and the US EIN or other foreign IDs for foreign vendors; see checks.RowChecker for routing).
+            "tax id"],
     "bn": ["business number", "bn", "cra business number"],
     "qst": ["qst number", "qst no", "qst #", "qst", "tvq", "qst/tvq"],
     "bc_pst": ["bc pst number", "bc pst no", "bc pst #", "bc pst"],
     "sk_pst": ["sk pst number", "sk pst #", "sk pst", "saskatchewan pst"],
     "mb_rst": ["mb rst number", "mb rst #", "mb rst", "rst number", "rst #", "rst", "manitoba rst", "mb pst"],
     "pst": ["pst number", "pst no", "pst #", "pst", "provincial sales tax", "provincial sales tax number", "pst/rst"],
-    "date": ["transaction date", "invoice date", "date"],
+    "date": ["transaction date", "invoice date", "date",
+             # ERP vendor export: date of the last cheque/payment item to the vendor.
+             "check/ itm date", "check/itm date"],
+    # Country and postal code decide whether Canadian checks apply and fill in a blank province.
+    "country": ["country", "country code"],
+    "postal": ["postal code", "postal", "postal/zip", "zip code", "zip"],
 }
 
 PROVINCES = {
@@ -49,12 +62,13 @@ STATUS_FILL = {
     MISSING: "FFEB9C",
     MANUAL: "DDEBF7",
     ERROR: "F8CBAD",
+    NOT_APPLICABLE: "EDEDED",
+    NOT_LOOKED_UP: "FFFFFF",
 }
 
+NAME_CHECK_FILL = {"MATCHES": "C6EFCE", "UPDATE NAME": "FFEB9C", "NOT CONFIRMED": "F8CBAD"}
+
 TAXES = [("gst", "GST/HST"), ("qst", "QST"), ("bc_pst", "BC PST"), ("sk_pst", "SK PST"), ("mb_rst", "MB RST")]
-
-
-FOLLOW_UP = "Name Follow-up"
 
 
 def _key(s):
@@ -76,7 +90,8 @@ def suggest_field(header):
         r"tax|gst|hst|qst|tvq|pst|rst|bn|business", str(header).lower()
     ):
         return None  # "Vendor ID", "Supplier Code": identifiers, not names
-    candidates = list(_ALIASES)
+    # Country/postal are matched by exact alias only: as fuzzy suggestions they misfire ("Amount" ~ "country").
+    candidates = [a for a in _ALIASES if _ALIASES[a] not in ("country", "postal")]
     if re.search(r"tax|gst|hst|qst|tvq|pst|rst", key):
         # A tax-ish header should only be suggested as a tax-number field, never as province or name.
         candidates = [a for a in candidates if _ALIASES[a] in TAX_FIELDS]
@@ -85,6 +100,28 @@ def suggest_field(header):
         # Partial words: "Legal Entity" contains "legal"...
         match = [a for a in candidates if len(a) >= 3 and (a in key or key in a)][:1]
     return (match[0], _ALIASES[match[0]]) if match else None
+
+
+COUNTRIES_CA = {"CA", "CAN", "CANADA"}
+
+# First letter of a Canadian postal code -> province (X is shared by NT and NU; NT is far more common).
+POSTAL_PROVINCE = {
+    "A": "NL", "B": "NS", "C": "PE", "E": "NB", "G": "QC", "H": "QC", "J": "QC", "K": "ON", "L": "ON",
+    "M": "ON", "N": "ON", "P": "ON", "R": "MB", "S": "SK", "T": "AB", "V": "BC", "X": "NT", "Y": "YT",
+}
+CA_POSTAL = re.compile(r"^[ABCEGHJ-NPRSTVXY]\d[A-Z]\s?\d[A-Z]\d$")
+
+
+def province_from_postal(value):
+    """Province from a Canadian postal code ("T5J 0N3" -> AB), or "" if it isn't one."""
+    s = str(value or "").strip().upper()
+    return POSTAL_PROVINCE[s[0]] if CA_POSTAL.match(s) else ""
+
+
+def normalize_country(value):
+    """'CA', 'Canada' -> 'CA'; other values upper-cased as given; blank -> ''."""
+    s = str(value or "").strip().upper()
+    return "CA" if s in COUNTRIES_CA else s
 
 
 def normalize_province(value):
@@ -259,101 +296,250 @@ class SupplierSheet:
                 yield r, values
 
     def write_results(self, results, out_path, run_notes, ok_statuses=(REGISTERED,)):
-        """results: {row_number: {tax_key: Result}}"""
+        """results: {row_number: {tax_key: Result}}. Adds the result columns to the supplier sheet (a copy: the
+        input file is never saved over), an "Action List" sheet and a "Tax Check Summary" sheet."""
+        from .report import SEV_LATE, SEV_NAME, SEVERITY_FILL, issue_for, name_source, row_summary
+
         ws = self.ws
         # Re-running on an earlier results file overwrites its result columns instead of adding more.
         start = next(
             (c for c in range(1, ws.max_column + 1) if ws.cell(self.header_row, c).value == "Overall"),
-            ws.max_column + 1,
+            None,
         )
-        for old_sheet in ("Tax Check Summary", FOLLOW_UP):
-            if old_sheet in self.wb.sheetnames:
-                del self.wb[old_sheet]
-        headers = ["Overall"]
-        for key, label in TAXES:
-            headers += [f"{label} Status", f"{label} Details"]
-        headers += ["Name on Government Record", "Checked On"]
-        bold = Font(bold=True)
-        for i, h in enumerate(headers):
+        rerun = start is not None
+        start = start or ws.max_column + 1
+        # Only the taxes chosen for this run get columns (self.taxes is set by check_suppliers; None = all).
+        chosen = getattr(self, "taxes", None)
+        taxes = [(k, label) for k, label in TAXES if chosen is None or k == "gst" or k in chosen]
+        labels = dict(TAXES)
+        for name in ("Tax Check Summary", "Action List"):
+            if name in self.wb.sheetnames:
+                del self.wb[name]
+        if rerun:  # an earlier run may have had more tax columns: clear all of its result columns first
+            for row in ws.iter_rows(min_row=self.header_row, min_col=start, max_col=ws.max_column):
+                for cell in row:
+                    cell.value, cell.fill = None, PatternFill()
+
+        # (header, width, kind) per column; kind decides how the value is found for a row.
+        columns = [
+            ("Overall", 16, "overall"), ("Main Issue", 40, "main"), ("Action Needed", 60, "action"),
+            ("Other Issues", 40, "other"), ("Vendor Name Check", 18, "name_check"),
+            ("Suggested Vendor Name", 34, "suggested"), ("Do-Not-Use Vendor", 12, "dnu"),
+            ("Province Used", 14, "province"),
+        ]
+        for key, label in taxes:
+            if key == "gst":
+                columns += [
+                    (f"{label} Status", 18, ("status", key)), (f"{label} Issue", 36, ("issue", key)),
+                    (f"{label} Tax ID Problem", 30, ("fact", key, "tax_id_problem")),
+                    (f"{label} Number Checked", 18, ("fact", key, "number_checked")),
+                    (f"{label} Date Checked", 13, ("fact", key, "date_checked")),
+                    (f"{label} Registered Since", 14, ("fact", key, "registered_since")),
+                    (f"{label} Registration End", 18, ("fact", key, "registration_end")),
+                    (f"{label} Status Today", 18, ("fact", key, "status_today")),
+                    (f"{label} Name Accepted by CRA", 34, ("fact", key, "accepted_name")),
+                    (f"{label} Name Source", 26, ("source", key)),
+                    (f"{label} Registry Name", 34, ("fact", key, "official_name")),
+                    (f"{label} Details", 55, ("detail", key)),
+                ]
+            else:
+                columns += [
+                    (f"{label} Status", 18, ("status", key)), (f"{label} Issue", 32, ("issue", key)),
+                    (f"{label} Number Checked", 18, ("fact", key, "number_checked")),
+                    (f"{label} Registered Since", 14, ("fact", key, "registered_since")),
+                    (f"{label} Registration End", 18, ("fact", key, "registration_end")),
+                    (f"{label} Name on Record", 30, ("registered_name", key)),
+                    (f"{label} Details", 50, ("detail", key)),
+                ]
+        columns.append(("Checked On", 12, "checked_on"))
+
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill("solid", fgColor="104735")
+        for i, (h, width, _) in enumerate(columns):
             cell = ws.cell(self.header_row, start + i, h)
-            cell.font = bold
+            cell.font, cell.fill = header_font, header_fill
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            ws.column_dimensions[get_column_letter(start + i)].width = width
         today = dt.date.today().isoformat()
 
-        counts = {key: Counter() for key, _ in TAXES}
+        counts = {key: Counter() for key, _ in taxes}
+        issue_counts = {key: Counter() for key, _ in taxes}
+        issue_actions = {}
+        overall_counts, name_counts = Counter(), Counter()
+        action_rows = []
+        wrap = Alignment(wrap_text=True, vertical="top")
         for r, by_tax in results.items():
-            for c in range(start, start + len(headers)):  # clear anything left from an earlier run
+            for c in range(start, start + len(columns)):  # clear anything left from an earlier run
                 cell = ws.cell(r, c)
                 cell.value, cell.fill = None, PatternFill()
-            col = start + 1
-            names = []
-            statuses = []
-            for key, _ in TAXES:
-                res = by_tax.get(key)
-                if res:
-                    ws.cell(r, col, res.status).fill = PatternFill("solid", fgColor=STATUS_FILL.get(res.status, "FFFFFF"))
-                    ws.cell(r, col + 1, as_text(res.detail)).alignment = Alignment(wrap_text=True, vertical="top")
-                    counts[key][res.status] += 1
-                    statuses.append(res.status)
-                    if res.registered_name and res.registered_name not in names:
-                        names.append(res.registered_name)
-                col += 2
-            overall = "OK" if statuses and all(s in ok_statuses for s in statuses) else "REVIEW"
-            ws.cell(r, start, overall).fill = PatternFill("solid", fgColor="C6EFCE" if overall == "OK" else "FFEB9C")
-            ws.cell(r, col, as_text("; ".join(names)))
-            ws.cell(r, col + 1, today)
+            statuses = [by_tax[k].status for k, _ in taxes if k in by_tax]
+            if statuses and all(s == NOT_APPLICABLE for s in statuses):
+                overall = "NOT APPLICABLE"  # foreign supplier, nothing Canadian to check
+            elif statuses and all(s == NOT_LOOKED_UP for s in statuses):
+                overall = "PENDING"  # --offline: nothing wrong found offline, still needs the online run
+            elif statuses and all(s in ok_statuses or s == NOT_APPLICABLE for s in statuses):
+                overall = "OK"
+            else:
+                overall = "REVIEW"
+            summary_row = row_summary(by_tax, taxes)
+            if overall == "OK" and summary_row["severity"] >= SEV_LATE:
+                overall = "REVIEW"  # e.g. registered on the payment date but cancelled since
+            overall_counts[overall] += 1
+            gst = by_tax.get("gst")
+            gf = gst.facts if gst is not None else {}
+            name_check = getattr(gst, "name_check", "") if gst is not None else ""
+            if name_check:
+                name_counts[name_check] += 1
+            suggested = ""
+            if gst is not None and (name_check == NAME_UPDATE or (gst.status == NAME_NOT_MATCHED and gf.get("accepted_name"))):
+                suggested = gf.get("accepted_name") or gst.registered_name
+            issues = {}
+            for key, _ in taxes:
+                if key in by_tax:
+                    issues[key] = issue_for(key, by_tax[key])
+                    counts[key][by_tax[key].status] += 1
+                    issue_counts[key][issues[key][0]] += 1
+                    issue_actions.setdefault((key, issues[key][0]), generic_action(issues[key][0], issues[key][1]))
 
-        for i, h in enumerate(headers):
-            ws.column_dimensions[get_column_letter(start + i)].width = 55 if h.endswith("Details") else 18
-        ws.freeze_panes = ws.cell(self.header_row + 1, 1)
+            for i, (_, _, kind) in enumerate(columns):
+                cell = ws.cell(r, start + i)
+                value, fill = None, None
+                if kind == "overall":
+                    value = overall
+                    fill = {"OK": "C6EFCE", "NOT APPLICABLE": "EDEDED", "PENDING": "FFFFFF"}.get(overall, "FFEB9C")
+                elif kind == "main":
+                    value, fill = summary_row["main"], SEVERITY_FILL.get(summary_row["severity"])
+                elif kind == "action":
+                    value = summary_row["action"]
+                elif kind == "other":
+                    value = summary_row["other"]
+                elif kind == "name_check":
+                    value, fill = name_check, NAME_CHECK_FILL.get(name_check)
+                elif kind == "suggested":
+                    value = suggested
+                elif kind == "dnu":
+                    value = "Yes" if gf.get("dnu") else None
+                elif kind == "province":
+                    value = gf.get("province_used") or None
+                elif kind == "checked_on":
+                    value = today
+                else:
+                    what, key = kind[0], kind[1]
+                    res = by_tax.get(key)
+                    if res is None:
+                        continue
+                    if what == "status":
+                        value, fill = res.status, STATUS_FILL.get(res.status)
+                    elif what == "issue":
+                        value, fill = issues[key][0], SEVERITY_FILL.get(issues[key][2])
+                    elif what == "fact":
+                        value = res.facts.get(kind[2]) or None
+                    elif what == "source":
+                        value = name_source(res) or None
+                    elif what == "registered_name":
+                        value = res.registered_name or None
+                    elif what == "detail":
+                        value = res.detail
+                if value in (None, ""):
+                    continue
+                cell.value = as_text(value) if isinstance(value, str) else value
+                if fill:
+                    cell.fill = PatternFill("solid", fgColor=fill)
+                if kind in ("action", "other") or (isinstance(kind, tuple) and kind[0] == "detail"):
+                    cell.alignment = wrap
+            if overall == "REVIEW" or summary_row["severity"] >= SEV_NAME:
+                action_rows.append((summary_row["severity"], r, overall, summary_row, suggested, by_tax, gf))
 
-        summary = self.wb.create_sheet("Tax Check Summary")
-        summary.append(["Supplier tax registration check", today])
-        summary.append([])
-        statuses = [REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED, NOT_CONFIRMED, INVALID, MISSING, MANUAL, ERROR]
-        summary.append(["Tax"] + statuses)
-        for key, label in TAXES:
-            summary.append([label] + [counts[key][s] for s in statuses])
-        summary.append([])
-        summary.append(["Notes"])
-        for note in run_notes:
-            summary.append([note])
-        for cell in summary[3]:
-            cell.font = bold
-        summary["A1"].font = Font(bold=True, size=14)
-        summary.column_dimensions["A"].width = 30
-        self._write_follow_up(results)
+        name_col = self.cols.get("name", 1)
+        ws.freeze_panes = ws.cell(self.header_row + 1, name_col + 1)  # keep the supplier name in view
+        # Filter buttons on the header row, so each situation can be picked out in a large vendor list.
+        ws.auto_filter.ref = f"A{self.header_row}:{get_column_letter(start + len(columns) - 1)}{ws.max_row}"
+
+        # Sheet order: suppliers, Action List, Tax Check Summary.
+        self._write_summary(today, taxes, counts, issue_counts, issue_actions, overall_counts, name_counts,
+                            run_notes, header_font, header_fill)
+        self._write_action_list(action_rows, taxes, header_font, header_fill, wrap)
         self.wb.save(out_path)
 
-    def _write_follow_up(self, results):
-        """A worklist of GST/HST numbers that need a person: registered under another name, or no
-        longer registered. Only added when there's something on it."""
-        rows = []
-        for r, by_tax in results.items():
-            res = by_tax.get("gst")
-            if not res or not (res.status == NAME_NOT_MATCHED or res.ended):
-                continue
-            value = lambda col: self.values_ws.cell(r, self.cols[col]).value if col in self.cols else None
-            if res.status == NAME_NOT_MATCHED and res.registered_name:
-                action = (f"Registered as '{res.registered_name}'. If that's this supplier, update the vendor name; "
-                          "if not, ask the supplier for their GST/HST number.")
-            elif res.status == NAME_NOT_MATCHED:
-                action = ("Number is registered, under a name not in your records. Check the legal name on the "
-                          "supplier's invoice and update the vendor name to match it exactly.")
-            else:
-                action = ""
-            if res.ended:
-                action = " ".join(filter(None, [action, "No longer registered today: don't accept new invoices with GST/HST "
-                                                        "on this number until the supplier confirms their status."]))
-            rows.append([r, value("name"), value("gst"), res.status, res.registered_name, action])
-        if not rows:
-            return
-        ws = self.wb.create_sheet(FOLLOW_UP)
-        ws.append(["Row", "Supplier Name (your records)", "GST/HST Number", "GST/HST Status", "Name on Government Record",
-                   "What to do"])
-        for row in rows:
-            ws.append([as_text(v) if isinstance(v, str) else v for v in row])
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-        for letter, width in zip("ABCDEF", (6, 40, 20, 32, 40, 90)):
-            ws.column_dimensions[letter].width = width
-        ws.freeze_panes = "A2"
+    def _cell_value(self, r, field):
+        c = self.cols.get(field)
+        return self.values_ws.cell(r, c).value if c else None
+
+    def _write_action_list(self, action_rows, taxes, header_font, header_fill, wrap):
+        """One row per supplier that needs something done, worst first: the work list."""
+        from .report import SEVERITY_FILL
+
+        sheet = self.wb.create_sheet("Action List", 1)  # created after the summary, so it lands before it
+        first_header = self.values_ws.cell(self.header_row, 1).value
+        id_col = 1 if self.cols.get("name") != 1 else None
+        headers = (([str(first_header or "ID")] if id_col else []) +
+                   ["Company Name", "Province Used", "Tax ID", "Tax ID Problem", "Overall", "Main Issue", "Action Needed",
+                    "Suggested Vendor Name", "Other Issues"] + [f"{label} Status" for _, label in taxes] + ["Sheet Row"])
+        sheet.append(headers)
+        widths = ([16] if id_col else []) + [38, 14, 18, 30, 12, 40, 70, 34, 40] + [18] * len(taxes) + [10]
+        for i, (cell, width) in enumerate(zip(sheet[1], widths), 1):
+            cell.font, cell.fill, cell.alignment = header_font, header_fill, Alignment(wrap_text=True, vertical="top")
+            sheet.column_dimensions[get_column_letter(i)].width = width
+        action_rows.sort(key=lambda x: (-x[0], x[3]["main"], x[1]))
+        for sev, r, overall, summary_row, suggested, by_tax, gf in action_rows:
+            values = ([self.values_ws.cell(r, id_col).value] if id_col else []) + [
+                self._cell_value(r, "name"), gf.get("province_used"), self._cell_value(r, "gst"),
+                gf.get("tax_id_problem") or None, overall,
+                summary_row["main"], summary_row["action"], suggested, summary_row["other"],
+            ] + [by_tax[k].status if k in by_tax else None for k, _ in taxes] + [r]
+            sheet.append([as_text(v) if isinstance(v, str) else v for v in values])
+            row = sheet.max_row
+            main_col = headers.index("Main Issue") + 1
+            sheet.cell(row, main_col).fill = PatternFill("solid", fgColor=SEVERITY_FILL.get(sev, "FFFFFF"))
+            sheet.cell(row, headers.index("Action Needed") + 1).alignment = wrap
+        sheet.freeze_panes = "B2"
+        if sheet.max_row > 1:
+            sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{sheet.max_row}"
+
+    def _write_summary(self, today, taxes, counts, issue_counts, issue_actions, overall_counts, name_counts,
+                       run_notes, header_font, header_fill):
+        summary = self.wb.create_sheet("Tax Check Summary", 1)
+        bold = Font(bold=True)
+
+        def heading(values):
+            summary.append(values)
+            for cell in summary[summary.max_row]:
+                if cell.value is not None:
+                    cell.font, cell.fill = header_font, header_fill
+
+        summary.append(["Supplier tax registration check", today])
+        summary["A1"].font = Font(bold=True, size=14)
+        summary.append([])
+        heading(["Overall", "OK", "REVIEW", "NOT APPLICABLE", "PENDING", "Rows checked"])
+        summary.append(["Suppliers"] + [overall_counts[k] for k in ("OK", "REVIEW", "NOT APPLICABLE", "PENDING")]
+                       + [sum(overall_counts.values())])
+        summary.append([])
+        heading(["Vendor Name Check", NAME_MATCHES, NAME_UPDATE, NAME_UNCONFIRMED])
+        summary.append(["Suppliers"] + [name_counts[k] for k in (NAME_MATCHES, NAME_UPDATE, NAME_UNCONFIRMED)])
+        summary.append(["MATCHES: the vendor name is the name CRA has. UPDATE NAME: registration confirmed, but under "
+                        "the name in 'Suggested Vendor Name'; correct the vendor record. NOT CONFIRMED: CRA accepted no "
+                        "name we have; get the legal name from the supplier (e.g. their invoice)."])
+        summary.append(["Registration dates: QST dates come from Revenu Québec; GST/HST dates from CRA's simplified "
+                        "list, or by asking the CRA registry about specific days (the registry gives no dates "
+                        "itself). 'Registration End' is when a registration was cancelled; 'Active on <date>' means "
+                        "still registered that day. Registrations don't expire. Manitoba, BC and Saskatchewan's "
+                        "registries don't give dates."])
+        summary.append([])
+        heading(["Issues by tax", "Issue", "Suppliers", "What to do"])
+        for key, label in taxes:
+            for issue, n in sorted(issue_counts[key].items(), key=lambda x: -x[1]):
+                summary.append([label, issue, n, issue_actions.get((key, issue), "")])
+        summary.append([])
+        statuses = [REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED, NOT_CONFIRMED, INVALID, MISSING, MANUAL, ERROR,
+                    NOT_APPLICABLE, NOT_LOOKED_UP]
+        heading(["Status by tax"] + statuses)
+        for key, label in taxes:
+            summary.append([label] + [counts[key][s] for s in statuses])
+        summary.append([])
+        heading(["Notes"])
+        for note in run_notes:
+            summary.append([note])
+        summary.column_dimensions["A"].width = 30
+        summary.column_dimensions["B"].width = 42
+        summary.column_dimensions["C"].width = 12
+        summary.column_dimensions["D"].width = 90
