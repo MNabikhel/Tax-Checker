@@ -188,6 +188,7 @@ class Menu(unittest.TestCase):
         with mock.patch.object(check_suppliers, "ask_taxes", return_value={"gst"}), \
                 mock.patch.object(check_suppliers, "ask_saskatchewan", side_effect=lambda: asked.append(1) or True), \
                 mock.patch.object(check_suppliers, "ask_gst_dates", return_value="none"), \
+                mock.patch.object(check_suppliers, "ask_paid_since", return_value=None), \
                 mock.patch.object(check_suppliers, "run", return_value=None), \
                 tempfile.TemporaryDirectory() as tmp:
             check_suppliers.main([str(Path(tmp) / "x.xlsx"), "--ask", "--log-dir", tmp])

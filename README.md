@@ -66,7 +66,9 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 | `--date 2026-09-30` | Confirm registration on this date (default: each row's date column, else today). |
 | `--no-browser` | Skip BC and Manitoba lookups (they need the headless browser). |
 | `--sk-assist` | Check Saskatchewan PST. A browser window opens at the start; tick its CAPTCHA once and every Saskatchewan search runs by itself. The launchers ask instead (`--ask`). |
-| `--trust-gst-number` | Count "REGISTERED - NAME NOT MATCHED" (GST number registered, vendor name not confirmed) as OK. |
+| `--accept-number-only` | Count "REGISTERED - NAME NOT MATCHED" (number registered, vendor name not confirmed) as OK, for a quick number-only pass. Off by default: the number may be another business's, and these are the vendor names to fix. The summary sheet says so at the top when it's used. (`--trust-gst-number` is the old name.) |
+| `--paid-since 2022-01-01` | Only check vendors last paid on or after this date (never by amount). Others stay in the output as **NOT CHECKED**; vendors with a blank or unreadable date are always checked. The launcher's menu asks (Enter = everyone). |
+| `--paid-within 4` | The same, as a number of years back from today. |
 | `--no-name-lookup` | Don't look up official names for GST/HST name mismatches (skips the ~110 MB federal download and OrgBook BC). |
 | `--cache-dir folder` | Where downloaded reference data is kept (default: `cache`, refreshed weekly). |
 | `--nr-list saved.html` | Use a saved copy of Revenu Québec's NR registrant list if the download is blocked. |
@@ -203,7 +205,7 @@ before it looks at the name, so one extra lookup shows whether the number is reg
 or unknown to CRA. A number registered under a name other than the one in your sheet is reported as
 **REGISTERED - NAME NOT MATCHED**, with CRA's name for the business when it's known. The number is valid,
 but it isn't confirmed to be this supplier's (it could be another business's number), so it shows as REVIEW.
-If your vendor names are unreliable and you only need the number checked, `--trust-gst-number` counts it
+If your vendor names are unreliable and you only need the number checked, `--accept-number-only` counts it
 as OK.
 
 **Québec NR list.** Revenu Québec's website blocks some networks, such as cloud servers. The script tries
@@ -245,6 +247,7 @@ every header. Two extra sheets: **Action List** (only the suppliers that need so
 | Column | What it tells you |
 |---|---|
 | Status | The government source's answer (REGISTERED, NOT REGISTERED...). |
+| Number Registered (GST/HST) | Is the number registered, apart from whose name: Yes / Yes - name not confirmed / Yes - under another name / No / No - number not known to CRA / No - invalid number. The name it's registered under is in **Name Accepted by CRA**. |
 | Issue | What that means, as a short fixed phrase you can filter on (list below). |
 | Number Checked | The number actually looked up (after tidying the Tax ID). |
 | Registered Since / Registration End | Registration dates where known (see below). "Active on <date>" = still registered that day. |
@@ -288,7 +291,7 @@ tax and notes from the run.
 | Status | Meaning |
 |---|---|
 | REGISTERED | The government source confirms the registration (for GST/HST: number and the sheet's name). |
-| REGISTERED - NAME NOT MATCHED | GST/HST only: the number is registered, but not under the name in your sheet. The details give CRA's name when known. OK with `--trust-gst-number`. |
+| REGISTERED - NAME NOT MATCHED | GST/HST only: the number is registered, but not under the name in your sheet. The details give CRA's name when known. OK with `--accept-number-only` (REVIEW by default). |
 | NOT REGISTERED | The source says the number isn't (or is no longer) registered. |
 | NOT CONFIRMED | The source couldn't match it (BC PST/business-number mismatch, no Manitoba or Saskatchewan match, an unusual QST status). |
 | INVALID NUMBER | The number is malformed or fails its check digit. |
@@ -297,6 +300,7 @@ tax and notes from the run.
 | ERROR | A lookup failed (site down, network). Re-run later. |
 | NOT APPLICABLE | Non-Canadian supplier with no Canadian tax number; no Canadian check applies. Overall `NOT APPLICABLE`. |
 | NOT LOOKED UP | `--offline` only: passed the offline checks, still needs the online run. Overall `PENDING`. |
+| NOT CHECKED | `--paid-since`/`--paid-within` only: last paid before the cut-off date, so not looked up. Overall `NOT CHECKED`. |
 
 Lookups are spaced out (about 1.5 s per CRA lookup and 5 s per BC lookup), so a few hundred suppliers
 take several minutes. A number that appears on several rows is only looked up once.

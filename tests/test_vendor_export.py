@@ -362,6 +362,46 @@ class ExportCli(unittest.TestCase):
         notes = [r[0] for r in wb["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
         self.assertIn("Taxes checked in this run: GST/HST.", notes)
 
+    def test_paid_since_cut_off(self):
+        rows = [vendor(1, "OLD VENDOR LTD", "AB", "CA", "T5J 0N3", "108161779RT0001", dt.datetime(2019, 5, 1)),
+                vendor(2, "RECENT VENDOR LTD", "AB", "CA", "T5J 0N3", "857305932RT0001", dt.datetime(2026, 9, 1)),
+                vendor(3, "NO DATE VENDOR LTD", "AB", "CA", "T5J 0N3", "108161779RT0001", None)]
+        make_export(self.src, rows)
+        self.assertEqual(self.run_cli("--paid-since", "2022-01-01"), 0)
+        out = self.results()
+        self.assertEqual([r["Overall"] for r in out], ["NOT CHECKED", "OK", "OK"])  # a blank date is checked
+        self.assertEqual(out[0]["Main Issue"], "Not checked - not paid since the cut-off date")
+        self.assertIn("before the cut-off date 2022-01-01", out[0]["GST/HST Details"])
+        wb = openpyxl.load_workbook(self.dir / "vendor_export_tax_check.xlsx")
+        notes = [r[0] for r in wb["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
+        self.assertTrue(any(str(n).startswith("PAID-SINCE CUT-OFF: vendors last paid before 2022-01-01") and "(1 suppliers" in str(n)
+                            for n in notes), notes)
+        log_text = next(self.logs.glob("tax_check_*.log")).read_text(encoding="utf-8")
+        self.assertIn("Paid-since cut-off 2022-01-01: 1 vendors", log_text)
+
+    def test_paid_since_question(self):
+        for answers, expected in (([""], None), (["2022-01-01"], "2022-01-01"), (["soon", "2023-06-30"], "2023-06-30")):
+            with mock.patch("builtins.input", side_effect=answers), mock.patch("builtins.print"):
+                self.assertEqual(check_suppliers.ask_paid_since(), expected, answers)
+
+    def test_number_registered_column_and_number_only_option(self):
+        from taxcheck.result import NAME_NOT_MATCHED
+
+        class NameNotMatched(RecordingGst):
+            def check(self, bn9, names, date, extra_names=()):
+                return Result(NAME_NOT_MATCHED, "number only", "", facts={"cra_answer": "registered_number_only"})
+
+        make_export(self.src, ROWS[:1])
+        with mock.patch.object(check_suppliers, "GstChecker", NameNotMatched):
+            self.assertEqual(self.run_cli(), 0)
+            row = self.results()[0]
+            self.assertEqual((row["Overall"], row["GST/HST Number Registered"]), ("REVIEW", "Yes - name not confirmed"))
+            self.assertEqual(self.run_cli("--accept-number-only"), 0)  # (same as the older --trust-gst-number)
+        self.assertEqual(self.results()[0]["Overall"], "OK")
+        wb = openpyxl.load_workbook(self.dir / "vendor_export_tax_check.xlsx")
+        first_notes = [r[0] for r in wb["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
+        self.assertTrue(any(str(n).startswith("NUMBER-ONLY RESULTS") for n in first_notes))
+
     def test_tax_choice_parsing_and_menu(self):
         self.assertIsNone(check_suppliers.parse_taxes("all"))
         self.assertEqual(check_suppliers.parse_taxes("gst, mb"), {"gst", "mb_rst"})

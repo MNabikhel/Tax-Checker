@@ -22,7 +22,7 @@ Work in this order:
    that matters is mapped and the preview rows route correctly (§8).
 3. **Ask the user** (don't guess) about anything that is a business decision: which column holds the
    GST/HST number when the header is ambiguous ("Tax Reg #"), what to do with US/foreign suppliers, which
-   date to confirm registration on, whether `--trust-gst-number` is wanted (§8, §6).
+   date to confirm registration on, whether `--accept-number-only` is wanted (§8, §6).
 4. **Add a test** for each adaptation with made-up rows in the same format (§8 step 7). Never commit the
    real supplier file, results or logs (§11).
 5. **Run the live tests** once on the user's PC, including the two open items in §2, and record the
@@ -59,13 +59,22 @@ Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need th
 
 ## 2. Open items: verify these on the new PC first
 
-**Decisions for the user** (ask; don't decide for them). Current defaults in brackets:
-1. Check do-not-use vendors at all? [yes, marker removed for lookups and noted]
-2. Count "registered, name not confirmed" as OK (`--trust-gst-number`)? [no: REVIEW]
-3. Registration-dates mode for the full run? [`end` when chosen in the menu; adds about an hour]
-4. Limit a run to vendors paid recently (by date, never by amount)? [no limit]
-5. Run Saskatchewan in assisted mode (someone ticks a CAPTCHA once at the start)? [asked in the launcher's
-   menu when Saskatchewan is chosen; Enter = yes]
+**Decisions the user made (2026-10-16)**, after consulting the agent that tailored the tool:
+1. Do-not-use vendors: checked (marker removed for lookups and noted).
+2. "Registered, name not confirmed" stays **REVIEW** by default: a registered number alone doesn't prove it's
+   this supplier's (a typo can hit another business), and the team fixes vendor names rather than accepting
+   number-only matches. About 1,658 suppliers in the full run. `--accept-number-only` (old name
+   `--trust-gst-number`) is an opt-in quick pass, flagged at the top of the summary sheet. "Confirmed under
+   another form of the name" (UPDATE NAME) is REGISTERED / OK.
+3. Registration dates: Quick (`end`) is the default; Full is for small or targeted runs; None for a fast first
+   pass. Quick already finds the start date for suppliers registered after the payment date.
+4. Limit by last payment date: optional (`--paid-since DATE`, `--paid-within YEARS`, or the menu), never by
+   amount; default checks everyone. Skipped vendors stay in the output as NOT CHECKED; blank or unreadable
+   dates are checked; the cut-off is in the summary sheet and the log. The tax lead chooses the cut-off.
+
+**Still open for the user:**
+- Saskatchewan in assisted mode (someone ticks a CAPTCHA once at the start): asked in the launcher's menu
+  when Saskatchewan is chosen; Enter = yes.
 
 **Unverified parts.** Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
 that settles it in one command on a normal Canadian connection. Run them first and record the result
@@ -204,7 +213,7 @@ the log only).
 | NOT LOOKED UP | `--offline` run; passed offline checks | |
 
 `Overall` is `OK` only if every status in the row is REGISTERED (or REGISTERED - NAME NOT MATCHED with
-`--trust-gst-number`), otherwise `REVIEW`.
+`--accept-number-only`), otherwise `REVIEW`.
 
 Which taxes are checked for a row (`RowChecker.check`):
 
@@ -424,7 +433,7 @@ Inc. `774075766`.
 
 | Symptom | Look at | Likely fix |
 |---|---|---|
-| Many GST "REGISTERED - NAME NOT MATCHED" | the **Action List** sheet, "GST/HST Registry Name" and "Details" columns, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's: update the vendor master to the legal name on the supplier's invoice, add the vendor master's shorthand to the patterns in `checks.py`, or use `--trust-gst-number` if only the number matters |
+| Many GST "REGISTERED - NAME NOT MATCHED" | the **Action List** sheet, "GST/HST Registry Name" and "Details" columns, log lines `CRA registry bn=... -> no_match` | Vendor names differ from CRA's: update the vendor master to the legal name on the supplier's invoice, add the vendor master's shorthand to the patterns in `checks.py`, or use `--accept-number-only` if only the number matters |
 | `Transaction date cannot be a future date` | system clock | `cra_today()` should prevent it; check the PC's clock |
 | BC/MB all ERROR, "answered HTTP 5xx" or "wasn't responding" | site status | Maintenance; re-run later |
 | BC/MB ERROR with a timeout on a specific element | failure screenshot in the `logs` folder next to the workbook | The site's layout changed; update selectors in `_lookup` |
@@ -444,6 +453,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-16 (user decisions)**: Recorded in §2. Added `--accept-number-only` (alias of `--trust-gst-number`,
+  flagged at the top of the summary), `--paid-since` / `--paid-within` with a menu question (status NOT
+  CHECKED; blank dates checked), and a "GST/HST Number Registered" column (Yes / Yes - name not confirmed / Yes -
+  under another name / No...) next to the status, so "is the number registered" and "under which name" read
+  separately.
 - **2026-10-16 (Saskatchewan; accuracy and efficiency review)**: Saskatchewan's CAPTCHA is needed once per
   session (§7), so the menu asks and every Saskatchewan search runs at the start, straight after the person
   ticks it; the search clicked the site-wide "Search SETS" header button, now the PST form's own (tested in a

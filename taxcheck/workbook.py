@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 from .report import generic_action
 from .result import (
     NAME_MATCHES, NAME_UNCONFIRMED, NAME_UPDATE,
-    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NOT_APPLICABLE, NOT_CONFIRMED, NOT_LOOKED_UP, NOT_REGISTERED,
+    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NOT_APPLICABLE, NOT_CHECKED, NOT_CONFIRMED, NOT_LOOKED_UP, NOT_REGISTERED,
     REGISTERED,
 )
 
@@ -64,6 +64,7 @@ STATUS_FILL = {
     ERROR: "F8CBAD",
     NOT_APPLICABLE: "EDEDED",
     NOT_LOOKED_UP: "FFFFFF",
+    NOT_CHECKED: "EDEDED",
 }
 
 NAME_CHECK_FILL = {"MATCHES": "C6EFCE", "UPDATE NAME": "FFEB9C", "NOT CONFIRMED": "F8CBAD"}
@@ -300,7 +301,7 @@ class SupplierSheet:
         """results: {row_number: {tax_key: Result}}. Adds the result columns to the supplier sheet (a copy: the
         input file is never saved over), an "Action List" sheet and a "Tax Check Summary" sheet."""
         from .report import (SEV_LATE, SEV_NAME, SEV_NAME_UNCONFIRMED, SEV_OK, SEV_OTHER_NAME, SEVERITY_FILL,
-                             issue_for, name_source, row_summary)
+                             issue_for, name_source, number_registered, row_summary)
 
         ws = self.ws
         # Re-running on an earlier results file overwrites its result columns instead of adding more.
@@ -332,7 +333,9 @@ class SupplierSheet:
         for key, label in taxes:
             if key == "gst":
                 columns += [
-                    (f"{label} Status", 18, ("status", key)), (f"{label} Issue", 36, ("issue", key)),
+                    (f"{label} Status", 18, ("status", key)),
+                    (f"{label} Number Registered", 22, ("number_registered", key)),
+                    (f"{label} Issue", 36, ("issue", key)),
                     (f"{label} Tax ID Problem", 30, ("fact", key, "tax_id_problem")),
                     (f"{label} Number Checked", 18, ("fact", key, "number_checked")),
                     (f"{label} Date Checked", 13, ("fact", key, "date_checked")),
@@ -375,6 +378,8 @@ class SupplierSheet:
             statuses = [by_tax[k].status for k, _ in taxes if k in by_tax]
             if statuses and all(s == NOT_APPLICABLE for s in statuses):
                 overall = "NOT APPLICABLE"  # foreign supplier, nothing Canadian to check
+            elif statuses and all(s == NOT_CHECKED for s in statuses):
+                overall = "NOT CHECKED"  # --paid-since: last paid before the cut-off
             elif statuses and all(s == NOT_LOOKED_UP for s in statuses):
                 overall = "PENDING"  # --offline: nothing wrong found offline, still needs the online run
             elif statuses and all(s in ok_statuses or s == NOT_APPLICABLE for s in statuses):
@@ -412,7 +417,7 @@ class SupplierSheet:
                 value, fill = None, None
                 if kind == "overall":
                     value = overall
-                    fill = {"OK": "C6EFCE", "NOT APPLICABLE": "EDEDED", "PENDING": "FFFFFF"}.get(overall, "FFEB9C")
+                    fill = {"OK": "C6EFCE", "NOT APPLICABLE": "EDEDED", "PENDING": "FFFFFF", "NOT CHECKED": "EDEDED"}.get(overall, "FFEB9C")
                 elif kind == "main":
                     value, fill = summary_row["main"], SEVERITY_FILL.get(summary_row["severity"])
                 elif kind == "action":
@@ -436,6 +441,8 @@ class SupplierSheet:
                         continue
                     if what == "status":
                         value, fill = res.status, STATUS_FILL.get(res.status)
+                    elif what == "number_registered":
+                        value = number_registered(res) or None
                     elif what == "issue":
                         value, fill = issues[key][0], SEVERITY_FILL.get(issues[key][2])
                     elif what == "fact":
@@ -516,8 +523,8 @@ class SupplierSheet:
         summary.append(["Supplier tax registration check", today])
         summary["A1"].font = Font(bold=True, size=14)
         summary.append([])
-        heading(["Overall", "OK", "REVIEW", "NOT APPLICABLE", "PENDING", "Rows checked"])
-        summary.append(["Suppliers"] + [overall_counts[k] for k in ("OK", "REVIEW", "NOT APPLICABLE", "PENDING")]
+        heading(["Overall", "OK", "REVIEW", "NOT APPLICABLE", "PENDING", "NOT CHECKED", "Rows checked"])
+        summary.append(["Suppliers"] + [overall_counts[k] for k in ("OK", "REVIEW", "NOT APPLICABLE", "PENDING", "NOT CHECKED")]
                        + [sum(overall_counts.values())])
         summary.append([])
         heading(["Vendor Name Check", NAME_MATCHES, NAME_UPDATE, NAME_UNCONFIRMED])
@@ -537,7 +544,7 @@ class SupplierSheet:
                 summary.append([label, issue, n, issue_actions.get((key, issue), "")])
         summary.append([])
         statuses = [REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED, NOT_CONFIRMED, INVALID, MISSING, MANUAL, ERROR,
-                    NOT_APPLICABLE, NOT_LOOKED_UP]
+                    NOT_APPLICABLE, NOT_LOOKED_UP, NOT_CHECKED]
         heading(["Status by tax"] + statuses)
         for key, label in taxes:
             summary.append([label] + [counts[key][s] for s in statuses])

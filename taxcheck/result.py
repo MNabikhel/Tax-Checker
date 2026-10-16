@@ -14,6 +14,8 @@ ERROR = "ERROR"
 NOT_APPLICABLE = "NOT APPLICABLE"
 # --offline: the number passed every offline check but wasn't looked up (no internet / dry run).
 NOT_LOOKED_UP = "NOT LOOKED UP"
+# --paid-since / --paid-within: last paid before the cut-off, so not looked up (the row stays in the output).
+NOT_CHECKED = "NOT CHECKED"
 
 
 @dataclass

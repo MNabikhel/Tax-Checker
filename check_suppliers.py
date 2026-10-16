@@ -37,7 +37,7 @@ from taxcheck.mb_rst import MbRstChecker
 from taxcheck.orgbook import OrgBookBC
 from taxcheck.progress import ProgressReport, load_resume
 from taxcheck.qst import QstChecker
-from taxcheck.result import NAME_NOT_MATCHED, REGISTERED
+from taxcheck.result import NAME_NOT_MATCHED, NOT_CHECKED, REGISTERED, Result
 from taxcheck.sk_pst import SkPstAssistant
 from taxcheck.workbook import InputError, SupplierSheet, header_hints, parse_date
 
@@ -266,6 +266,32 @@ def save_workbook(sheet, results, out, notes, ok_statuses):
         return alt
 
 
+def paid_cutoff(args):
+    """The --paid-since / --paid-within cut-off date, or None (check everyone, the default)."""
+    if args.paid_since:
+        return parse_date(args.paid_since)
+    if args.paid_within:
+        return cra_today() - dt.timedelta(days=round(args.paid_within * 365.25))
+    return None
+
+
+def ask_paid_since():
+    """Optional cut-off by last payment date (never by amount). Enter = check everyone."""
+    print()
+    print("Only check vendors paid recently? Type a date (e.g. 2022-01-01) to skip vendors last paid before it;")
+    print("they're listed as NOT CHECKED. Vendors with no payment date are always checked.")
+    while True:
+        try:
+            answer = input("Cut-off date, or press Enter to check everyone: ").strip()
+        except EOFError:
+            return None
+        if not answer:
+            return None
+        if parse_date(answer):
+            return answer
+        print("  That isn't a date I can read; try 2022-01-01.")
+
+
 def save_final(sheet, results, out, notes, ok_statuses):
     """The final save, with Ctrl+C ignored while it's written (a second Ctrl+C used to lose the workbook)."""
     import signal
@@ -358,6 +384,22 @@ def run(args, log_path):
     # --resume: reuse what an earlier (stopped or crashed) run already finished, from its progress file.
     results = load_resume(args.resume) if args.resume else {}
     to_check = [(r, v) for r, v in rows if r not in results]
+    cutoff, skipped = paid_cutoff(args), 0
+    if cutoff:
+        if "date" not in sheet.cols:
+            log.warning("--paid-since/--paid-within: the workbook has no date column, so every vendor is checked")
+        kept = []
+        for r, v in to_check:
+            paid = None if args.as_of_today else parse_date(v.get("date"))
+            if paid and paid < cutoff:
+                results[r] = {"gst": Result(NOT_CHECKED, f"Not checked: last paid {paid}, before the cut-off date "
+                                                         f"{cutoff} chosen for this run.")}
+                skipped += 1
+            else:
+                kept.append((r, v))  # paid since the cut-off, or no readable date: checked
+        to_check = kept
+        log.info("Paid-since cut-off %s: %d vendors last paid before it are listed as NOT CHECKED; %d will be checked",
+                 cutoff, skipped, len(to_check))
     if args.limit:
         # Count suppliers that will actually be looked up online: foreign rows and rows with a missing/invalid
         # number are instant, so a plain "first N rows" trial can contain only a handful of real lookups
@@ -597,7 +639,12 @@ def run(args, log_path):
         notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked.")
     ok_statuses = (REGISTERED, NAME_NOT_MATCHED) if args.trust_gst_number else (REGISTERED,)
     if args.trust_gst_number:
-        notes.append("--trust-gst-number: 'REGISTERED - NAME NOT MATCHED' counts as OK in the Overall column.")
+        notes.insert(0, "NUMBER-ONLY RESULTS (--accept-number-only): 'REGISTERED - NAME NOT MATCHED' counts as OK in the "
+                        "Overall column. Those numbers are registered, but CRA did NOT confirm them under the supplier's "
+                        "name; they may belong to another business. Not a confirmed result.")
+    if cutoff:
+        notes.insert(0, f"PAID-SINCE CUT-OFF: vendors last paid before {cutoff} were not checked ({skipped} suppliers, "
+                        "Overall 'NOT CHECKED'). Vendors with a blank or unreadable date were checked.")
     saved = save_final(sheet, results, out, notes, ok_statuses)
     log.info("Results written to %s", saved)
     log.info("")
@@ -630,8 +677,12 @@ def main(argv=None):
     ap.add_argument("--nr-list", help="saved copy of Revenu Québec's NR registrant list page, if it can't be downloaded")
     ap.add_argument("--log-dir", help="folder for run logs and failure screenshots (default: logs next to the workbook)")
     ap.add_argument("-v", "--verbose", action="store_true", help="show the detailed log on screen too")
-    ap.add_argument("--trust-gst-number", action="store_true",
-                    help="count 'REGISTERED - NAME NOT MATCHED' (GST number registered, name not confirmed) as OK")
+    ap.add_argument("--accept-number-only", "--trust-gst-number", dest="trust_gst_number", action="store_true",
+                    help="count 'REGISTERED - NAME NOT MATCHED' (number registered, vendor name not confirmed) as OK; "
+                         "for a quick number-only pass. Default: REVIEW, because the number may be another business's")
+    ap.add_argument("--paid-since", help="only check vendors last paid on or after this date (e.g. 2022-01-01); others "
+                                         "are listed as NOT CHECKED. Vendors with no readable date are always checked")
+    ap.add_argument("--paid-within", type=float, help="only check vendors last paid within this many years (e.g. 4)")
     ap.add_argument("--check-columns", action="store_true",
                     help="don't check anything: show how the columns are read and what the first rows would check")
     ap.add_argument("--preview", type=int, default=10, help="rows to show with --check-columns (default: 10)")
@@ -679,12 +730,19 @@ def main(argv=None):
     if (args.ask and not args.sk_assist and not args.check_columns and not args.offline
             and (args.taxes is None or "sk_pst" in args.taxes)):
         args.sk_assist = ask_saskatchewan()
+    if args.ask and not args.paid_since and not args.paid_within and not args.check_columns:
+        args.paid_since = ask_paid_since()
+    if args.paid_since and not parse_date(args.paid_since):
+        log.error("--paid-since must be a date like 2022-01-01")
+        return 1
     if args.ask and args.gst_dates is None and not args.check_columns and not args.offline:
         args.gst_dates = ask_gst_dates()
     args.gst_dates = args.gst_dates or "end"
     log.info("GST/HST registration dates: %s", {"none": "not looked up", "end": "still registered today / cancellation date",
                                                  "full": "start and cancellation dates"}[args.gst_dates])
     log.info("Checking: %s", ", ".join(TAX_LABELS[k] for k in TAX_LABELS if args.taxes is None or k in args.taxes))
+    if args.trust_gst_number:
+        log.warning("--accept-number-only: registered numbers whose name CRA didn't confirm count as OK (number-only pass)")
     log.debug("Arguments: %s", vars(args))
     log.debug("Python %s on %s", sys.version.split()[0], platform.platform())
     if args.check_columns:

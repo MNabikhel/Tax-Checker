@@ -9,7 +9,7 @@ Severity orders issues so the worst one becomes the row's Main Issue.
 import re
 
 from .result import (
-    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NAME_UPDATE, NOT_APPLICABLE, NOT_CONFIRMED, NOT_LOOKED_UP,
+    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NAME_UPDATE, NOT_APPLICABLE, NOT_CHECKED, NOT_CONFIRMED, NOT_LOOKED_UP,
     NOT_REGISTERED, REGISTERED,
 )
 
@@ -59,6 +59,8 @@ def gst_issue(res):
     problem = f.get("tax_id_problem", "")
     if st == NOT_APPLICABLE:
         return "Foreign supplier - not applicable", "", SEV_NA
+    if st == NOT_CHECKED:
+        return "Not checked - not paid since the cut-off date", "", SEV_NA
     if st == NOT_LOOKED_UP:
         return "Not looked up (offline run)", "Run the online check.", SEV_OK
     if st == ERROR:
@@ -228,6 +230,18 @@ def generic_action(issue, action):
     return action
 
 
+def number_registered(res):
+    """The "GST/HST Number Registered" column: is the number registered, separately from whose name it's under."""
+    f, st = res.facts, res.status
+    if st == REGISTERED:
+        return "Yes"
+    if st == NAME_NOT_MATCHED:
+        return "Yes - under another name" if f.get("accepted_name") else "Yes - name not confirmed"
+    if st == NOT_REGISTERED:
+        return "No - number not known to CRA" if f.get("cra_answer") == "unknown_number" else "No"
+    return {INVALID: "No - invalid number", MISSING: "No number", ERROR: "Lookup failed"}.get(st, "")
+
+
 def issue_for(key, res):
     return gst_issue(res) if key == "gst" else provincial_issue(key, res)
 
@@ -246,7 +260,7 @@ def row_summary(by_tax, taxes):
     found.sort(key=lambda x: -x[0])
     sev, label, issue, action = found[0]
     if sev == SEV_NA:
-        main = "Foreign supplier - not applicable"
+        main = issue  # foreign supplier, or not paid since the cut-off date
     elif sev == SEV_OK:
         main = "None"
     else:

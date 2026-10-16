@@ -16,6 +16,8 @@ THE REAL RUN (what you do each time)
    If Saskatchewan is included, you're asked whether to check it (press Enter for yes). A browser
    window then opens right at the start: tick "I agree" and "I'm not a robot", click Next. That's
    needed once: every Saskatchewan search then runs by itself, and the rest of the check carries on.
+   Then, optionally, a cut-off date: only vendors last paid on or after it are checked (the others are
+   listed as NOT CHECKED). Press Enter to check everyone (ask the tax lead which cut-off to use).
    Then choose GST/HST registration dates:
      1  Quick (press Enter): still registered today? cancellation date if not (about +1 hour)
      2  Full: also every supplier's GST/HST start date (hours more; for smaller lists)
