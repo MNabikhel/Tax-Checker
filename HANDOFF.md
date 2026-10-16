@@ -351,7 +351,13 @@ page's Next button calls `grecaptcha.getResponse()`; `submitPSTSearch` only vali
 `check_suppliers.prefetch_saskatchewan` runs every Saskatchewan search (`RowChecker.saskatchewan_searches`, the
 same arguments the rows use, so the rows hit the cache) right after the person passes it at the start of the
 run. Every SETS page has a site-wide "Search SETS" button in the header: click only the button inside
-`form:has(#pstSearch)`.
+`form:has(#pstSearch)`. Seen on the user's PC (2026-10-16): the search works, and an empty result shows "No results
+found, please try a different search." in the page's instruction box. The page states the search "ignores
+punctuation, spacing, special characters and accents", matches "a portion of the business name", shows at most
+25 matches and allows **100 searches per 24 hours**. So `search_terms` sends the name without markings ("*",
+brackets), "The" or legal ending, at most 2 per supplier; `classify` only accepts a result whose name equals the
+vendor's apart from those; `SkPstAssistant` counts searches in `cache/saskatchewan_searches.json` and stops at
+100 (MANUAL CHECK with the time searches are possible again). A positive results page hasn't been seen yet.
 
 ## 8. Tailoring to a new dataset (the likely next job)
 
@@ -453,6 +459,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-16 (user's trial run)**: Manitoba rows were all MANUAL CHECK when Saskatchewan ran in the same run:
+  Playwright's sync API starts only once per thread, so the hidden browser couldn't start after Saskatchewan's
+  window; both now share one driver. Saskatchewan searched "1 STOP VACUUM CENTRE*" (the vendor master's "*"
+  was sent, and the cleaned term was dropped as a duplicate); search terms are now trimmed portions, results
+  must match the vendor's name, and the registry's 100-searches-a-day limit is tracked (§7).
 - **2026-10-16 (user decisions)**: Recorded in §2. Added `--accept-number-only` (alias of `--trust-gst-number`,
   flagged at the top of the summary), `--paid-since` / `--paid-within` with a menu question (status NOT
   CHECKED; blank dates checked), and a "GST/HST Number Registered" column (Yes / Yes - name not confirmed / Yes -

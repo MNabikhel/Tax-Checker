@@ -137,7 +137,7 @@ class AssistedFlow(unittest.TestCase):
         self.assertEqual(sk.check(["UNKNOWN WIDGETS"]).status, NOT_CONFIRMED)
         self.assertEqual(sk.captchas, 1)  # the person was asked once
         self.assertEqual(FakeRegistry.terms_shown, 1)
-        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE LTD", "NORTHERN SUPPLY", "UNKNOWN WIDGETS"])
+        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "NORTHERN SUPPLY", "UNKNOWN WIDGETS"])
 
     def test_saskatchewan_and_the_other_browser_checks_in_one_run(self):
         # Seen on a real run: the Saskatchewan window started first, then the hidden browser for Manitoba couldn't
@@ -152,6 +152,18 @@ class AssistedFlow(unittest.TestCase):
         finally:
             other.close()
         self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)  # still works after the other closed
+
+    def test_daily_search_limit(self):
+        counter = self.tmp / "sk_searches.json"
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5, counter_file=counter, daily_limit=2)
+        self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)
+        res = sk.check(["ANOTHER ONE LTD"])
+        self.assertEqual(res.status, MANUAL)
+        self.assertIn("allows 2 searches per 24 hours", res.detail)
+        self.assertEqual(len(FakeRegistry.searches), 2)
+        # The count is kept between runs.
+        self.assertEqual(sk_pst.SkPstAssistant(self.browser, counter_file=counter, daily_limit=2).searches_left(), 0)
 
     def test_captcha_on_every_search_stops_bulk_checking(self):
         FakeRegistry.every_search = True
@@ -179,9 +191,9 @@ class AssistedFlow(unittest.TestCase):
                 {"name": "NORTHERN SUPPLY", "gst": "108161779", "province": "SK"},
                 {"name": "PRAIRIE HARDWARE LTD", "gst": "108161779", "province": "SK"}]  # duplicate: one search
         check_suppliers.prefetch_saskatchewan(checker, sk, rows)
-        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE LTD", "NORTHERN SUPPLY"])
+        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "NORTHERN SUPPLY"])
         out = [checker.check(r, dt.date(2026, 9, 1)) for r in rows]
-        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE LTD", "NORTHERN SUPPLY"])  # nothing re-searched
+        self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "NORTHERN SUPPLY"])  # nothing re-searched
         self.assertEqual(out[0]["sk_pst"].status, REGISTERED)
         self.assertNotIn("sk_pst", out[1])
         self.assertEqual(out[2]["sk_pst"].status, REGISTERED)

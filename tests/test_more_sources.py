@@ -58,7 +58,17 @@ class Manitoba(unittest.TestCase):
 
 class Saskatchewan(unittest.TestCase):
     def test_search_terms_need_four_characters(self):
-        self.assertEqual(search_terms("The ABC", "Prairie Co", None), ["The ABC", "Prairie Co"])
+        # A portion of the name, without "The" or the legal ending, unless that leaves under 4 characters.
+        self.assertEqual(search_terms("The ABC", "Prairie Co", None), ["The ABC", "Prairie"])
+        self.assertEqual(search_terms("1 STOP VACUUM CENTRE*"), ["1 STOP VACUUM CENTRE"])  # seen on a real run
+        self.assertEqual(search_terms("ACME SUPPLY LTD.", "ACME SUPPLY LTD", "ACME* (INACTIVE)", "OTHER"), ["ACME SUPPLY", "ACME"])
+        self.assertEqual(search_terms("ABC LTD"), ["ABC LTD"])  # too short without "LTD", so searched whole
+        self.assertEqual(search_terms("AB", "A.B."), [])
+
+    def test_only_the_same_name_counts_as_a_match(self):
+        rows = [["ACME SUPPLY WEST LTD", "Vendor's Licence"], ["ACME SUPPLY LIMITED", "Vendor's Licence"]]
+        self.assertEqual(classify(rows, "", ["ACME SUPPLY LTD"])[2], "ACME SUPPLY LIMITED | Vendor's Licence")
+        self.assertEqual(classify(rows[:1], "", ["ACME SUPPLY LTD"])[0], NOT_CONFIRMED)
 
     def test_vendor_licence(self):
         rows = [["Business Name", "Type"], ["PRAIRIE CO LTD", "Vendor's Licence"]]

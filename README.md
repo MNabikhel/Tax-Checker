@@ -218,7 +218,11 @@ button checks it; the search form just needs 4 characters. So at the very start 
 opens, you tick "I agree" and "I'm not a robot" and click Next, and every Saskatchewan search then runs by
 itself before the rest of the check (so the session can't expire hours later with nobody there). If the
 registry ever asked for the CAPTCHA again within a few searches, the tool stops asking and marks the rest
-for a manual check. Results are read cautiously: REGISTERED only when a result row has the supplier's name and a
+for a manual check. **The registry allows 100 searches per 24 hours**, so each supplier gets at most 2
+searches (the name without vendor-master markings like `*`, "The" or Ltd/Inc, since the registry matches any
+portion of a name and ignores punctuation), and the tool counts searches across runs: when they're used up,
+the remaining Saskatchewan suppliers are marked for a manual check with the time searches are available again
+(run again then with `--resume`). Results are read cautiously: REGISTERED only when a result row has the supplier's name and a
 licence type, otherwise NOT CONFIRMED. A screenshot of each search is saved next to the log. The results
 page couldn't be seen while building this, so check the first run's screenshots against the results
 column. If nobody completes the CAPTCHA within 5 minutes, the Saskatchewan rows are marked for a manual check.

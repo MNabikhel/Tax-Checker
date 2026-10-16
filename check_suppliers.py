@@ -319,6 +319,11 @@ def prefetch_saskatchewan(checker, sk, rows):
     if not jobs:
         log.info("Saskatchewan: no Saskatchewan suppliers in this file, so the CAPTCHA window won't open.")
         return
+    left = sk.searches_left()
+    if len(jobs) > left:
+        log.warning("Saskatchewan: %d suppliers to search, but the registry allows only %d searches per 24 hours "
+                    "(%d left now). Suppliers past the limit are marked for a manual check; re-run later with --resume "
+                    "to search the rest.", len(jobs), sk.daily_limit, left)
     log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
                 "once and click Next. The searches then run by themselves, then the rest of the check.", len(jobs))
     started = time.monotonic()
@@ -451,7 +456,8 @@ def run(args, log_path):
             qst = QstChecker(nr_list_file=args.nr_list, browser=browser, cache_dir=args.cache_dir)
             sk = None
             if args.sk_assist:
-                sk = SkPstAssistant(stack.enter_context(Browser(headless=False, debug_dir=log_path.parent)))
+                sk = SkPstAssistant(stack.enter_context(Browser(headless=False, debug_dir=log_path.parent)),
+                                    counter_file=Path(args.cache_dir) / "saskatchewan_searches.json")
             checker = RowChecker(
                 gst,
                 qst,
