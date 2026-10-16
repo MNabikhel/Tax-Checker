@@ -65,5 +65,23 @@ def main(argv=None):
     return 0
 
 
+def run_and_record():
+    """Run the probe; if it fails, say why on screen and in logs/sk_probe_error.txt (the window may close)."""
+    import traceback
+
+    try:
+        return main()
+    except Exception:
+        text = traceback.format_exc()
+        print("\nThe probe stopped with an error:\n" + text)
+        try:
+            (HERE / "logs").mkdir(exist_ok=True)
+            (HERE / "logs" / "sk_probe_error.txt").write_text(text, encoding="utf-8")
+            print(f"Also saved in {HERE / 'logs' / 'sk_probe_error.txt'}")
+        except OSError:
+            pass
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_and_record())
