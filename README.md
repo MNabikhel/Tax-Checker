@@ -222,7 +222,10 @@ for a manual check. **The registry allows 100 searches per 24 hours**, so each s
 searches (the name without vendor-master markings like `*`, "The" or Ltd/Inc, since the registry matches any
 portion of a name and ignores punctuation), and the tool counts searches across runs: when they're used up,
 the remaining Saskatchewan suppliers are marked for a manual check with the time searches are available again
-(run again then with `--resume`). Results are read cautiously: REGISTERED only when a result row has the supplier's name and a
+(run again then with `--resume`). **`Saskatchewan Probe.bat`** (`python sk_probe.py ["name" ...]`) captures what
+the registry's results pages look like: tick the CAPTCHA once and it searches a few well-known Saskatchewan
+businesses, saving a screenshot, the page (.html) and what the tool read for each in `logs\sk_probe_<date>`.
+Results are read cautiously: REGISTERED only when a result row has the supplier's name and a
 licence type, otherwise NOT CONFIRMED. A screenshot of each search is saved next to the log. The results
 page couldn't be seen while building this, so check the first run's screenshots against the results
 column. If nobody completes the CAPTCHA within 5 minutes, the Saskatchewan rows are marked for a manual check.

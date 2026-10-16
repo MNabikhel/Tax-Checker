@@ -239,12 +239,14 @@ class SkPstAssistant:
         return rows, text
 
     def _evidence(self, label):
+        """A screenshot and the page itself (HTML) next to the log, so the results layout can be checked."""
         if not self.browser.debug_dir:
             return ""
-        shot = self.browser.debug_dir / f"sk_{re.sub(r'[^A-Za-z0-9]+', '_', label)[:40]}_{dt.datetime.now():%H%M%S}.png"
+        stem = self.browser.debug_dir / f"sk_{re.sub(r'[^A-Za-z0-9]+', '_', label)[:40]}_{dt.datetime.now():%H%M%S}"
         try:
-            self.page.screenshot(path=str(shot), full_page=True)
-            return f" Screenshot: {shot.name}"
+            self.page.screenshot(path=f"{stem}.png", full_page=True)
+            Path(f"{stem}.html").write_text(self.page.content(), encoding="utf-8")
+            return f" Screenshot: {Path(stem).name}.png"
         except Exception:
             return ""
 

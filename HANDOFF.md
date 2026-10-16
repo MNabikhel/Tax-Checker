@@ -93,8 +93,9 @@ TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSask
    list/paragraph layouts. The test skips only if every source answers with an HTTP error; if the page
    loads but no NR numbers are found it **fails**, meaning `qst.parse_nr_list` needs updating: save the
    page from a browser and add it as a fixture.
-2. **Saskatchewan results page** (`test_known_vendor`). Needs a person to tick the reCAPTCHA in the
-   window that opens. The flow itself (one CAPTCHA, all searches straight after it, back to the search box,
+2. **Saskatchewan results page** (`test_known_vendor`, or **`Saskatchewan Probe.bat`** on the user's PC: it saves
+   each results page as .html + screenshot + what `classify` read, in `logs/sk_probe_<date>`). Needs a person to
+   tick the reCAPTCHA in the window that opens. Normal runs also save each search's page (.html) next to the log. The flow itself (one CAPTCHA, all searches straight after it, back to the search box,
    stopping if the CAPTCHA is asked for again, the PST form's own Search button rather than the site-wide one)
    is tested in a real browser against a local stand-in registry (`tests/test_sk_assisted.py`), and against
    the real site with nobody ticking (waits, then MANUAL CHECK for every row without asking again). The reCAPTCHA only guards the terms page (confirmed from the site's
@@ -459,6 +460,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-16 (Manitoba results; Saskatchewan probe)**: The trial's 4 Manitoba "not found" are TAXcess's own
+  answer: probed live, it needs a name and (RST number or business number) and only finds a business when both
+  match its RST account (the right name with another business's number finds nothing; a name alone is refused).
+  No other Manitoba source exists; the details now say so and ask for the 7-digit RST number. Added
+  `sk_probe.py` / `Saskatchewan Probe.bat` to capture real Saskatchewan results pages.
 - **2026-10-16 (user's trial run)**: Manitoba rows were all MANUAL CHECK when Saskatchewan ran in the same run:
   Playwright's sync API starts only once per thread, so the hidden browser couldn't start after Saskatchewan's
   window; both now share one driver. Saskatchewan searched "1 STOP VACUUM CENTRE*" (the vendor master's "*"

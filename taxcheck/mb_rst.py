@@ -139,5 +139,7 @@ class MbRstChecker:
             NOT_CONFIRMED,
             f"Manitoba RST registry found nothing for {key} with name "
             + "; ".join(f"'{n}'" for n in tried)
-            + ". The business isn't registered for Manitoba RST, or the number/name doesn't match its records.",
+            + ". Manitoba's registry only finds a business when both the name and the number match its RST "
+            "account (checked: the right name with another business's number finds nothing). So it isn't registered "
+            "for Manitoba RST, or its RST account isn't under this business number: ask for its 7-digit RST number.",
         )

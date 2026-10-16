@@ -153,6 +153,28 @@ class AssistedFlow(unittest.TestCase):
             other.close()
         self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)  # still works after the other closed
 
+    def test_probe_saves_each_page_and_what_was_read(self):
+        import json
+
+        import sk_probe
+        from taxcheck import browser as browser_module
+
+        real = browser_module.Browser
+        with mock.patch.object(sk_probe, "HERE", self.tmp), \
+                mock.patch.object(browser_module, "Browser", lambda headless=True, debug_dir=None: real(debug_dir=debug_dir)), \
+                mock.patch("builtins.print"):
+            self.assertEqual(sk_probe.main(["Prairie Hardware Ltd", "Zzqx Imaginary Widgets"]), 0)
+        out = next((self.tmp / "logs").glob("sk_probe_*"))
+        report = json.loads((out / "probe_report.json").read_text(encoding="utf-8"))
+        self.assertEqual([r["tool_reads"] for r in report], [REGISTERED, NOT_CONFIRMED])
+        self.assertEqual(len(list(out.glob("*.html"))), 2)
+        self.assertEqual(len(list(out.glob("*.png"))), 2)
+        import logging
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            h.close()
+
     def test_daily_search_limit(self):
         counter = self.tmp / "sk_searches.json"
         sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5, counter_file=counter, daily_limit=2)
