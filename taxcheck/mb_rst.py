@@ -2,8 +2,10 @@
 
 The registry takes a business name plus either the 7-digit RST number or the 9-digit business number.
 It confirms whether the business has an active RST registration but never shows the RST number.
-The name is matched loosely (case-insensitive, partial words), but every word entered must appear in
-the registered name, so shorter variants are tried if the full name doesn't match.
+The name is matched loosely (case-insensitive, any part of the name), but every word entered must appear in
+the registered name. So one distinctive word from a name finds everything the full name would, and more (the
+registered name may be worded differently); with the business or RST number alongside, any result is this
+business. One word is searched per name the supplier is known by (sheet name, trade name, CRA's name).
 """
 
 import logging
@@ -32,26 +34,33 @@ def _searchable(term):
     return term if len(re.sub(r"[^A-Za-z0-9]", "", term)) >= 4 else ""
 
 
-def name_variants(*names):
-    """Full names first, then 'The'-less versions, then each name's first distinctive word."""
-    out, seen = [], set()
+_FORM_WORDS = {"the", "and", "inc", "ltd", "ltée", "ltee", "limited", "limitee", "limitée", "corp", "corporation",
+               "company", "incorporated", "ulc", "llc", "llp", "o/a", "dba", "d/b/a"}
+MAX_SEARCHES = 3
 
-    def add(candidate):
-        candidate = _searchable(candidate)
-        key = re.sub(r"[^a-z0-9]", "", candidate.lower())
+
+def _distinctive_word(name):
+    """The first word of a name worth searching on its own (4+ characters, not The/Inc/Ltd...), or ""."""
+    for word in re.findall(r"[\w.&'’/-]+", name):
+        if word.lower().strip(".") in _FORM_WORDS:
+            continue
+        term = _searchable(word.strip(".-&/"))
+        if term:
+            return term
+    return ""
+
+
+def name_variants(*names):
+    """What to search, best first: one distinctive word per name (see the module note), or the whole name when it
+    has no single word long enough ("AB CO LTD"). At most MAX_SEARCHES."""
+    out, seen = [], set()
+    for n in (str(n).strip() for n in names if n and str(n).strip()):
+        term = _distinctive_word(n) or _searchable(re.sub(r"^the\s+", "", n, flags=re.I))
+        key = re.sub(r"[^a-z0-9]", "", term.lower())
         if key and key not in seen:
             seen.add(key)
-            out.append(candidate)
-
-    names = [str(n).strip() for n in names if n and str(n).strip()]
-    for n in names:
-        add(n)
-        add(re.sub(r"^the\s+", "", n, flags=re.I))
-    for n in names:
-        words = [w for w in re.findall(r"[\w.&'’-]+", n) if w.lower() != "the"]
-        if words:
-            add(words[0])
-    return out
+            out.append(term)
+    return out[:MAX_SEARCHES]
 
 
 def parse_results(rows):

@@ -333,8 +333,9 @@ click, so it's re-clicked until checked (this caused intermittent timeouts befor
 
 **Manitoba TAXcess** (`mb_rst.py`): `?Link=RSTLookup`. Business name + (RST number or BN). Name match
 is case-insensitive and partial (any part of the name: "mazon" finds AMAZON.COM.CA ULC), but every word typed
-must be in the registered name ("Amazon Canada" fails, "amazon" passes), so variants end with the first
-word. Checked 2026-10-16: a term with an apostrophe finds nothing, and a term under 4 characters leaves the
+must be in the registered name ("Amazon Canada" fails, "amazon" passes). So `name_variants` searches one
+distinctive word per name (sheet name, trade-name splits, and the name CRA accepted for the number): it finds
+everything the full name would, and the business/RST number makes any result this business. At most 3. Checked 2026-10-16: a term with an apostrophe finds nothing, and a term under 4 characters leaves the
 page on the search form until the wait times out (the user's full run had six such timeouts, all names with
 an apostrophe). `_searchable` sends the longest apostrophe-free stretch, at least 4 characters; a name with
 nothing searchable is MANUAL CHECK. Saskatchewan's `search_terms` may need the same, but can't be tested
@@ -464,6 +465,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-16 (Manitoba: one word per name, plus CRA's name)**: TAXcess needs every typed word in the registered
+  name, so a full-name search can only find less than its first distinctive word does. Each name is now searched
+  as one word (first word of 4+ characters that isn't The/Inc/Ltd), and the name CRA accepted for the number is
+  added as a name to try. Live: not-found suppliers take 1 search (~4 s) instead of up to 3 (~16 s); a sheet
+  name worded differently from the registered one ("AMAZON BUSINESS CANADA" -> AMAZON.COM.CA ULC) is found on
+  the first search. Same answers on the trial's Manitoba suppliers.
 
 - **2026-10-16 (Saskatchewan: one failure no longer stops the rest)**: Three paths ended all remaining
   Saskatchewan searches after a single bad one: any timeout while the search box was off screen was read as "the

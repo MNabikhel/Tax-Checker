@@ -29,16 +29,22 @@ class Manitoba(unittest.TestCase):
         with self.assertRaises(BadNumber):
             parse_mb_rst("12345")
 
-    def test_name_variants_end_with_first_word(self):
+    def test_one_distinctive_word_per_name(self):
+        # TAXcess needs every typed word in the registered name, so one word finds all the full name would.
         # "AMZ" is dropped: under 4 characters TAXcess stays on the search form (live, 2026-10-16).
-        self.assertEqual(mb_names("The Amazon Company Inc", "AMZ"), ["The Amazon Company Inc", "Amazon Company Inc", "Amazon"])
+        self.assertEqual(mb_names("The Amazon Company Inc", "AMZ"), ["Amazon"])
+        self.assertEqual(mb_names("CLIFFS TOWING O/A 2370845 ALBERTA", "CLIFFS TOWING", "2370845 ALBERTA LTD."),
+                         ["CLIFFS", "2370845"])
+        self.assertEqual(mb_names("1 STOP VACUUM CENTRE", "A & B PLUMBING LTD"), ["STOP", "PLUMBING"])
+        self.assertEqual(mb_names("AB CO LTD"), ["AB CO LTD"])  # no single word long enough: the whole name
+        self.assertEqual(len(mb_names("Alpha One", "Bravo Two", "Charlie Three", "Delta Four")), 3)
 
     def test_no_apostrophes_sent_to_taxcess(self):
         # A term with an apostrophe finds nothing on TAXcess, and in a full run six such names timed out.
         # TAXcess matches any part of the name, so the longest stretch without an apostrophe is searched.
-        self.assertEqual(mb_names("SMITH'S PLUMBING LTD"), ["S PLUMBING LTD", "SMITH"])
-        self.assertEqual(mb_names("O'BRIEN PLUMBING"), ["BRIEN PLUMBING", "BRIEN"])
-        self.assertEqual(mb_names("JOE\u2019S DINER"), ["S DINER"])
+        self.assertEqual(mb_names("SMITH'S PLUMBING LTD"), ["SMITH"])
+        self.assertEqual(mb_names("O'BRIEN PLUMBING"), ["BRIEN"])
+        self.assertEqual(mb_names("JOE\u2019S DINER"), ["DINER"])
         self.assertEqual(mb_names("ABC"), [])
 
     def test_name_too_short_to_search_is_a_manual_check(self):

@@ -560,7 +560,12 @@ class RowChecker:
         if self._on("sk_pst") and (not _blank(sk_pst) or prov == "SK"):
             out["sk_pst"] = self._browser_check("_sk_noted", names, not _blank(sk_pst))
         if self._on("mb_rst") and (not _blank(mb_rst) or prov == "MB"):
-            out["mb_rst"] = self._browser_check("_mb", mb_rst, names, row.get("bn") or gst_value)
+            # Manitoba's registry has the legal name: the name CRA accepted for the number is worth a search too.
+            gst = out.get("gst")
+            cra_names = [gst.facts.get("accepted_name"), gst.facts.get("official_name"),
+                         gst.registered_name if gst.status == REGISTERED else None] if gst else []
+            mb_names = list(dict.fromkeys(n for n in [*names, *cra_names] if n))
+            out["mb_rst"] = self._browser_check("_mb", mb_rst, mb_names, row.get("bn") or gst_value)
         if dnu and "gst" in out:
             out["gst"].detail = f"Vendor is marked do-not-use in the vendor master; looked up as '{name}'. " + out["gst"].detail
         for tax, res in out.items():
