@@ -86,6 +86,7 @@ class BrowserFallback(unittest.TestCase):
         with patch:
             b = Browser()
             b._ensure_started()
+            b.close()  # releases the (fake) shared driver
         self.assertEqual(launched, ["bundled", "msedge"])
         self.assertTrue(b.engine.startswith("Microsoft Edge"))
 

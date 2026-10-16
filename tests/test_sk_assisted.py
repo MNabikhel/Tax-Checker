@@ -139,6 +139,20 @@ class AssistedFlow(unittest.TestCase):
         self.assertEqual(FakeRegistry.terms_shown, 1)
         self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE LTD", "NORTHERN SUPPLY", "UNKNOWN WIDGETS"])
 
+    def test_saskatchewan_and_the_other_browser_checks_in_one_run(self):
+        # Seen on a real run: the Saskatchewan window started first, then the hidden browser for Manitoba couldn't
+        # start ("Playwright Sync API inside the asyncio loop"), so every Manitoba row became MANUAL CHECK.
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        self.assertEqual(sk.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        other = Browser(debug_dir=self.tmp)
+        try:
+            with other.page() as page:
+                page.goto(sk_pst.SK_REGISTRY)
+                self.assertTrue(page.content())
+        finally:
+            other.close()
+        self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)  # still works after the other closed
+
     def test_captcha_on_every_search_stops_bulk_checking(self):
         FakeRegistry.every_search = True
         sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)

@@ -22,6 +22,32 @@ class BrowserUnavailable(RuntimeError):
     pass
 
 
+# Playwright's sync API can be started only once per thread: a second sync_playwright().start() fails with "using
+# Playwright Sync API inside the asyncio loop". The hidden browser (Manitoba, BC) and the visible one (the
+# Saskatchewan CAPTCHA) share one driver; it stops when the last browser closes.
+_driver = None
+_driver_users = 0
+
+
+def _acquire_driver():
+    global _driver, _driver_users
+    if _driver is None:
+        from playwright.sync_api import sync_playwright
+
+        _driver = sync_playwright().start()
+    _driver_users += 1
+    return _driver
+
+
+def _release_driver():
+    global _driver, _driver_users
+    _driver_users -= 1
+    if _driver_users <= 0:
+        if _driver is not None:
+            _driver.stop()
+        _driver, _driver_users = None, 0
+
+
 class Browser:
     """Use as `with Browser() as browser:`. Each lookup should take a fresh `browser.page()` context."""
 
@@ -43,8 +69,8 @@ class Browser:
             self._browser.close()
             self._browser = None
         if self._pw:
-            self._pw.stop()
             self._pw = None
+            _release_driver()
 
     def _ensure_started(self):
         if self._browser:
@@ -52,9 +78,7 @@ class Browser:
         if self._start_error:
             raise BrowserUnavailable(self._start_error)
         try:
-            from playwright.sync_api import sync_playwright
-
-            self._pw = sync_playwright().start()
+            self._pw = _acquire_driver()
         except Exception as e:
             self.close()
             self._start_error = f"browser couldn't start ({str(e).splitlines()[0]}). {INSTALL_HINT}"
