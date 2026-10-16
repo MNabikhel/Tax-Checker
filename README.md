@@ -65,7 +65,7 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 | `--sheet "Vendors"` | Read a sheet other than the first one. |
 | `--date 2026-09-30` | Confirm registration on this date (default: each row's date column, else today). |
 | `--no-browser` | Skip BC and Manitoba lookups (they need the headless browser). |
-| `--sk-assist` | Check Saskatchewan PST. A browser window opens; tick its CAPTCHA once and the script does the searches. |
+| `--sk-assist` | Check Saskatchewan PST. A browser window opens at the start; tick its CAPTCHA once and every Saskatchewan search runs by itself. The launchers ask instead (`--ask`). |
 | `--trust-gst-number` | Count "REGISTERED - NAME NOT MATCHED" (GST number registered, vendor name not confirmed) as OK. |
 | `--no-name-lookup` | Don't look up official names for GST/HST name mismatches (skips the ~110 MB federal download and OrgBook BC). |
 | `--cache-dir folder` | Where downloaded reference data is kept (default: `cache`, refreshed weekly). |
@@ -109,7 +109,8 @@ alone):
 
 The export has no QST or PST columns, so Québec and BC vendors aren't flagged NO NUMBER for those taxes.
 Manitoba RST is still checked (Manitoba's registry searches by name plus the business number from the Tax
-ID), and Saskatchewan PST is a manual check unless you run with `--sk-assist`.
+ID), and Saskatchewan PST is checked if you answer Y to the Saskatchewan question (you tick a CAPTCHA once at
+the start); otherwise it's a manual check.
 
 Suggested order for a large list: `--check-columns`, then `--offline` (2 minutes, fix any
 INVALID NUMBER / NO NUMBER rows you can), then `--limit 25` for a live trial, then the full run.
@@ -165,7 +166,7 @@ so save the workbook in Excel before running. A QST number without its `TQ` suff
 | QST (`NR` numbers) | [Revenu Québec's NR registrant list](https://www.revenuquebec.ca/en/businesses/consumption-taxes/gsthst-and-qst/special-cases-gsthst-and-qst/suppliers-outside-quebec/list-of-suppliers-outside-quebec-that-are-registered-for-the-qst/) | Yes |
 | BC PST | eTaxBC PST Number Verification Service (headless browser) | Yes |
 | MB RST | [TAXcess RST Registration Registry](https://taxcess.gov.mb.ca/TAXcess/?Link=RSTLookup) (headless browser) | Yes: business name plus RST or business number |
-| SK PST | [SETS PST registry](https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry) | Assisted (`--sk-assist`): you tick its reCAPTCHA once per run. Without it, flagged for a manual check. |
+| SK PST | [SETS PST registry](https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry) | Assisted: you tick its reCAPTCHA once at the start of the run, then every search is automatic. Without it, flagged for a manual check. |
 
 **Sites contacted.** Only these, all government services: the CRA GST/HST Registry
 (`businessregistration-inscriptionentreprise.gc.ca`), canada.ca (CRA's simplified-registrant list), Revenu
@@ -207,9 +208,13 @@ as OK.
 a plain download, then a real browser, and keeps a copy for a week. If both are blocked, save the page
 from your browser and pass it with `--nr-list`.
 
-**Saskatchewan (`--sk-assist`).** The registry's terms page has a reCAPTCHA that a person must complete.
-After that, the search page is an ordinary form, so the script runs every Saskatchewan search in that
-session. Results are read cautiously: REGISTERED only when a result row has the supplier's name and a
+**Saskatchewan (`--sk-assist`, or Y in the launcher's menu).** The registry's terms page has a reCAPTCHA
+that a person must complete, **once per run**: in the registry's own script only the terms page's Next
+button checks it; the search form just needs 4 characters. So at the very start of the run a browser window
+opens, you tick "I agree" and "I'm not a robot" and click Next, and every Saskatchewan search then runs by
+itself before the rest of the check (so the session can't expire hours later with nobody there). If the
+registry ever asked for the CAPTCHA again within a few searches, the tool stops asking and marks the rest
+for a manual check. Results are read cautiously: REGISTERED only when a result row has the supplier's name and a
 licence type, otherwise NOT CONFIRMED. A screenshot of each search is saved next to the log. The results
 page couldn't be seen while building this, so check the first run's screenshots against the results
 column. If nobody completes the CAPTCHA within 5 minutes, the Saskatchewan rows are marked for a manual check.

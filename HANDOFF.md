@@ -64,7 +64,8 @@ Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need th
 2. Count "registered, name not confirmed" as OK (`--trust-gst-number`)? [no: REVIEW]
 3. Registration-dates mode for the full run? [`end` when chosen in the menu; adds about an hour]
 4. Limit a run to vendors paid recently (by date, never by amount)? [no limit]
-5. Run Saskatchewan in assisted mode (someone ticks a CAPTCHA)? [no: MANUAL CHECK]
+5. Run Saskatchewan in assisted mode (someone ticks a CAPTCHA once at the start)? [asked in the launcher's
+   menu when Saskatchewan is chosen; Enter = yes]
 
 **Unverified parts.** Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
 that settles it in one command on a normal Canadian connection. Run them first and record the result
@@ -84,7 +85,10 @@ TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSask
    loads but no NR numbers are found it **fails**, meaning `qst.parse_nr_list` needs updating: save the
    page from a browser and add it as a fixture.
 2. **Saskatchewan results page** (`test_known_vendor`). Needs a person to tick the reCAPTCHA in the
-   window that opens. The reCAPTCHA only guards the terms page (confirmed from the site's
+   window that opens. The flow itself (one CAPTCHA, all searches straight after it, back to the search box,
+   stopping if the CAPTCHA is asked for again, the PST form's own Search button rather than the site-wide one)
+   is tested in a real browser against a local stand-in registry (`tests/test_sk_assisted.py`), and against
+   the real site with nobody ticking (waits, then MANUAL CHECK for every row without asking again). The reCAPTCHA only guards the terms page (confirmed from the site's
    `pstLookup.js`); the search page has a `#pstSearch` box (min. 4 characters). The results layout is
    unknown, so `sk_pst.classify()` is conservative: REGISTERED only when a table row contains the
    supplier's name and "vendor" or "consumer". The test searches Federated Co-operatives Limited (a
@@ -333,7 +337,12 @@ on returns is not accepted.
 consumer number without showing it. The server sends an incomplete certificate chain; normal
 browsers fix it by fetching the intermediate (over plain HTTP), which failed in the proxied build
 environment. Terms of use forbid commercial reproduction; internal verification is fine. **Never try
-to bypass the CAPTCHA.**
+to bypass the CAPTCHA.** The CAPTCHA is needed once per browser session: in `pstLookup.js` only the terms
+page's Next button calls `grecaptcha.getResponse()`; `submitPSTSearch` only validates 4+ characters. So
+`check_suppliers.prefetch_saskatchewan` runs every Saskatchewan search (`RowChecker.saskatchewan_searches`, the
+same arguments the rows use, so the rows hit the cache) right after the person passes it at the start of the
+run. Every SETS page has a site-wide "Search SETS" button in the header: click only the button inside
+`form:has(#pstSearch)`.
 
 ## 8. Tailoring to a new dataset (the likely next job)
 

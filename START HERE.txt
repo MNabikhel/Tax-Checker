@@ -13,6 +13,9 @@ THE REAL RUN (what you do each time)
      2  Everything (press Enter)
      3  Choose letters, e.g.  G M   (G GST/HST, Q QST, B BC PST, M Manitoba RST, S Saskatchewan)
    GST/HST is always included.
+   If Saskatchewan is included, you're asked whether to check it (press Enter for yes). A browser
+   window then opens right at the start: tick "I agree" and "I'm not a robot", click Next. That's
+   needed once: every Saskatchewan search then runs by itself, and the rest of the check carries on.
    Then choose GST/HST registration dates:
      1  Quick (press Enter): still registered today? cancellation date if not (about +1 hour)
      2  Full: also every supplier's GST/HST start date (hours more; for smaller lists)
