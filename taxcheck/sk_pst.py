@@ -73,35 +73,83 @@ def classify(rows, page_text, names):
     return NOT_CONFIRMED, "Couldn't read the registry's answer.", ""
 
 
+class CaptchaEverySearch(RuntimeError):
+    """The registry asked for the CAPTCHA again almost straight away: bulk checking isn't possible."""
+
+
 class SkPstAssistant:
+    """Saskatchewan searches in a visible browser, after a person passes the registry's CAPTCHA once.
+
+    The CAPTCHA guards only the terms page: in the registry's own pstLookup.js, the terms form's Next button
+    requires grecaptcha.getResponse(), while the search form's submit only checks that the name has at least
+    4 characters. So one CAPTCHA covers the whole browser session. check_suppliers runs every Saskatchewan
+    search straight after the CAPTCHA (prefetch), so the session doesn't sit idle and time out during a long run.
+
+    If the registry shows the terms page again, the person is asked again (the session may have expired). If
+    that happens after fewer than REASK_MIN searches, the CAPTCHA is evidently needed per search, so bulk
+    checking stops and the remaining Saskatchewan rows are left for a manual check.
+    """
+
+    REASK_MIN = 3
+
     def __init__(self, browser, wait_minutes=5):
         self.browser = browser  # must be headed (visible) so a person can complete the CAPTCHA
         self.wait_ms = int(wait_minutes * 60 * 1000)
         self.page = None
         self.unavailable = None
+        self.captchas = 0  # times the person was asked to complete it
+        self.searches_since_captcha = 0
+
+    def _search_box_visible(self):
+        box = self.page.locator(SEARCH_BOX)
+        return box.count() > 0 and box.first.is_visible()
+
+    def _back_to_search(self):
+        """From a results page back to the search box, without reloading the terms page if possible."""
+        if self._search_box_visible():
+            return True
+        again = self.page.get_by_role("link", name=re.compile(r"new search|search again|back", re.I)).or_(
+            self.page.get_by_role("button", name=re.compile(r"new search|search again|back", re.I)))
+        if again.count():
+            again.first.click()
+            self.page.wait_for_load_state("domcontentloaded")
+            if self._search_box_visible():
+                return True
+        self.page.goto(SK_REGISTRY, wait_until="domcontentloaded")
+        return self._search_box_visible()
 
     def _ready(self):
         """Make sure the search box is on screen, asking the person to pass the CAPTCHA if needed."""
         if self.page is None:
             self.page = self.browser.new_persistent_page()
-        if self.page.locator(SEARCH_BOX).count() and self.page.locator(SEARCH_BOX).is_visible():
+            self.page.goto(SK_REGISTRY, wait_until="domcontentloaded")
+            if self._search_box_visible():
+                return
+        elif self._back_to_search():
             return
-        self.page.goto(SK_REGISTRY, wait_until="domcontentloaded")
-        if self.page.locator(SEARCH_BOX).count():
-            return
+        if self.captchas and self.searches_since_captcha < self.REASK_MIN:
+            raise CaptchaEverySearch(
+                f"Saskatchewan's registry asked for the CAPTCHA again after {self.searches_since_captcha} "
+                "search(es), so it can't be checked in bulk")
+        self.captchas += 1
         log.warning(
-            "\n>>> Saskatchewan PST registry: in the browser window that just opened, tick 'I agree', "
-            "complete 'I'm not a robot', then click Next. Waiting up to %s...",
+            "\n>>> Saskatchewan PST registry%s: in the browser window, tick 'I agree', complete 'I'm not a robot', "
+            "then click Next. Waiting up to %s; the Saskatchewan searches then run by themselves.",
+            " (asking again: the registry's session expired)" if self.captchas > 1 else "",
             f"{self.wait_ms // 60000} minutes" if self.wait_ms >= 60000 else f"{self.wait_ms // 1000} seconds",
         )
+        self.page.bring_to_front()
         self.page.locator(SEARCH_BOX).wait_for(state="visible", timeout=self.wait_ms)
+        self.searches_since_captcha = 0
         log.info("Saskatchewan search page is open; continuing automatically.")
 
     def _search(self, term):
         page = self.page
         page.fill(SEARCH_BOX, term)
-        button = page.get_by_role("button", name=re.compile("search", re.I)).or_(
-            page.get_by_role("link", name=re.compile(r"^\s*search\s*$", re.I))
+        # Only the PST search form's own button: every SETS page also has a site-wide "Search SETS" button.
+        form = page.locator(f"form:has({SEARCH_BOX})")
+        button = form.get_by_role("button", name=re.compile("search", re.I)).or_(
+            form.get_by_role("link", name=re.compile(r"^\s*search\s*$", re.I))
         )
         if button.count():
             button.first.click()
@@ -133,24 +181,29 @@ class SkPstAssistant:
         if not terms:
             return Result(ERROR, "Saskatchewan's registry needs a business name of at least 4 characters.")
         try:
-            self._ready()
             last = None
             for term in terms:
+                self._ready()
                 rows, text = self._search(term)
+                self.searches_since_captcha += 1
                 status, detail, row = classify(rows, text, names)
                 last = (status, detail, term)
                 if status == REGISTERED:
                     return Result(status, detail + self._evidence(term), row)
-                self._ready()  # back to the search box for the next term
             status, detail, term = last
             return Result(status, f"{detail} (searched: {', '.join(terms)}).{self._evidence(term)}")
+        except CaptchaEverySearch as e:
+            self.unavailable = f"{e}. Search by hand at {SK_REGISTRY}"
+            log.warning(self.unavailable)
+            return Result(MANUAL, self.unavailable)
         except BrowserUnavailable as e:
             self.unavailable = f"Couldn't open a browser for the assisted check: {e} Search by hand at {SK_REGISTRY}"
             return Result(MANUAL, self.unavailable)
         except Exception as e:
-            log.exception("Saskatchewan assisted check failed")
             if "Timeout" in type(e).__name__ and self.page is not None and not self.page.locator(SEARCH_BOX).count():
                 # Nobody completed the CAPTCHA in time; don't make every remaining row wait again.
                 self.unavailable = f"The CAPTCHA wasn't completed in time. Search by hand at {SK_REGISTRY}"
+                log.warning("Saskatchewan: %s", self.unavailable)
                 return Result(MANUAL, self.unavailable)
+            log.exception("Saskatchewan assisted check failed")
             return Result(ERROR, f"Saskatchewan assisted check failed: {str(e).splitlines()[0]} (see log file)")

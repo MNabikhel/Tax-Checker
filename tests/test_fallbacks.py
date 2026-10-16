@@ -60,6 +60,12 @@ class SimplifiedFallback(unittest.TestCase):
 
 
 class BrowserFallback(unittest.TestCase):
+    def setUp(self):
+        # A browser named in TAXCHECK_CHROMIUM would be tried first; these tests are about the fallbacks after it.
+        env = mock.patch.dict("os.environ", {"TAXCHECK_CHROMIUM": ""})
+        env.start()
+        self.addCleanup(env.stop)
+
     def fake_playwright(self, works):
         launched = []
 

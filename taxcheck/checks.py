@@ -400,6 +400,37 @@ class RowChecker:
             self._cache[key] = found
         f.update(found)
 
+    @staticmethod
+    def _search_names(name, trade_name, candidates=None):
+        """Names for registries that search by words (Manitoba, Saskatchewan): as given, then the legal part."""
+        candidates = vendor_name_candidates(name) if candidates is None else candidates
+        return [*candidates[:2], trade_name] if candidates else [name, trade_name]
+
+    def saskatchewan_searches(self, rows):
+        """The Saskatchewan searches checking `rows` will need, as (names, sheet_had_number), each once.
+
+        Saskatchewan's registry asks for a CAPTCHA once per browser session (its terms page), so check_suppliers
+        runs all of these right after the person passes it, instead of one at a time through a long run. The
+        arguments are exactly what _check_row passes to _sk_noted, so the row checks later find the results in
+        the cache.
+        """
+        if not self._on("sk_pst"):
+            return []
+        jobs, seen = [], set()
+        for row in rows:
+            _, prov, foreign, _ = self.locate(row)
+            if foreign:
+                continue
+            sk = row.get("sk_pst") if not _blank(row.get("sk_pst")) else (row.get("pst") if prov == "SK" else None)
+            if _blank(sk) and prov != "SK":
+                continue
+            name, _ = clean_vendor_name(row.get("name"))
+            job = (self._search_names(name, row.get("trade_name")), not _blank(sk))
+            if repr(job) not in seen:
+                seen.add(repr(job))
+                jobs.append(job)
+        return jobs
+
     def _check_row(self, row, date):
         country, prov, foreign, how = self.locate(row)
         if how:
@@ -411,7 +442,7 @@ class RowChecker:
         # Manitoba/Saskatchewan, which search by words, get the name as given and its legal part.
         candidates = vendor_name_candidates(name)
         gst_names = [*candidates, row.get("trade_name")]
-        names = [*candidates[:2], row.get("trade_name")] if candidates else [name, row.get("trade_name")]
+        names = self._search_names(name, row.get("trade_name"), candidates)
         field_length = len(str(row.get("name") or ""))
 
         # The GST/HST column may be a free-form "Tax ID": tidy it (other CRA program accounts, old "R" format,

@@ -161,12 +161,30 @@ def ask_gst_dates():
         print("  Please type 1, 2 or 3.")
 
 
+def ask_saskatchewan():
+    """Saskatchewan's registry needs a person to tick a CAPTCHA once, at the start of the run."""
+    print()
+    print("Saskatchewan PST: the registry has an \"I'm not a robot\" check. If you check Saskatchewan, a browser")
+    print("window opens at the start: tick it once and click Next, and every Saskatchewan search then runs by itself.")
+    print("Otherwise Saskatchewan suppliers are marked for a manual check.")
+    while True:
+        try:
+            answer = input("Check Saskatchewan now? Type Y or N and press Enter [Y]: ").strip().lower()
+        except EOFError:
+            return False
+        if answer in ("", "y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("  Please type Y or N.")
+
+
 def ask_taxes():
     """Console menu used by the .bat launchers. Enter (or no console) = everything."""
     print()
     print("Which taxes should be checked?")
     print("  1  GST/HST only (fastest; no browser checks)")
-    print("  2  Everything: GST/HST, QST, BC PST, Manitoba RST, Saskatchewan PST (Saskatchewan = manual-check note)")
+    print("  2  Everything: GST/HST, QST, BC PST, Manitoba RST, Saskatchewan PST")
     print("  3  Choose: type the letters, e.g.  G M    (G GST/HST  Q QST  B BC PST  M Manitoba RST  S Saskatchewan)")
     while True:
         try:
@@ -246,6 +264,32 @@ def save_workbook(sheet, results, out, notes, ok_statuses):
         log.warning("%s is locked (open in Excel?); saving to %s instead", out, alt)
         sheet.write_results(results, alt, notes, ok_statuses)
         return alt
+
+
+def prefetch_saskatchewan(checker, sk, rows):
+    """Run every Saskatchewan search right after the person passes the registry's CAPTCHA, at the start.
+
+    The CAPTCHA is needed once per browser session (see sk_pst.SkPstAssistant), but in a long run the
+    Saskatchewan rows can be hours apart: the session could expire and nobody would be there to tick it again.
+    Done up front, the person ticks it once while they're starting the run and can then leave. The results go
+    into the row checker's cache, so the main loop reuses them.
+    """
+    jobs = checker.saskatchewan_searches(rows)
+    if not jobs:
+        log.info("Saskatchewan: no Saskatchewan suppliers in this file, so the CAPTCHA window won't open.")
+        return
+    log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
+                "once and click Next. The searches then run by themselves, then the rest of the check.", len(jobs))
+    started = time.monotonic()
+    for i, (names, had_number) in enumerate(jobs, 1):
+        res = checker._guard(checker._sk_noted, names, had_number)
+        log.info("[Saskatchewan %d/%d] %s: %s", i, len(jobs), next((n for n in names if n), ""), res.status)
+        if sk.unavailable:
+            log.warning("Saskatchewan: stopping the searches (%s); the remaining Saskatchewan suppliers are "
+                        "marked for a manual check.", sk.unavailable)
+            break
+    log.info("Saskatchewan searches done in %.0fs (CAPTCHA asked %d time(s)); continuing with the other checks.",
+             time.monotonic() - started, sk.captchas)
 
 
 class CheckpointSaver:
@@ -337,6 +381,7 @@ def run(args, log_path):
     checkpoints = CheckpointSaver(sheet, out)
     failure = None
     with contextlib.ExitStack() as stack:
+        sk = None  # the Saskatchewan assistant, only with --sk-assist
         if offline:
             qst = None
             off = Offline()
@@ -431,6 +476,8 @@ def run(args, log_path):
                     yield r, values, out_row, time.monotonic() - t0
 
         try:
+            if sk:
+                prefetch_saskatchewan(checker, sk, [values for _, values in to_check])
             for i, (r, values, out_row, secs) in enumerate(results_in_order(), 1):
                 t0 = time.monotonic()
                 results[r] = checker.run_deferred(out_row)  # browser checks, main thread (no-op if none deferred)
@@ -469,7 +516,8 @@ def run(args, log_path):
         "GST/HST: CRA GST/HST Registry, plus CRA's simplified GST/HST registrant list.",
         "QST: Revenu Québec QST validation API (TQ numbers) and Revenu Québec's NR registrant list.",
         "BC PST: eTaxBC PST Number Verification Service. MB RST: Manitoba TAXcess RST Registration Registry.",
-        "SK PST: SETS PST On-Line Registry (needs --sk-assist, because of its CAPTCHA).",
+        "SK PST: SETS PST On-Line Registry, searched in a browser window after a person ticks its CAPTCHA once "
+        "(--sk-assist, or Y in the menu); otherwise a manual check.",
         "GST/HST names that don't match CRA are retried with official names: Revenu Québec's (when a QST number "
         "is given), Corporations Canada's open data, and OrgBook BC.",
         "GST/HST numbers whose name doesn't match are still checked by number: 'REGISTERED - NAME NOT MATCHED' means "
@@ -593,6 +641,9 @@ def main(argv=None):
         return 1
     if args.ask and args.taxes is None and not args.check_columns:
         args.taxes = ask_taxes()
+    if (args.ask and not args.sk_assist and not args.check_columns and not args.offline
+            and (args.taxes is None or "sk_pst" in args.taxes)):
+        args.sk_assist = ask_saskatchewan()
     if args.ask and args.gst_dates is None and not args.check_columns and not args.offline:
         args.gst_dates = ask_gst_dates()
     args.gst_dates = args.gst_dates or "end"
