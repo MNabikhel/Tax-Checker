@@ -4,14 +4,16 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-16 · **Branch:** working copy from a second agent, not committed (see §12) · **Tests:** 146 offline + 12 live
+**Last updated:** 2026-10-16 · **Branch:** `main` (current; all work is merged) · **Tests:** 155 offline + 19 live
 
 ---
 
 ## 0. Start here (for GitHub Copilot or any AI agent tailoring this tool)
 
-Your job is almost certainly **adapting the tool to the user's supplier file**, not rewriting how the
-checks work. The checks are verified against live government sites and full of hard-won quirks (§7).
+The tool is already tailored to the user's ERP vendor-master export (README, "ERP vendor-master
+exports") and has done a full live run of it on their corporate network. The decisions still open for
+the user are in §2. For a new dataset, your job is almost certainly **adapting the tool to that file**,
+not rewriting how the checks work. The checks are verified against live government sites and full of hard-won quirks (§7).
 Work in this order:
 
 1. **Set up and prove the baseline** (§3): install, `python -m unittest discover tests` must say OK.
@@ -45,17 +47,26 @@ a status and an explanation per tax, plus a summary sheet and a detailed log fil
 | GST/HST name recovery | Corporations Canada open data (federal corporations CSV, ~110 MB) | download, cached 7 days | Automated, verified live |
 | GST/HST name recovery (BC) | OrgBook BC public API (search by business number) | `requests` | Automated, verified live |
 | GST/HST number-only | CRA registry, date-before-name behaviour (§7) | `requests` | Automated, verified live |
+| GST/HST registration dates | CRA registry asked about specific days (`gst_dates.py`, §7) | `requests` | Automated, verified live against CRA's published dates (2026-10-16) |
+| Digital-economy registrants with no number on file | CRA's simplified list matched by name, then confirmed with the registry | `requests` | Automated, verified live (2026-10-16) |
 | QST (`TQ` numbers) | Revenu Québec validation API (JSON) | `requests` | Automated, verified live |
-| QST (`NR` numbers) | Revenu Québec's published NR list | `requests` → browser → saved file | **Untested live** (see §2) |
-| BC PST | eTaxBC "PST Number Verification Service" | Playwright | Automated, verified live with Chromium 153 (2026-10-13) |
-| MB RST | Manitoba TAXcess "RST Registration Registry" | Playwright | Automated, verified live with Chromium 153 |
+| QST (`NR` numbers) | Revenu Québec's published NR list | `requests` → browser → saved file | Page reachable from the user's network; **parser untested** (see §2) |
+| BC PST | eTaxBC "PST Number Verification Service" | Playwright | Automated, verified live (Chromium 141, 2026-10-16; page loads on the user's Edge 155) |
+| MB RST | Manitoba TAXcess "RST Registration Registry" | Playwright | Automated, verified live; ~880 searches in the user's full run on Edge 155 |
 | SK PST | SETS "PST On-Line Registry" | Playwright, **person completes a reCAPTCHA** | Assisted (`--sk-assist`); results page **unseen** (see §2) |
 
 Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need the GST/HST check.
 
 ## 2. Open items: verify these on the new PC first
 
-Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
+**Decisions for the user** (ask; don't decide for them). Current defaults in brackets:
+1. Check do-not-use vendors at all? [yes, marker removed for lookups and noted]
+2. Count "registered, name not confirmed" as OK (`--trust-gst-number`)? [no: REVIEW]
+3. Registration-dates mode for the full run? [`end` when chosen in the menu; adds about an hour]
+4. Limit a run to vendors paid recently (by date, never by amount)? [no limit]
+5. Run Saskatchewan in assisted mode (someone ticks a CAPTCHA)? [no: MANUAL CHECK]
+
+**Unverified parts.** Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
 that settles it in one command on a normal Canadian connection. Run them first and record the result
 in the change log (§12).
 
@@ -84,8 +95,12 @@ TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSask
 
 Python 3.9+ (tested on 3.11, 3.12, 3.13; code parses as 3.9).
 
-Windows: double-click `Setup.bat` (creates `.venv`, installs requirements and Chromium, runs the
-offline tests), then `Run Tax Check.bat` (file picker → run → pauses at the end). By hand:
+Windows: double-click `Test Setup.bat` (creates or repairs `.venv`, installs requirements, tries to
+download Chromium, then `check_setup.py` checks Python, certificates, every site, the browser, the
+workbook and a few real lookups, ending READY / NOT READY), then `Run Trial (25 suppliers).bat` and
+`Run Tax Check.bat` (file picker → tax and dates menus → run → Explorer opens on the results).
+`START HERE.txt` has the user's steps. Python 3.14 was used for the user's full run without problems.
+By hand:
 
 ```
 git clone https://github.com/MNabikhel/Tax-Checker.git
@@ -108,8 +123,18 @@ the federal data (~110 MB), only if some GST name doesn't match; `--no-name-look
 `cache/` and `.last_folder` are git-ignored. `Setup.bat`/`Run Tax Check.bat` haven't been run on Windows
 by the original author (built on Linux); if one misbehaves, the commands above do the same thing.
 
+**Corporate networks.** `certs.use_system_certificates()` (truststore) makes Python trust the Windows
+certificate store; without it every request failed with `CERTIFICATE_VERIFY_FAILED` behind the user's TLS
+inspection. Verification stays on. `Browser` tries `TAXCHECK_CHROMIUM`, Playwright's Chromium, then the
+installed Edge (`channel="msedge"`), then Chrome: the user's network blocks the Chromium download, and
+Edge 155 worked for every page. canada.ca never answered Python there (read timeouts) but loads in the
+browser, so CRA's simplified list falls back to the browser and is cached for a week.
+
 `TAXCHECK_CHROMIUM=/path/to/chrome` points Playwright at a specific browser binary (used in the
 build environment; normally not needed). `HTTPS_PROXY`, if set, is passed to the browser.
+
+**Hosts contacted:** see README, "What gets checked". All are government sites, plus the CloudFront URL
+open.canada.ca publishes for the federal corporations CSV. Document any new one there.
 
 ## 4. How a run works
 
@@ -136,23 +161,28 @@ the log only).
 
 | File | Responsibility | Key names |
 |---|---|---|
-| `check_suppliers.py` | CLI, file picker, output locations, run orchestration, summary-sheet notes, Ctrl+C keeps partial results | `main`, `choose_workbook`, `default_log_dir`, `run`, `save_workbook` |
-| `Setup.bat`, `Run Tax Check.bat` | Windows double-click setup and launcher | |
+| `check_suppliers.py` | CLI, file picker, menus (`--ask`), output locations, run orchestration with parallel workers (`--workers`), trial/resume/offline, background checkpoint saves, summary-sheet notes | `main`, `choose_workbook`, `run`, `parse_taxes`, `CheckpointSaver`, `save_workbook` |
+| `check_setup.py` | Setup test: Python, certificates, each site, browser, workbook, real lookups → READY / NOT READY report | `main`, `check_*`, `explain_error` |
+| `Test Setup.bat`, `Run Trial (25 suppliers).bat`, `Run Tax Check.bat`, `Setup.bat` | Windows double-click launchers (`Setup.bat` just calls `Test Setup.bat`) | |
 | `taxcheck/workbook.py` | Read .xlsx/.xlsm/.csv, header detection, column aliases, provinces, dates, write results | `COLUMNS`, `PROVINCES`, `SupplierSheet`, `InputError`, `as_text` |
-| `taxcheck/checks.py` | Per-row routing: which checks apply, number parsing, caching, error containment | `RowChecker` |
-| `taxcheck/numbers.py` | Offline parsing/validation of every number format; CRA Luhn check digit | `parse_gst`, `parse_bn`, `parse_qst`, `parse_bc_pst`, `parse_mb_rst`, `BadNumber` |
+| `taxcheck/checks.py` | Per-row routing (country/postal, foreign vendors, which taxes), vendor-name candidates, official-name confirmation, digital-economy match, registration-date facts, caching, error containment, deferred browser checks for worker threads | `RowChecker`, `vendor_name_candidates`, `clean_vendor_name`, `same_business_name`, `Deferred`, `Offline`, `DryRun` |
+| `taxcheck/report.py` | Issue / Action / severity per tax, Main Issue per supplier | `gst_issue`, `provincial_issue`, `row_summary` |
+| `taxcheck/gst_dates.py` | GST/HST registration start and end found by asking the registry about specific days | `registered_on`, `registration_start`, `cancellation_date` |
+| `taxcheck/certs.py` | Use the operating system's certificate store (truststore) | `use_system_certificates` |
+| `taxcheck/diagnostics.py` | Optional copy of reports/logs to a folder set per user (off by default) | `copy_to_diagnostics` |
+| `taxcheck/numbers.py` | Offline parsing/validation of every number format; CRA Luhn check digit; free-form "Tax ID" normalization | `parse_gst`, `parse_bn`, `normalize_tax_id`, `tax_id_problem`, `BadNumber` |
 | `taxcheck/gst.py` | CRA registry form, result parsing, name variants, simplified list, federal-name fallback, Ottawa date | `GstChecker`, `parse_registry_result`, `SimplifiedList`, `cra_today`, `name_variants` |
 | `taxcheck/fedcorp.py` | Corporations Canada CSVs → `{bn9: [official names]}`, weekly cache | `FederalCorporations` |
 | `taxcheck/orgbook.py` | OrgBook BC API → official names for BC-registered organizations by business number | `OrgBookBC`, `parse_topics` |
 | `taxcheck/qst.py` | Revenu Québec API; NR list with download → browser → file fallbacks and cache | `QstChecker`, `parse_nr_list` |
-| `taxcheck/browser.py` | Shared lazily-started Chromium, fresh context per lookup, failure screenshots, fail-fast on HTTP errors | `Browser`, `BrowserUnavailable` |
+| `taxcheck/browser.py` | Shared lazily-started browser (Chromium → Edge → Chrome), fresh context per lookup, failure screenshots, fail-fast on HTTP errors | `Browser`, `BrowserUnavailable` |
 | `taxcheck/bc_pst.py` | eTaxBC form automation | `BcPstChecker` |
 | `taxcheck/mb_rst.py` | TAXcess form automation, name variants down to the first word | `MbRstChecker`, `parse_results` |
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA | `SkPstAssistant`, `classify`, `search_terms` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection | `new_session`, `Throttle`, `SiteHealth` |
 | `taxcheck/logsetup.py` | Log file + console handlers | `setup_logging` |
 | `taxcheck/progress.py` | Per-supplier progress CSV, periodic progress/ETA lines, `--resume` loader | `ProgressReport`, `load_resume` |
-| `taxcheck/result.py` | Status constants and `Result` | |
+| `taxcheck/result.py` | Status constants and `Result` (`status`, `detail`, `registered_name`, `name_check`, `facts`) | `Result.copy` |
 
 ## 6. Statuses
 
@@ -222,12 +252,31 @@ These were all learned by testing; don't "simplify" them away.
   legal/trade names and dereg dates. A business can appear several times (old RT0001 + new RT9999), so
   `SimplifiedList.lookup` picks the account active on the date.
 - **Don't send an `Accept-Language` header to canada.ca**: requests hang through some proxies.
+- **How CRA compares names** (measured 2026-10-16 on public registrations; `gst._name_key` mirrors it and
+  `LiveCraNameRules` re-checks it): case and extra spaces don't matter; `.` and `&` separate words like a
+  space ("Amazon.com.ca" = "Amazon com ca"; "U.L.C." = "U L C", which is not "ULC"); every other punctuation
+  mark is dropped and joins its neighbours ("British-Columbia" = "BritishColumbia", which fails;
+  "Columbia's" = "Columbias"); a missing space always fails. So "B.C." and "BC" are different searches.
+- **Registration dates** (`gst_dates.py`): with a placeholder name, a day the number wasn't registered
+  answers "not registered" and a registered day answers "Insufficient information", so dates are found by
+  halving (about 16 lookups for a start date, 10 for a cancellation). Checked 2026-10-16 against CRA's
+  simplified list: start dates exact; a cancellation is reported as the **last registered day**, the list's
+  own convention. The registry answers per **business number**: a business with an older ordinary account
+  answers "registered" from that account's start, years before its simplified one.
+- **Digital-economy registrants with no number on file** (`checks._digital_economy`): vendors with no usable
+  Canadian number (foreign vendors; Canadian rows with none or an invalid one) are compared with every legal
+  and trade name on the simplified list using `core_name` (case, punctuation, "&"/"and", legal suffixes
+  ignored; whole name only, at least 6 characters: partial matches gave many false positives in a manual
+  pass). A match is reported only when CRA confirms the listed number under the listed legal name on the date.
 
 **Official-name sources for GST/HST.** When the sheet's names don't match, `GstChecker._candidates`
 tries, in order: CRA's simplified list names; names other checks returned for the same row (Revenu
 Québec's legal and trade name, because `RowChecker` runs QST before GST); then each `name_sources`
 entry (federal registry, then OrgBook BC), consulted lazily. Any match through these gives REGISTERED -
-NAME NOT MATCHED with that name in "Name on Government Record". To add a source, give it `.label` and
+NAME NOT MATCHED with that name in "GST/HST Name Accepted by CRA"; `RowChecker._confirm_official` turns it
+into REGISTERED when the official name is the vendor's own apart from spacing, punctuation, "&"/"and", legal
+suffix, a successor year, one half of a bilingual name, or a vendor name cut off at the ERP's 40
+characters. To add a source, give it `.label` and
 `.names(bn9)` and append it to `name_sources` in `check_suppliers.run`.
 
 **OrgBook BC** (`orgbook.py`): `GET https://orgbook.gov.bc.ca/api/v4/search/topic?q=<bn9>`, no key.
@@ -269,8 +318,13 @@ click, so it's re-clicked until checked (this caused intermittent timeouts befor
 "PST number is valid" / "No Match Found". Has multi-day maintenance windows.
 
 **Manitoba TAXcess** (`mb_rst.py`): `?Link=RSTLookup`. Business name + (RST number or BN). Name match
-is case-insensitive and partial, but every word typed must be in the registered name ("Amazon Canada"
-fails, "amazon" passes), so variants end with the first word. Its content-security policy blocks
+is case-insensitive and partial (any part of the name: "mazon" finds AMAZON.COM.CA ULC), but every word typed
+must be in the registered name ("Amazon Canada" fails, "amazon" passes), so variants end with the first
+word. Checked 2026-10-16: a term with an apostrophe finds nothing, and a term under 4 characters leaves the
+page on the search form until the wait times out (the user's full run had six such timeouts, all names with
+an apostrophe). `_searchable` sends the longest apostrophe-free stretch, at least 4 characters; a name with
+nothing searchable is MANUAL CHECK. Saskatchewan's `search_terms` may need the same, but can't be tested
+without a person at the CAPTCHA. Its content-security policy blocks
 `page.wait_for_function`; wait on elements instead. Results table: Status / Legal Name(s) /
 Operating As. "No results found" is a dialog. The RST number is 7 digits; the 15-digit account number
 on returns is not accepted.
@@ -336,11 +390,17 @@ Ctrl+C saves what's done; re-running on the output file overwrites its result co
 ## 9. Tests and examples
 
 - `tests/test_offline.py`, `test_workbook_io.py`, `test_responses.py`, `test_gst_logic.py`,
-  `test_more_sources.py`, `test_robustness.py`, `test_cli.py`: no network, < 1 s total.
+  `test_more_sources.py`, `test_robustness.py`, `test_cli.py`, and for the vendor export
+  `test_vendor_export.py`, `test_vendor_names.py`, `test_report.py`, `test_gst_dates.py`,
+  `test_digital_economy.py`, `test_fallbacks.py`, `test_check_setup.py`, `test_diagnostics.py`: no network,
+  a few seconds in all. Names and numbers in them are made up (or public test data below).
 - `tests/fixtures/`: **real** responses saved from CRA and Revenu Québec. If a site changes, save a new
   page into a fixture and add a case to `test_responses.py`.
 - `tests/test_live.py`: real services with publicly published registrations (UBC, Amazon.com.ca,
-  Avient, AIRGSM, a random federal corporation). Opt-in with `TAXCHECK_LIVE=1`; ~1–2 minutes.
+  Avient, AIRGSM, a random federal corporation, simplified registrants picked from CRA's list). Also CRA's
+  name-comparison rules, registration dates against the list, the browser copy of the list, digital-economy
+  matching, Manitoba apostrophes, Edge (Windows only) and an end-to-end run with 3 workers and dates.
+  Opt-in with `TAXCHECK_LIVE=1`; ~2–3 minutes.
 
 `examples/`: `suppliers_template.xlsx` (blank headers), `sample_suppliers.xlsx` (11 public test
 suppliers covering every outcome), `sample_suppliers_results.xlsx` and `sample_run.log` (a full run's
@@ -375,7 +435,24 @@ Inc. `774075766`.
 
 ## 12. Change log
 
-- **2026-10-16 (merge)**: CHANGELOG-PLACEHOLDER
+- **2026-10-16 (second agent's work reviewed and merged)**: A second agent tailored the tool to the user's
+  ERP vendor-master export and ran it live on their corporate network (Windows 11, Python 3.14, Edge 155,
+  TLS inspection; ~20k rows in 2 h 46 min with 3 workers, 13,469 CRA searches, no CRA errors). Its work came
+  back as a patch with a handoff package (requirements R1–R16, live evidence); summarized in §2, §3, §5, §7.
+  Reviewed, merged and verified live here:
+  - Names: their candidates replace the earlier `gst.name_variants` cleanup; added `[DO NOT USE]` (it lost
+    the whole name), bracketed status notes such as `(INACTIVE)` (were tried as trade names), "doing /
+    carrying on business as", "C.O.B.", "O.A.". `_name_key` now follows CRA's measured rules (§7); their
+    "spaces count" assumption was right, but punctuation isn't simply ignored.
+  - The suffix swap (Ltd ↔ Limited) stays: CRA rejects the other spelling 14–15 times in 15, so when the
+    vendor master spells it differently from CRA, it's the only way to match.
+  - Registration dates verified against CRA's list; cancellations now report the last registered day.
+  - Manitoba: apostrophes and short terms fixed (§7), verified live.
+  - Checkpoint saves run in a background thread (they paused the run 5–90 s each).
+  - New: digital-economy registrants among vendors with no usable number (§7), verified live.
+  - Live tests added for all of the above; test names and numbers that weren't clearly made up were
+    replaced. Not verified live: Edge (no Windows here), the Québec NR parser (Revenu Québec refuses this
+    network), Saskatchewan, BC PST with the export, a real `--resume`.
 - **2026-10-13 (file picker)**: Running without a path opens a file picker (typed-path fallback without a
   display), starting in the last folder used. Logs and screenshots now go to a `logs` folder next to the
   workbook (results already did); the shared cache is anchored to the tool's folder. Added `Setup.bat` and

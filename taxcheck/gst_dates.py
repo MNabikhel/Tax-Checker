@@ -8,6 +8,11 @@ between a day it was and a day it wasn't (about 9 lookups for a year, 14 for 35 
 
 All lookups go through GstChecker.registry_lookup, so CRA's pacing and site-down detection still apply.
 Registrations don't expire; "end" means the registration was cancelled.
+
+The registry answers per business number, not per account: checked live on 2026-10-16, a business with an
+ordinary GST/HST account since 1993 and a simplified one since 2022 answers "registered" from 1993. So the
+dates found are the business's (any GST/HST account), which is what "was it registered when it charged us"
+needs. For simplified registrants the list's own dates are used instead.
 """
 
 import datetime as dt

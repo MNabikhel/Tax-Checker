@@ -18,7 +18,11 @@ Key rules:
   `--trust-gst-number`) instead of guessing.
 - Every change needs a test; `python -m unittest discover tests` must pass. Live tests:
   `TAXCHECK_LIVE=1 python -m unittest tests.test_live -v` (PowerShell: `$env:TAXCHECK_LIVE=1`).
-- Never commit real supplier data, results (`*_tax_check.xlsx`), `logs/` or `cache/`.
+- Never commit real supplier data, results (`*_tax_check*.xlsx`), `logs/` or `cache/`. Test names and
+  numbers must be made up (or the public test data in `tests/test_live.py`), never copied from the user's file.
+- The user's standing rules: never edit the source workbook, never guess legal names (only forms of the
+  vendor's own name and official registry names), never filter or prioritize by payment amount, keep the
+  double-click `.bat` flow working. Open decisions for the user are in HANDOFF.md section 2.
 - Never bypass CAPTCHAs, disable TLS verification, or remove request throttling.
 - Record what you changed in HANDOFF.md section 12 (change log).
 - Code style: small functions, docstrings explaining *why*, plain-English messages in results and logs.

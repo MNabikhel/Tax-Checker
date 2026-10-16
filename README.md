@@ -167,6 +167,21 @@ so save the workbook in Excel before running. A QST number without its `TQ` suff
 | MB RST | [TAXcess RST Registration Registry](https://taxcess.gov.mb.ca/TAXcess/?Link=RSTLookup) (headless browser) | Yes: business name plus RST or business number |
 | SK PST | [SETS PST registry](https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry) | Assisted (`--sk-assist`): you tick its reCAPTCHA once per run. Without it, flagged for a manual check. |
 
+**Sites contacted.** Only these, all government services: the CRA GST/HST Registry
+(`businessregistration-inscriptionentreprise.gc.ca`), canada.ca (CRA's simplified-registrant list), Revenu
+Québec (`svcnab2b.revenuquebec.ca` for the QST API, `revenuquebec.ca` for the NR list), OrgBook BC
+(`orgbook.gov.bc.ca`), Corporations Canada's open data (the download address open.canada.ca publishes, on
+`cloudfront.net`), eTaxBC (`etax.gov.bc.ca`), Manitoba TAXcess (`taxcess.gov.mb.ca`) and Saskatchewan SETS
+(`sets.saskatchewan.ca`). The browser lookups load those sites' own pages and scripts.
+
+**Digital-economy registrants.** Non-resident digital sellers registered under CRA's simplified GST/HST
+regime are often set up as foreign vendors with no Canadian number on file. For vendors without a usable
+Canadian number (foreign ones, and Canadian ones with none or an invalid one), the vendor name is compared
+with every name on CRA's simplified-registrant list. The whole name must match (case, punctuation, "&"/"and"
+and Inc/Ltd-type endings aside), and CRA must confirm the listed number under the listed name on the
+payment date. Matches are reported as **Simplified (digital economy) registrant: number not on file**, with
+the list's number and dates. GST/HST these suppliers charge isn't eligible for input tax credits.
+
 Before going online, numbers are checked for format and for the CRA check digit, so typos are caught
 without a lookup.
 
@@ -237,7 +252,8 @@ GST/HST Issue values: Registered - name matches · Registered - vendor name diff
 needs correcting · Registered under another name · Registered - legal name not confirmed · Registered after
 payment date · Registration cancelled since payment date · Not registered · Registration cancelled · Number not
 known to CRA · No GST/HST number · No GST/HST number (placeholder Tax ID) · Tax ID not a GST/HST number · Tax ID
-typo (fails check digit) · Foreign supplier - not applicable · Lookup failed.
+typo (fails check digit) · Simplified (digital economy) registrant: number not on file · Foreign supplier - not
+applicable · Lookup failed.
 
 **Registration dates.** Revenu Québec gives QST start/cancellation dates, and CRA's simplified list gives them for
 non-resident digital sellers. The CRA GST/HST registry gives no dates: it only answers "registered on this day?",
@@ -255,7 +271,7 @@ vendor name (e.g. the legal part before "O/A") and official registry names, and 
 | Vendor Name Check | Meaning |
 |---|---|
 | MATCHES | CRA accepted the vendor name exactly as entered. |
-| UPDATE NAME | Registration confirmed, but CRA accepted a different form of the name (shown in the GST/HST details and Name on Government Record). Correct the vendor record. |
+| UPDATE NAME | Registration confirmed, but CRA accepted a different form of the name (shown in Suggested Vendor Name and the GST/HST details). Correct the vendor record. |
 | NOT CONFIRMED | The number is registered, but CRA accepted no name we have. Get the legal name from the supplier (e.g. their invoice). |
 
 Each tax gets a **Status** and a **Details** column, and each row gets an **Overall** column (`OK`
