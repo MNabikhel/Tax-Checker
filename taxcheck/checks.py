@@ -56,7 +56,7 @@ def clean_vendor_name(name):
     """(name without do-not-use markers, True if a marker was removed)."""
     if _blank(name) or not _DNU.search(str(name)):
         return name, False  # no marker: the name is used exactly as given
-    cleaned = re.sub(r"\s{2,}", " ", _DNU.sub(" ", str(name))).strip(" -,:;")
+    cleaned = re.sub(r"\s{2,}", " ", _DNU.sub(" ", str(name))).strip(" -,:;*")
     return (cleaned or str(name).strip()), bool(cleaned)
 
 

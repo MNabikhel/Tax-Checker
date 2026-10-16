@@ -4,7 +4,7 @@ import csv
 import datetime as dt
 import logging
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import openpyxl
@@ -373,6 +373,7 @@ class SupplierSheet:
         overall_counts, name_counts = Counter(), Counter()
         action_rows = []
         wrap = Alignment(wrap_text=True, vertical="top")
+        shared, cut_off, name_limit = self._cross_row_notes(results)
         for r, by_tax in results.items():
             # (An earlier run's result columns were already cleared above, once, when re-running on its output.)
             statuses = [by_tax[k].status for k, _ in taxes if k in by_tax]
@@ -412,6 +413,15 @@ class SupplierSheet:
                     issue_counts[key][issues[key][0]] += 1
                     issue_actions.setdefault((key, issues[key][0]), generic_action(issues[key][0], issues[key][1]))
 
+            if r in shared:
+                issue_counts["gst"][self.SHARED_NUMBER] += 1
+                issue_actions.setdefault(("gst", self.SHARED_NUMBER), self.SHARED_ACTION)
+                summary_row["other"] = "; ".join(filter(None, [summary_row["other"], *shared[r]]))
+                summary_row["severity"] = max(summary_row["severity"], SEV_NAME)
+            if r in cut_off:
+                summary_row["action"] = " ".join(filter(None, [summary_row["action"], (
+                    f"The vendor name is {name_limit} characters, the longest the vendor master holds here, so it's "
+                    "probably cut off: CRA only accepts the full legal name.")]))
             for i, (_, _, kind) in enumerate(columns):
                 cell = ws.cell(r, start + i)
                 value, fill = None, None
@@ -473,6 +483,49 @@ class SupplierSheet:
                             run_notes, header_font, header_fill)
         self._write_action_list(action_rows, taxes, header_font, header_fill, wrap)
         self.wb.save(out_path)
+
+    SHARED_NUMBER = "Same GST/HST number as another vendor"
+    SHARED_ACTION = ("Check whether these vendor records are the same business (a duplicate, or a trade name) or whether "
+                     "one of them has the wrong GST/HST number; see 'Other Issues' for the other vendor.")
+
+    def _cross_row_notes(self, results):
+        """Findings that need the whole sheet. Returns ({row: [notes]} for GST/HST numbers that differently named
+        vendors share, {rows whose name is probably cut off}, the vendor master's apparent name length limit)."""
+        from .checks import clean_vendor_name
+        from .report import _key as name_key
+
+        names = {r: str(self._cell_value(r, "name") or "").strip() for r in results}
+        by_number = defaultdict(list)
+        for r, by_tax in results.items():
+            gst = by_tax.get("gst")
+            number = re.sub(r"\D", "", str(gst.facts.get("number_checked") or "") if gst is not None else "")[:9]
+            if len(number) == 9 and names[r] and gst.status != NOT_APPLICABLE:
+                by_number[number].append(r)
+        shared = defaultdict(list)
+        for rows in by_number.values():
+            keys = {r: name_key(clean_vendor_name(names[r])[0]) for r in rows}
+            if len(set(keys.values())) < 2:
+                continue  # the same vendor listed twice (spelling apart): nothing to flag
+            for r in rows:
+                others = [o for o in rows if keys[o] != keys[r]]
+                text = []
+                for o in others[:3]:
+                    gst = results[o]["gst"]
+                    accepted = gst.facts.get("accepted_name") if gst.status == REGISTERED else ""
+                    text.append(f"row {o} '{names[o]}'" + (f" (CRA accepts the number under '{accepted}')" if accepted else ""))
+                more = f" and {len(others) - 3} more" if len(others) > 3 else ""
+                shared[r].append("GST/HST: same number as " + "; ".join(text) + more)
+
+        # A vendor-master name field has a length limit (40 characters in one ERP): names that long are probably
+        # cut off, and CRA only accepts the full legal name. Detected from the sheet itself: the longest length,
+        # if several names reach it exactly.
+        lengths = Counter(len(n) for n in names.values() if n)
+        limit = max(lengths) if lengths else 0
+        cut = set()
+        if limit >= 30 and lengths[limit] >= 3:
+            cut = {r for r, n in names.items() if len(n) == limit and results[r].get("gst") is not None
+                   and getattr(results[r]["gst"], "name_check", "") == NAME_UNCONFIRMED}
+        return shared, cut, limit
 
     def _cell_value(self, r, field):
         c = self.cols.get(field)

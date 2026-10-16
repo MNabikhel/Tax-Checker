@@ -150,5 +150,14 @@ class AgainstStrictRegistry(unittest.TestCase):
         self.assertLessEqual(len(self.sent), 3)  # name, Incorporated, number-only check
 
 
+class LeftoverAsterisks(unittest.TestCase):
+    def test_asterisks_around_a_do_not_use_marker_are_removed(self):
+        from taxcheck.checks import clean_vendor_name
+
+        self.assertEqual(clean_vendor_name("1 STOP SHOP* DO NOT USE"), ("1 STOP SHOP", True))
+        self.assertEqual(clean_vendor_name("*****ACME BRANDS INC*** DO NOT USE"), ("ACME BRANDS INC", True))
+        self.assertEqual(clean_vendor_name("ACME* LTD"), ("ACME* LTD", False))  # no marker: left exactly as given
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,7 @@ import openpyxl
 from taxcheck.checks import RowChecker
 from taxcheck.report import gst_issue, provincial_issue, row_summary
 from taxcheck.result import (
-    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NAME_UPDATE, NOT_APPLICABLE, NOT_CONFIRMED, NOT_REGISTERED,
+    ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NAME_UNCONFIRMED, NAME_UPDATE, NOT_APPLICABLE, NOT_CONFIRMED, NOT_REGISTERED,
     REGISTERED, Result,
 )
 from taxcheck.workbook import SupplierSheet
@@ -141,6 +141,66 @@ class Layout(unittest.TestCase):
             self.assertEqual(len(actions), 2)  # header + ACME (GOOD CO needs nothing)
             self.assertEqual(actions[1][0], 2)
             self.assertEqual(actions[1][1], "ACME INC. O/A ACE")
+
+
+class CrossRowNotes(unittest.TestCase):
+    """Findings that need the whole sheet: a GST/HST number on differently named vendors, and cut-off names."""
+
+    def write(self, rows, results):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out = Path(tmp) / "in.xlsx", Path(tmp) / "out.xlsx"
+            wb = openpyxl.Workbook()
+            wb.active.append(["Vendor ID", "Company Name", "Tax ID", "State"])
+            for row in rows:
+                wb.active.append(row)
+            wb.save(path)
+            SupplierSheet(path).write_results(results, out, [])
+            result = openpyxl.load_workbook(out)
+            ws = result["Sheet"]
+            headers = [c.value for c in ws[1]]
+            table = {r: dict(zip(headers, [c.value for c in ws[r]])) for r in range(2, ws.max_row + 1)}
+            summary = [r for r in result["Tax Check Summary"].iter_rows(values_only=True)]
+            return table, summary
+
+    def test_number_shared_by_differently_named_vendors(self):
+        number = {"number_checked": "840098545RT0001"}
+        table, summary = self.write(
+            [[1, "(DNU) WILLOW FLORIST", "840098545RT0001", "MB"], [2, "(DNU) GIFT-BOX", "840098545RT0001", "MB"],
+             [3, "ACME LTD", "857305932RT0001", "MB"], [4, "ACME LTD.", "857305932RT0001", "MB"]],
+            {2: {"gst": Result(REGISTERED, "ok", "WILLOW FLORIST", facts={**number, "accepted_name": "WILLOW FLORIST"})},
+             3: {"gst": Result(NAME_NOT_MATCHED, "not under the name", facts=dict(number))},
+             4: {"gst": Result(REGISTERED, "ok", facts={"number_checked": "857305932RT0001"})},
+             5: {"gst": Result(REGISTERED, "ok", facts={"number_checked": "857305932RT0001"})}})
+        self.assertIn("same number as row 3 '(DNU) GIFT-BOX'", table[2]["Other Issues"])
+        self.assertIn("row 2 '(DNU) WILLOW FLORIST' (CRA accepts the number under 'WILLOW FLORIST')",
+                      table[3]["Other Issues"])
+        self.assertIsNone(table[4]["Other Issues"])  # the same vendor twice, spelt differently: not flagged
+        self.assertTrue(any(r[1] == "Same GST/HST number as another vendor" and r[2] == 2 for r in summary))
+
+    def test_name_at_the_vendor_masters_length_limit(self):
+        long_names = ["ANCHOR CONSTRUCTION INDUSTRIAL PRODUCT", "NORTHERN PRAIRIE MECHANICAL CONTRACTOR",
+                      "WESTERN INDUSTRIAL SUPPLY AND SERVICES"]
+        self.assertEqual({len(n) for n in long_names}, {38})
+        unconfirmed = Result(NAME_NOT_MATCHED, "not under the name", name_check=NAME_UNCONFIRMED)
+        table, _ = self.write([[i, n, "", "AB"] for i, n in enumerate(long_names + ["SHORT NAME LTD"])],
+                              {2: {"gst": unconfirmed}, 3: {"gst": Result(REGISTERED, "ok")},
+                               4: {"gst": unconfirmed.copy()}, 5: {"gst": unconfirmed.copy()}})
+        self.assertIn("probably cut off", table[2]["Action Needed"])
+        self.assertIn("probably cut off", table[4]["Action Needed"])
+        self.assertNotIn("cut off", table[5]["Action Needed"] or "")  # shorter than the limit
+
+
+class SaskatchewanLabels(unittest.TestCase):
+    def test_manual_and_near_match_reasons(self):
+        self.assertEqual(provincial_issue("sk_pst", Result(MANUAL, "needs at least 4 letters of the name"))[0],
+                         "Manual check needed (name too short to search)")
+        self.assertIn("daily search limit", provincial_issue("sk_pst", Result(
+            MANUAL, "allows 100 searches per 24 hours and they're used up"))[0])
+        self.assertEqual(provincial_issue("sk_pst", Result(NOT_CONFIRMED, "No result is exactly the supplier's name; "
+                                                           "similar names in the registry: X"))[0],
+                         "Only similar names in Saskatchewan registry")
+        self.assertEqual(provincial_issue("sk_pst", Result(NOT_CONFIRMED, "found no business"))[0],
+                         "Not found in Saskatchewan registry")
 
 
 if __name__ == "__main__":

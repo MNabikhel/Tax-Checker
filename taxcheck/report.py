@@ -161,6 +161,15 @@ def provincial_issue(key, res):
         return "Lookup failed", "Re-run with --resume later (the site may have been busy or in maintenance).", SEV_ERROR
     if st == MANUAL:
         if key == "sk_pst":
+            if "at least 4 letters" in low:
+                return ("Manual check needed (name too short to search)", "Search the full name by hand on "
+                        "Saskatchewan's PST registry.", SEV_MANUAL)
+            if "searches per 24 hours" in low:
+                return ("Manual check needed (daily search limit reached)", "Re-run with --resume after the time in "
+                        "the details (the registry allows 100 searches a day).", SEV_MANUAL)
+            if "window was closed" in low or "wasn't completed in time" in low or "asked for the captcha again" in low:
+                return ("Manual check needed (Saskatchewan searches stopped)", "Re-run with --resume and tick the "
+                        "CAPTCHA, or search the name on Saskatchewan's PST registry.", SEV_MANUAL)
             return ("Manual check needed (CAPTCHA)", "Re-run with --sk-assist (tick the CAPTCHA once) or search the "
                     "name on Saskatchewan's PST registry.", SEV_MANUAL)
         return "Manual check needed", "See the details.", SEV_MANUAL
@@ -192,6 +201,10 @@ def provincial_issue(key, res):
             return ("PST number doesn't match business number", "Confirm the BC PST number and GST/HST number with "
                     "the supplier.", SEV_NOT_FOUND)
         if key == "sk_pst":
+            if "similar names" in low:
+                return ("Only similar names in Saskatchewan registry", "Check whether one of the similar names in the "
+                        "details is this supplier (if so, update the vendor name); if the supplier charges SK PST, ask "
+                        "for their vendor licence.", SEV_NOT_FOUND)
             return ("Not found in Saskatchewan registry", "If the supplier charges SK PST, ask for their vendor "
                     "licence; check the saved screenshot.", SEV_NOT_FOUND)
         return "Not confirmed", "See the details.", SEV_NOT_FOUND
