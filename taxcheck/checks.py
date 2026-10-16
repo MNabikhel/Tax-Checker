@@ -218,6 +218,35 @@ def same_business_name(sheet_names, official, field_length=0, truncated_at=34):
     return False
 
 
+# Shortest normalized name compared with the simplified list: short names ("ABC", "MEDIA") collide too easily.
+MIN_LIST_NAME = 6
+
+
+def _simplified_by_name(simplified, names):
+    """Business numbers on CRA's simplified-registrant list whose legal or trade name is one of `names`
+    (compared with core_name). The index is built once per list and shared by parallel workers."""
+    index = getattr(simplified, "_name_index", None)
+    if index is None:
+        if simplified._rows is None:
+            simplified._load()
+        index = {}
+        for bn9, entries in (simplified._rows or {}).items():
+            for e in entries:
+                for listed in (e["legal_name"], e["trade_name"]):
+                    key = core_name(listed)
+                    if len(key) >= MIN_LIST_NAME:
+                        index.setdefault(key, [])
+                        if bn9 not in index[key]:
+                            index[key].append(bn9)
+        simplified._name_index = index
+    found = []
+    for n in names:
+        for bn9 in index.get(core_name(n), []) if n else []:
+            if bn9 not in found:
+                found.append(bn9)
+    return found
+
+
 class RowChecker:
     def __init__(self, gst, qst, bc=None, mb=None, sk=None, available=None, cache=None, defer_browser=False, taxes=None,
                  gst_dates="none"):
@@ -292,7 +321,8 @@ class RowChecker:
                 "vendor_name": row.get("name") or "", "name_used": ctx["name"] or "",
                 "tax_id_entered": "" if _blank(row.get("gst")) else str(row.get("gst")),
                 "tax_id_problem": "" if ctx["foreign"] else tax_id_problem(row.get("gst")),
-                "number_checked": ctx["gst_value"] or "",
+                "number_checked": (g.facts.get("number_checked") if g.facts.get("digital_economy_match")
+                                   else "" if g.status == NOT_APPLICABLE else ctx["gst_value"] or ""),
             })
             if g.status in (REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED, NOT_CONFIRMED) or "date_checked" in f:
                 f.setdefault("date_checked", str(date))
@@ -412,7 +442,11 @@ class RowChecker:
                     why = gst_note[:-1]
                 else:
                     why = f"Tax ID '{row.get('gst')}' isn't a Canadian GST/HST number"
-                res = Result(NOT_APPLICABLE, f"Non-Canadian supplier ({where}); {why}, so no Canadian sales-tax check applies.")
+                res = self._digital_economy(gst_names, date, f"Non-Canadian supplier ({where}); {why}.")
+                if res is None:
+                    res = Result(NOT_APPLICABLE, f"Non-Canadian supplier ({where}); {why}, so no Canadian sales-tax check applies.")
+                else:
+                    res = self._name_check(res, name, dnu)
                 log.debug("  gst: %s | %s", res.status, res.detail)
                 return {"gst": res}, ctx
             res = self._name_check(self._confirm_official(self._guard(self._gst, gst_value, gst_names, date), gst_names,
@@ -445,6 +479,10 @@ class RowChecker:
             field_length), name, dnu)
         if gst_note:
             out["gst"].detail = f"{gst_note} {out['gst'].detail}".strip()
+        if out["gst"].status in (MISSING, INVALID):
+            found = self._digital_economy(gst_names, date, out["gst"].detail)
+            if found is not None:
+                out["gst"] = self._name_check(found, name, dnu)
         if qst:
             out["qst"] = qst
         elif prov == "QC" and self._has("qst") and self._on("qst"):
@@ -464,6 +502,47 @@ class RowChecker:
         for tax, res in out.items():
             log.debug("  %s: %s | %s | %s", tax, res.status, res.detail, res.registered_name)
         return out, ctx
+
+    def _digital_economy(self, names, date, why):
+        """A supplier with no usable Canadian number whose name is on CRA's list of simplified GST/HST
+        (digital economy) registrants, confirmed with the CRA registry; None if not.
+
+        Many non-resident digital sellers are set up as foreign vendors with a US EIN or no tax number on file.
+        The vendor's name must equal a listed legal or trade name apart from case, punctuation, "&"/"and" and
+        legal suffixes (core_name); matching on parts of names gave many false positives in a manual pass.
+        CRA must then confirm the listed number under the listed legal name on the date.
+        """
+        simplified = getattr(self.gst, "simplified", None)
+        if simplified is None or not hasattr(simplified, "parse") or not hasattr(self.gst, "registry_lookup"):
+            return None  # --offline / --check-columns stand-ins
+        for bn9 in _simplified_by_name(simplified, names):
+            entry = simplified.lookup(bn9, date)
+            key = ("digital_economy", bn9, str(date))
+            if key not in self._cache:
+                try:
+                    self._cache[key] = self.gst.registry_lookup(bn9, entry["legal_name"], date)
+                except Exception as e:  # extra information: never let it break the row
+                    log.warning("Simplified-registrant confirmation for %s failed: %s", bn9, e)
+                    return None
+            if self._cache[key] != "registered":
+                log.debug("%s matches simplified registrant %s, but CRA answered %r for %s", names[0], bn9,
+                          self._cache[key], date)
+                continue
+            listed = entry["legal_name"] + (f" (trade name: {entry['trade_name']})" if entry["trade_name"] else "")
+            return Result(
+                REGISTERED,
+                f"{why} The vendor name matches '{listed}' on CRA's list of simplified GST/HST (digital economy) "
+                f"registrants, and CRA confirms {entry['number']} under that name on {date}. Simplified registrants "
+                "can't give input tax credits for GST/HST they charge.",
+                entry["legal_name"],
+                facts={"digital_economy_match": True, "simplified_registrant": True, "cra_answer": "registered",
+                       "number_checked": entry["number"].replace(" ", ""), "accepted_name": entry["legal_name"],
+                       "official_name": entry["legal_name"], "name_source": "CRA's simplified registrant list",
+                       "registered_since": str(entry["registered"] or ""),
+                       "registration_end": str(entry["deregistered"] or ""),
+                       "dates_source": "CRA simplified registrant list"},
+            )
+        return None
 
     @staticmethod
     def _name_check(res, entered, dnu):

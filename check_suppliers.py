@@ -18,6 +18,7 @@ import datetime as dt
 import logging
 import platform
 import sys
+import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -247,6 +248,39 @@ def save_workbook(sheet, results, out, notes, ok_statuses):
         return alt
 
 
+class CheckpointSaver:
+    """Saves checkpoint copies of the results workbook in a background thread, from a snapshot of the results,
+    so lookups carry on while it's written (a 20,000-row workbook took 5-90 s per save, and the whole run
+    waited each time). One save at a time; the workbook object is only touched by the saving thread until
+    wait() returns."""
+
+    NOTES = ["IN PROGRESS: checkpoint save; the run hadn't finished when this was written."]
+
+    def __init__(self, sheet, out):
+        self.sheet, self.out, self._thread = sheet, out, None
+
+    def save(self, results):
+        self.wait()  # the previous save (rarely still running: checkpoints are thousands of rows apart)
+        snapshot = dict(results)  # rows already finished; their results aren't changed afterwards
+
+        def write():
+            t0 = time.monotonic()
+            try:
+                saved = save_workbook(self.sheet, snapshot, self.out, self.NOTES, (REGISTERED,))
+                log.info("CHECKPOINT: %d suppliers saved to %s (%.0fs, in the background)", len(snapshot), saved,
+                         time.monotonic() - t0)
+            except Exception as e:  # the progress file has every result; the run goes on
+                log.warning("Checkpoint save failed (the run continues): %s: %s", type(e).__name__, e)
+
+        self._thread = threading.Thread(target=write, name="checkpoint", daemon=True)
+        self._thread.start()
+
+    def wait(self):
+        if self._thread:
+            self._thread.join()
+            self._thread = None
+
+
 def run(args, log_path):
     src = Path(args.workbook)
     # A trial gets its own file, so it's obvious which results are partial and the full run never mixes with it.
@@ -300,7 +334,7 @@ def run(args, log_path):
             progress.record(r, values, results[r], 0.0, source="resumed")
 
     started = time.monotonic()
-    checkpoint_notes = ["IN PROGRESS: checkpoint save; the run hadn't finished when this was written."]
+    checkpoints = CheckpointSaver(sheet, out)
     failure = None
     with contextlib.ExitStack() as stack:
         if offline:
@@ -406,9 +440,7 @@ def run(args, log_path):
                 summary = ", ".join(f"{k}={v.status}" for k, v in results[r].items())
                 log.info("[%d/%d] row %d %s: %s", i, len(to_check), r, values.get("name"), summary)
                 if args.checkpoint_every and i % args.checkpoint_every == 0 and i < len(to_check):
-                    t_save = time.monotonic()
-                    saved = save_workbook(sheet, results, out, checkpoint_notes, (REGISTERED,))
-                    log.info("CHECKPOINT: %d suppliers saved to %s (%.0fs)", len(results), saved, time.monotonic() - t_save)
+                    checkpoints.save(results)
         except KeyboardInterrupt:
             # A long run stopped with Ctrl+C keeps what it has; --resume with the progress file finishes the rest.
             log.warning("Stopped early after %d of %d suppliers; saving the results so far.", len(results), len(rows))
@@ -425,6 +457,7 @@ def run(args, log_path):
             stopped_early = False
         finally:
             progress.close()
+            checkpoints.wait()  # before the final save, which uses the same workbook
 
     counts = Counter(res.status for by_tax in results.values() for res in by_tax.values())
     if stopped_early:

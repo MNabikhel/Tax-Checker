@@ -63,6 +63,11 @@ def gst_issue(res):
         return "Not looked up (offline run)", "Run the online check.", SEV_OK
     if st == ERROR:
         return "Lookup failed", "Re-run with --resume later (the CRA site may have been busy or down).", SEV_ERROR
+    if st == REGISTERED and f.get("digital_economy_match"):
+        return ("Simplified (digital economy) registrant: number not on file",
+                f"CRA lists this supplier as a simplified GST/HST registrant ({f.get('number_checked', '')}). GST/HST "
+                "they charge isn't eligible for input tax credits: give them our GST/HST number so they stop charging "
+                "it, and add their simplified number to the vendor record.", SEV_OTHER_NAME)
     if st in (REGISTERED, NAME_NOT_MATCHED) and f.get("cancelled_after_payment"):
         end = f.get("registration_end", "")
         return ("Registration cancelled since payment date",
@@ -194,6 +199,9 @@ GENERIC_ACTIONS = {
                                                  "with the supplier.",
     "Tax ID not a GST/HST number": "Correct the Tax ID in the vendor record; see 'GST/HST Tax ID Problem'.",
     "Tax ID typo (fails check digit)": "Correct the Tax ID in the vendor record (a digit is wrong).",
+    "Simplified (digital economy) registrant: number not on file": "GST/HST these suppliers charge isn't eligible for "
+        "input tax credits: give them our GST/HST number so they stop charging it, and add their simplified number "
+        "('GST/HST Number Checked') to the vendor record.",
 }
 
 

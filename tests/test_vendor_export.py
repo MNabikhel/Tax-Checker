@@ -283,13 +283,17 @@ class ExportCli(unittest.TestCase):
         real = check_suppliers.save_workbook
 
         def spy(sheet, results, out, notes, ok):
-            saves.append((len(results), notes[0]))
+            import threading
+
+            saves.append((len(results), notes[0], threading.current_thread().name))
             return real(sheet, results, out, notes, ok)
 
         with mock.patch.object(check_suppliers, "save_workbook", spy):
             self.assertEqual(self.run_cli("--offline", "--checkpoint-every", "4"), 0)
-        self.assertEqual([n for n, _ in saves], [4, 8, 9])
+        self.assertEqual([n for n, _, _ in saves], [4, 8, 9])
         self.assertTrue(saves[0][1].startswith("IN PROGRESS"))
+        # Checkpoints are written in the background so lookups don't wait; the final save on the main thread.
+        self.assertEqual([t for _, _, t in saves], ["checkpoint", "checkpoint", "MainThread"])
 
     def test_parallel_run_matches_one_at_a_time_and_browser_checks_stay_on_main_thread(self):
         import threading
