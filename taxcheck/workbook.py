@@ -46,11 +46,11 @@ COLUMNS = {
 }
 
 PROVINCES = {
-    "AB": ["alberta", "alta"], "BC": ["british columbia", "b.c."], "MB": ["manitoba", "man"],
-    "NB": ["new brunswick"], "NL": ["newfoundland", "newfoundland and labrador", "nfld"],
+    "AB": ["alberta", "alta", "alb"], "BC": ["british columbia", "bc"], "MB": ["manitoba", "man"],
+    "NB": ["new brunswick"], "NL": ["newfoundland", "newfoundland and labrador", "nfld", "nf", "nfl", "lab"],
     "NS": ["nova scotia"], "NT": ["northwest territories", "nwt"], "NU": ["nunavut"],
     "ON": ["ontario", "ont"], "PE": ["prince edward island", "pei"], "QC": ["quebec", "québec", "que", "pq"],
-    "SK": ["saskatchewan", "sask"], "YT": ["yukon"],
+    "SK": ["saskatchewan", "sask"], "YT": ["yukon", "yk"],
 }
 
 STATUS_FILL = {
@@ -102,7 +102,7 @@ def suggest_field(header):
     return (match[0], _ALIASES[match[0]]) if match else None
 
 
-COUNTRIES_CA = {"CA", "CAN", "CANADA"}
+COUNTRIES_CA = {"CA", "CAN", "CANADA", "CDN"}
 
 # First letter of a Canadian postal code -> province (X is shared by NT and NU; NT is far more common).
 POSTAL_PROVINCE = {
@@ -120,12 +120,13 @@ def province_from_postal(value):
 
 def normalize_country(value):
     """'CA', 'Canada' -> 'CA'; other values upper-cased as given; blank -> ''."""
-    s = str(value or "").strip().upper()
+    s = str(value or "").strip().upper().replace(".", "")
     return "CA" if s in COUNTRIES_CA else s
 
 
 def normalize_province(value):
-    s = str(value or "").strip()
+    """'BC', 'B.C.', 'Ont.', 'Newfoundland & Labrador' -> the two-letter code; anything else -> ""."""
+    s = re.sub(r"\s+", " ", str(value or "").replace(".", "").replace("&", " and ")).strip()
     if s.upper() in PROVINCES:
         return s.upper()
     low = s.lower()
@@ -298,7 +299,8 @@ class SupplierSheet:
     def write_results(self, results, out_path, run_notes, ok_statuses=(REGISTERED,)):
         """results: {row_number: {tax_key: Result}}. Adds the result columns to the supplier sheet (a copy: the
         input file is never saved over), an "Action List" sheet and a "Tax Check Summary" sheet."""
-        from .report import SEV_LATE, SEV_NAME, SEVERITY_FILL, issue_for, name_source, row_summary
+        from .report import (SEV_LATE, SEV_NAME, SEV_NAME_UNCONFIRMED, SEV_OK, SEV_OTHER_NAME, SEVERITY_FILL,
+                             issue_for, name_source, row_summary)
 
         ws = self.ws
         # Re-running on an earlier results file overwrites its result columns instead of adding more.
@@ -382,8 +384,14 @@ class SupplierSheet:
             else:
                 overall = "REVIEW"
             summary_row = row_summary(by_tax, taxes)
-            if overall == "OK" and summary_row["severity"] >= SEV_LATE:
-                overall = "REVIEW"  # e.g. registered on the payment date but cancelled since
+            # e.g. registered on the payment date but cancelled since. With --trust-gst-number (NAME NOT MATCHED in
+            # ok_statuses) a name that differs from CRA's is accepted, so only other problems count here.
+            worst = max((issue_for(k, by_tax[k])[2] for k, _ in taxes if k in by_tax
+                         and not (by_tax[k].status == NAME_NOT_MATCHED and NAME_NOT_MATCHED in ok_statuses
+                                  and issue_for(k, by_tax[k])[2] in (SEV_OTHER_NAME, SEV_NAME_UNCONFIRMED))),
+                        default=SEV_OK)
+            if overall == "OK" and worst >= SEV_LATE:
+                overall = "REVIEW"
             overall_counts[overall] += 1
             gst = by_tax.get("gst")
             gf = gst.facts if gst is not None else {}

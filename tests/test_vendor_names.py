@@ -48,8 +48,15 @@ class Candidates(unittest.TestCase):
     def test_official_name_comparison(self):
         self.assertTrue(same_business_name(["ACME WIDGET CANADA INC."], "AcmeWidget Canada Inc."))
         self.assertTrue(same_business_name(["ACME SUPPLY LTD"], "Acme Supply Limited"))
-        self.assertTrue(same_business_name(["SUMMIT CONSTRUCTION INDUSTRIAL PRO"], "Summit Construction Industrial Products Ltd.",
-                                           field_length=40))  # cut off at the vendor master's 40 characters
+        # Cut off by the vendor master's 40-character field: the name runs to the end of a long cell.
+        self.assertTrue(same_business_name(["SUMMIT CONSTRUCTION INDUSTRIAL PRO"], "Summit Construction Industrial Products Ltd."))
+        self.assertTrue(same_business_name(["SUMMIT CONSTRUCTION INDUSTRIAL"], "Summit Construction Industrial Products Ltd.",
+                                           raw_name="(DNU) SUMMIT CONSTRUCTION INDUSTRIAL"))
+        # Not cut off: the cell is long because of "O/A ..." or a do-not-use note, or the name ends in its suffix.
+        sister = "ACME ELECTRIC SERVICES WEST LTD."
+        self.assertFalse(same_business_name(["ACME ELECTRIC SERVICES LTD"], sister, raw_name="ACME ELECTRIC SERVICES LTD O/A SPARKY"))
+        self.assertFalse(same_business_name(["ACME ELECTRIC SERVICES LTD"], sister, raw_name="ACME ELECTRIC SERVICES LTD (DO NOT USE)"))
+        self.assertFalse(same_business_name(["ACME ELECTRICAL AND MECHANICAL SERVICES LTD"], "Acme Electrical and Mechanical Services Ltd. West"))
         self.assertFalse(same_business_name(["SUMMIT CONSTRUCTION"], "Summit Construction Industrial Products Ltd."))
         self.assertFalse(same_business_name(["SHOP-MOOSE"], "Moose Holdings Ltd."))
         self.assertFalse(same_business_name(["NORTHSTAR GROUP"], "NORTHSTAR SECURITY"))
@@ -111,7 +118,7 @@ class AgainstStrictRegistry(unittest.TestCase):
         res = self.check("ACME WIDGET CANADA INC.", "900000019")
         self.assertEqual(res.status, REGISTERED, res.detail)
         self.assertIn("AcmeWidget Canada Inc.", self.sent)
-        self.assertIn("official name 'AcmeWidget Canada Inc.'", res.detail)
+        self.assertIn("'AcmeWidget Canada Inc.' (CRA accepted it for this number)", res.detail)
 
     def test_vendor_name_check_column(self):
         self.LEGAL["111111118"] = "EXACT NAME LTD."
@@ -121,6 +128,21 @@ class AgainstStrictRegistry(unittest.TestCase):
         self.assertIn("CRA accepted '9999901 ONTARIO INC.'", res.detail)
         self.assertEqual(self.check("ACME WIDGET CANADA INC.", "900000019").name_check, NAME_UPDATE)
         self.assertEqual(self.check("ALPINE FIRE SYSTEMS INC", "900000027").name_check, NAME_UNCONFIRMED)
+
+    def test_a_name_not_tied_to_the_number_never_confirms_it(self):
+        # Revenu Québec's name (found by the QST number) matches the vendor, but CRA rejects it for this GST/HST
+        # number, which belongs to another business: that must stay NAME NOT MATCHED.
+        self.LEGAL["900000043"] = "OTHER COMPANY INC."
+        res = self.gst.check("900000043", ["BOULANGERIE TREMBLAY"], dt.date(2026, 9, 1),
+                             extra_names=(("BOULANGERIE TREMBLAY INC.", "Revenu Québec (QST)"),))
+        confirmed = RowChecker._confirm_official(res, ["BOULANGERIE TREMBLAY"], "BOULANGERIE TREMBLAY")
+        self.assertEqual(confirmed.status, NAME_NOT_MATCHED)
+        self.assertIn("doesn't have it under this number", res.detail)
+
+    def test_confirmation_keeps_the_facts(self):
+        res = self.check("ACME WIDGET CANADA INC.", "900000019")
+        self.assertEqual(res.facts["accepted_name"], "AcmeWidget Canada Inc.")
+        self.assertEqual(res.facts["cra_answer"], "registered")
 
     def test_genuinely_different_legal_name_still_flagged(self):
         res = self.check("ALPINE FIRE SYSTEMS INC", "900000027")

@@ -68,6 +68,11 @@ def gst_issue(res):
                 f"CRA lists this supplier as a simplified GST/HST registrant ({f.get('number_checked', '')}). GST/HST "
                 "they charge isn't eligible for input tax credits: give them our GST/HST number so they stop charging "
                 "it, and add their simplified number to the vendor record.", SEV_OTHER_NAME)
+    if st in (REGISTERED, NAME_NOT_MATCHED) and f.get("simplified_registrant") and f.get("cra_answer") != "deregistered":
+        return ("Simplified (digital economy) registrant",
+                "CRA lists this supplier as a simplified GST/HST registrant (a non-resident digital seller). GST/HST "
+                "they charge isn't eligible for input tax credits: give them our GST/HST number so they stop "
+                "charging it.", SEV_LATE)
     if st in (REGISTERED, NAME_NOT_MATCHED) and f.get("cancelled_after_payment"):
         end = f.get("registration_end", "")
         return ("Registration cancelled since payment date",
@@ -137,6 +142,14 @@ def provincial_issue(key, res):
     st, detail = res.status, res.detail
     low = detail.lower()
     label = TAX_LABELS[key]
+    if st == REGISTERED and res.facts.get("cancelled_after_payment"):
+        end = res.facts.get("registration_end", "")
+        return ("Registration cancelled since payment date", f"Registered on the payment date, but the {label} "
+                f"registration was cancelled effective {end}. Confirm with the supplier before relying on {label} "
+                f"charged on invoices dated {end} or later.", SEV_LATE)
+    if st == NOT_REGISTERED and res.facts.get("registered_after_payment"):
+        return ("Registered after payment date", f"Not registered for {label} on the payment date; registered since "
+                f"{res.facts.get('registered_since', '')}. Check any {label} charged before then.", SEV_LATE)
     if st == REGISTERED:
         if key == "qst" and "no tq suffix" in low:
             return ("Registered (TQ0001 assumed)", "Get the full QST number (with its TQ suffix) from the supplier.",
@@ -199,6 +212,8 @@ GENERIC_ACTIONS = {
                                                  "with the supplier.",
     "Tax ID not a GST/HST number": "Correct the Tax ID in the vendor record; see 'GST/HST Tax ID Problem'.",
     "Tax ID typo (fails check digit)": "Correct the Tax ID in the vendor record (a digit is wrong).",
+    "Simplified (digital economy) registrant": "GST/HST these suppliers charge isn't eligible for input tax credits: "
+        "give them our GST/HST number so they stop charging it.",
     "Simplified (digital economy) registrant: number not on file": "GST/HST these suppliers charge isn't eligible for "
         "input tax credits: give them our GST/HST number so they stop charging it, and add their simplified number "
         "('GST/HST Number Checked') to the vendor record.",

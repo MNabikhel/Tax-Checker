@@ -6,6 +6,7 @@ import html
 import logging
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 import requests
@@ -42,7 +43,9 @@ def _name_key(name):
     dropped and joins what's on either side ("British-Columbia" = "BritishColumbia", which fails;
     "Columbia's" = "Columbias"; "Amazon,com,ca" = "Amazoncomca"). Missing spaces always fail.
     """
-    text = re.sub(r"[.&]", " ", str(name).lower())
+    # Accented letters are compared as their plain letter ("LTÉE" = "LTEE"), not dropped.
+    text = unicodedata.normalize("NFKD", str(name).lower()).encode("ascii", "ignore").decode()
+    text = re.sub(r"[.&]", " ", text)
     return " ".join(re.sub(r"[^a-z0-9\s]", "", text).split())
 
 
@@ -297,14 +300,19 @@ class GstChecker:
                 yield name, source.label
 
     def _official_name(self, bn9, extra_names=()):
-        """The first official name known for this number, for reports when nothing matched."""
-        for name, _ in extra_names:
-            return name
+        """(name, source label, tied to this business number?) for reports when nothing matched.
+
+        Registries looked up by business number (federal corporations, OrgBook BC) come first: their name
+        belongs to this number. A name from another check (Revenu Québec's, found by the QST number) only
+        says what the supplier is called there; the GST/HST number in the sheet could be another business's.
+        """
         for source in self.name_sources:
             found = source.names(bn9)
             if found:
-                return found[0]
-        return ""
+                return found[0], source.label, True
+        for name, label in extra_names:
+            return name, label, False
+        return "", "", False
 
     def _check(self, bn9, names, date, listed, extra_names=()):
         res = self._decide(bn9, names, date, listed, extra_names)
@@ -392,20 +400,27 @@ class GstChecker:
                               facts={"cra_answer": "not_registered_on_date"})
             if outcome == "invalid":
                 return Result(INVALID, "CRA says this GST/HST number is not valid.", facts={"cra_answer": "invalid"})
-        official = [n for n in [self._official_name(bn9, extra_names)] if n]
+        official_name, official_source, tied = self._official_name(bn9, extra_names)
+        official = [official_name] if official_name else []
         tried_text = "; ".join(f"'{n}'" for n in tried) or "(no name in the sheet)"
         if date <= BEFORE_GST:
             return Result(NOT_CONFIRMED, f"CRA could not match this number with {tried_text} on {date}.")
         account = self.registry_lookup(bn9, PLACEHOLDER_NAME, BEFORE_GST)
         if account == "not_registered":
-            known = f" The official name on record for this number is '{official[0]}'." if official else ""
+            known = ""
+            if official and tied:
+                known = f" The official name on record for this number is '{official_name}' ({official_source})."
+            elif official:
+                known = (f" The supplier's name at {official_source} is '{official_name}', but CRA doesn't have it "
+                         "under this number.")
             return Result(
                 NAME_NOT_MATCHED,
                 f"CRA: this number is registered for GST/HST on {date}, but not under {tried_text}.{known} "
                 "Confirm the number belongs to this supplier (e.g. the legal name on their invoice) before "
                 "relying on it for input tax credits.",
                 official[0] if official else "",
-                facts={"official_name": official[0] if official else "", "cra_answer": "registered_number_only",
+                facts={"official_name": official_name, "official_source": official_source,
+                       "official_name_tied_to_number": tied, "cra_answer": "registered_number_only",
                        "names_tried": tried},
             )
         return Result(

@@ -5,7 +5,7 @@ import logging
 import re
 
 from .gst import _name_key
-from .numbers import BadNumber, normalize_tax_id, parse_bc_pst, parse_bn, parse_gst, parse_mb_rst, parse_qst
+from .numbers import BadNumber, _compact_tax_id, normalize_tax_id, parse_bc_pst, parse_bn, parse_gst, parse_mb_rst, parse_qst
 from .result import (
     NAME_MATCHES, NAME_UNCONFIRMED, NAME_UPDATE,
     ERROR, INVALID, MANUAL, MISSING, NAME_NOT_MATCHED, NOT_APPLICABLE, NOT_CONFIRMED, NOT_LOOKED_UP, NOT_REGISTERED, REGISTERED, Result,
@@ -39,7 +39,9 @@ def _names_from(result, label):
 # Vendor-master markers that aren't part of the legal name ("(DNU) ACME LTD", "ACME LTD DO NOT USE",
 # "DNU - ACME", "ACME (USE 107 DO NOT USE"). Left in, they make every CRA / Manitoba name match fail.
 _DNU = re.compile(
-    r"[(\[]\s*(?:dnu|do\s+not\s+use)\s*[)\]]"      # (DNU) / (DO NOT USE) / [DO NOT USE]
+    r"[(\[]\s*(?:dnu|do\s+not\s+use)\b[^)\]]*[)\]]"  # (DNU) / [DO NOT USE] / (DNU-USE 456)
+    r"|\*+\s*dnu\s*\*+"                              # *DNU*
+    r"|^[\sx*#-]*\bdo\s+not\s+use\b[\sx*#:-]*(?=\w)"  # XXX DO NOT USE XXX ACME / ** DO NOT USE ** ACME
     r"|^\s*dnu\b\s*[-:]?"                          # DNU - ACME / DNU-ACME / DNU ACME
     r"|^\s*do\s+not\s+use\b\s*[-:]?"               # DO NOT USE-ACME / DO NOT USE ACME
     r"|[-(]?\s*\bdnu\s*$"                          # ACME -DNU / ACME (DNU
@@ -67,7 +69,7 @@ def _blank(v):
 # "0999903 B.C LTD DBA THE NORTHSTAR GROUP", "WIDGET SUPPLY OF SPOKANE      8515", "ACME INC -REMIT".
 # These are all still the sheet's own name, so a match on one of them is a normal REGISTERED.
 _OPERATING_AS = re.compile(
-    r"(?:^|\s+|(?<=\.))(?:o/a|oa|o\.a\.?|dba|d/b/a|d\.b\.a\.?|operating\s+as|doing\s+business\s+as|"
+    r"(?:^|\s+|(?<=[A-Za-z]{2}\.))(?:o/a|oa|o\.a\.?|dba|d/b/a|d\.b\.a\.?|operating\s+as|doing\s+business\s+as|"
     r"carrying\s+on\s+business\s+as|c\.o\.b\.?|c/o|itf|a\s+div(?:ision)?\s+of)(?=\s|$)\s*", re.I)
 _PAREN = re.compile(r"\s*\(([^()]*)\)?\s*$|\s*\(([^()]*)\)\s*")
 # Vendor-master status notes in brackets: dropped, never tried as a trade name.
@@ -145,17 +147,20 @@ def vendor_name_candidates(name):
     parts = [p.strip(" -,;:") for p in _OPERATING_AS.split(plain)]
     if len(parts) > 1:
         named = [p for p in parts if re.search(r"[a-z0-9]", p, re.I)]
-        legal = named[0] if named else plain  # "C.O.B. WIDGETS": the operating name is all there is
-        trades += named[1:]
+        if named and not core_name(named[0]) and len(named) > 1 and not parts[0].strip():
+            named = named[1:]  # "C.O.B. WIDGETS": the operating name is all there is
+        if named and core_name(named[0]):  # "THE OA GROUP": a lone "The" before it means it's not a marker
+            legal = named[0]
+            trades += named[1:]
     m = _PAREN.search(legal)
     if m:
-        inner = (m.group(1) or m.group(2) or "").strip()
+        inner = re.sub(r"^(?:o/a|oa|dba|d/b/a|operating\s+as)\s+", "", (m.group(1) or m.group(2) or "").strip(), flags=re.I)
         legal = _PAREN.sub(" ", legal).strip()
         if inner:
             trades.append(inner)
     legal = _tidy(legal)
     cut = _UP_TO_SUFFIX.match(legal)
-    if cut:
+    if cut and core_name(cut.group(1)):  # not "INC RESEARCH LTD" -> "INC"
         legal = cut.group(1).strip()
     out = [name, legal]
     swapped = _swap_suffix(legal)
@@ -164,6 +169,11 @@ def vendor_name_candidates(name):
     trades = [_tidy(t) for t in trades]
     for part in [legal, *trades]:
         short = _NUMBERED_SHORT.match(part)
+        # A two-letter province short form only when nothing but a legal suffix follows: "1234567 ON TIME
+        # DELIVERY LTD" is a company named "On Time Delivery", not a numbered Ontario company.
+        rest = part[short.end():].strip(" .,-") if short else ""
+        if short and short.group(2).lower() in _PROVINCE_SHORT and len(short.group(2)) <= 3 and rest:
+            short = None
         if short:
             number, prov, suffix = short.group(1), _PROVINCE_SHORT.get(short.group(2).lower(), short.group(2).upper()), short.group(3)
             base = f"{number} {prov}"
@@ -193,7 +203,11 @@ def core_name(name):
     return "".join(w for w in re.findall(r"[a-z0-9]+", text) if w not in _LEGAL_SUFFIXES)
 
 
-def same_business_name(sheet_names, official, field_length=0, truncated_at=34):
+_ENDS_WITH_SUFFIX = re.compile(r"\b(?:inc|incorporated|ltd|limited|corp|corporation|ulc|llc|lp|llp|ltee|ltée|"
+                               r"limitee|limitée)\.?$", re.I)
+
+
+def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
     """True when an official name is the vendor's name apart from spacing, punctuation, "&"/"and" or legal
     suffix ("ACME WIDGET CANADA INC." vs "AcmeWidget Canada Inc."); one half of a bilingual official name
     ("NORTHWIND PEST CONTROL INC./COMPAGNIE D'EXTERMINATION NORTHWIND INC."); the same name with a successor year
@@ -212,8 +226,12 @@ def same_business_name(sheet_names, official, field_length=0, truncated_at=34):
                 return True
             if off.startswith(mine) and off[len(mine):].isdigit() and len(off) - len(mine) == 4:
                 return True  # "(2011)" successor-company year
-            # The ERP's name field holds 40 characters: a name that (nearly) filled it was probably cut off.
-            if max(len(str(n)), field_length) >= truncated_at and len(mine) >= 15 and off.startswith(mine):
+            # The ERP's name field holds 40 characters: a name that (nearly) filled it was probably cut off. Only a
+            # name that runs to the end of a long cell counts (not the legal part of "X LTD O/A Y" or of
+            # "X LTD (DO NOT USE)"), and not one that ends in a legal suffix: that one is complete.
+            raw = str(raw_name or n).strip().upper()
+            if (len(raw) >= truncated_at and raw.endswith(str(n).strip().upper()) and len(mine) >= 15
+                    and not _ENDS_WITH_SUFFIX.search(str(n).strip()) and off.startswith(mine)):
                 return True
     return False
 
@@ -374,6 +392,7 @@ class RowChecker:
         def gst_dates_start():
             return GST_START.isoformat()
 
+        date = min(date, today)  # CRA refuses future dates
         key = ("gst_dates", bn9, str(date), self.gst_dates)
         if key in self._cache:
             f.update(self._cache[key])
@@ -443,11 +462,11 @@ class RowChecker:
         candidates = vendor_name_candidates(name)
         gst_names = [*candidates, row.get("trade_name")]
         names = self._search_names(name, row.get("trade_name"), candidates)
-        field_length = len(str(row.get("name") or ""))
+        raw_name = str(row.get("name") or "")
 
         # The GST/HST column may be a free-form "Tax ID": tidy it (other CRA program accounts, old "R" format,
         # placeholders, a QST number in the wrong column). The note goes into the result details.
-        gst_value, qst_value, gst_note = row.get("gst"), row.get("qst"), ""
+        gst_value, qst_value, gst_note, kind = row.get("gst"), row.get("qst"), "", None
         if not _blank(gst_value):
             kind, number, gst_note = normalize_tax_id(gst_value)
             if kind == "gst":
@@ -464,7 +483,8 @@ class RowChecker:
         if foreign:
             # Foreign suppliers only get a Canadian check when they gave an explicit GST/HST (RT) number:
             # a bare 9-digit Tax ID is usually a US EIN, which can pass the CRA check digit by chance.
-            explicit = not _blank(gst_value) and "RT" in re.sub(r"[^A-Z0-9]", "", str(row.get("gst")).upper())
+            # Explicit: 9 digits followed by a program code (123456789RT0001, ...RC0001), or the old R123456789.
+            explicit = kind == "gst" and bool(re.search(r"^R\d{9}|\d{9}[A-Z]{2}", _compact_tax_id(str(row.get("gst")))))
             where = f"country {country}" if country else how or "country unknown"
             if not explicit:
                 if _blank(row.get("gst")):
@@ -481,7 +501,7 @@ class RowChecker:
                 log.debug("  gst: %s | %s", res.status, res.detail)
                 return {"gst": res}, ctx
             res = self._name_check(self._confirm_official(self._guard(self._gst, gst_value, gst_names, date), gst_names,
-                                                          field_length), name, dnu)
+                                                          raw_name), name, dnu)
             res.detail = f"Non-Canadian supplier ({where}) with a Canadian GST/HST number. " + (gst_note + " " if gst_note else "") + res.detail
             log.debug("  gst: %s | %s | %s", res.status, res.detail, res.registered_name)
             return {"gst": res}, ctx
@@ -507,7 +527,7 @@ class RowChecker:
             qst = self._guard(self._qst, row.get("qst"), names, date)
         out["gst"] = self._name_check(self._confirm_official(
             self._guard(self._gst, gst_value, gst_names, date, _names_from(qst, "Revenu Québec (QST)")), gst_names,
-            field_length), name, dnu)
+            raw_name), name, dnu)
         if gst_note:
             out["gst"].detail = f"{gst_note} {out['gst'].detail}".strip()
         if out["gst"].status in (MISSING, INVALID):
@@ -590,28 +610,41 @@ class RowChecker:
                     res.detail = "Vendor name matches CRA apart from the do-not-use marker. " + res.detail
             else:
                 res.name_check = NAME_UPDATE
-                res.detail = (f"Vendor name differs from CRA's records: CRA accepted '{accepted}', not "
+                said = "CRA accepted" if res.facts.get("accepted_name") else "the official name for this number is"
+                res.detail = (f"Vendor name differs from CRA's records: {said} '{accepted}', not "
                               f"'{entered}'. Update the vendor name. " + res.detail)
         elif res.status == NAME_NOT_MATCHED:
             res.name_check = NAME_UNCONFIRMED
         return res
 
     @staticmethod
-    def _confirm_official(res, sheet_names, field_length):
-        """REGISTERED - NAME NOT MATCHED becomes REGISTERED when the official name a government source gives for
-        this business number is the vendor's own name apart from spacing, punctuation or legal suffix, or the
-        vendor name is that name cut off by the vendor master's field length. CRA's registry needs its exact
-        spelling; the official registry already ties the number to this business."""
+    def _confirm_official(res, sheet_names, raw_name):
+        """REGISTERED - NAME NOT MATCHED becomes REGISTERED when a name tied to this business number is the
+        vendor's own name apart from spacing, punctuation or legal suffix, or the vendor name is that name cut off
+        by the vendor master's field length.
+
+        "Tied to this business number" means CRA accepted that name for the number, or it came from a registry
+        looked up by the number (federal corporations, OrgBook BC, CRA's simplified list). A name found another
+        way (Revenu Québec's, by the QST number) proves nothing about the GST/HST number, which could be another
+        business's, so it never upgrades the result.
+        """
         if res.status != NAME_NOT_MATCHED or not res.registered_name:
             return res
-        if not same_business_name([n for n in sheet_names if n], res.registered_name, field_length):
+        f = res.facts
+        accepted = f.get("cra_answer") == "registered"
+        if not (accepted or f.get("official_name_tied_to_number")):
             return res
+        if not same_business_name([n for n in sheet_names if n], res.registered_name, raw_name):
+            return res
+        how = ("CRA accepted it for this number" if accepted
+               else f"{f.get('official_source') or 'an official registry'} gives it for this number")
         return Result(
             REGISTERED,
-            f"Registered for GST/HST. The business number's official name '{res.registered_name}' is this vendor "
-            f"(same name apart from spacing, punctuation, legal suffix or a cut-off name in the vendor master). "
-            f"Consider updating the vendor name to match. CRA detail: {res.detail}",
+            f"Registered for GST/HST. The name '{res.registered_name}' ({how}) is this vendor's name apart from "
+            f"spacing, punctuation, legal suffix or a cut-off name in the vendor master. Consider updating the vendor "
+            f"name to match. CRA detail: {res.detail}",
             res.registered_name,
+            facts=dict(f),
         )
 
     def _browser_check(self, method, *args):
@@ -664,12 +697,36 @@ class RowChecker:
     def _qst(self, value, names, date):
         kind, number = parse_qst(value)
         if kind == "TQ":
-            return self.qst.check(number, suffix_assumed="TQ" not in str(value).upper())
+            return self._qst_on_date(self.qst.check(number, suffix_assumed="TQ" not in str(value).upper()), date)
         if kind == "NR":
             return self.qst.check_nr(number)
         # 9-digit QST numbers belong to listed financial institutions; the CRA administers their QST.
         res = self.gst.check(number, names, date)
         res.detail = "9-digit QST number (listed financial institution, administered by the CRA). " + res.detail
+        return res
+
+    @staticmethod
+    def _qst_on_date(res, date):
+        """Revenu Québec gives the current status and the date it took effect (DateStatut). Read against the
+        payment date: registered since a later date means not registered then; cancelled since a later date
+        means it was still registered then (a cancelled account was registered before)."""
+        import datetime as dt
+
+        def day(key):
+            try:
+                return dt.date.fromisoformat(str(res.facts.get(key) or "")[:10])
+            except ValueError:
+                return None
+
+        since, ended = day("registered_since"), day("registration_end")
+        if res.status == REGISTERED and since and date < since:
+            return Result(NOT_REGISTERED, f"Revenu Québec: registered for QST only since {since}, after {date}.",
+                          res.registered_name, facts={**res.facts, "registered_after_payment": True,
+                                                      "date_checked": str(date)})
+        if res.status == NOT_REGISTERED and ended and date < ended:
+            return Result(REGISTERED, f"Revenu Québec: registered on {date}; the registration was cancelled "
+                                      f"effective {ended}.", res.registered_name,
+                          facts={**res.facts, "cancelled_after_payment": True, "date_checked": str(date)})
         return res
 
     def _bc(self, value, bn_source):

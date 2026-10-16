@@ -102,6 +102,16 @@ PROGRAMS = {
 }
 
 
+_LABEL = re.compile(r"^\s*(?:GST\s*/\s*HST|GST|HST|BN|TAX\s*ID)\s*(?:NO\b\.?|NUMBER|#)?\s*[:#]?\s*", re.I)
+
+
+def _compact_tax_id(raw):
+    """A Tax ID as letters and digits only: labels ("GST# ", "BN "), spaces and punctuation removed, and a
+    letter O typed for a zero after RT ("RTO001") corrected."""
+    s = re.sub(r"[^A-Z0-9]", "", _LABEL.sub("", raw.upper()))
+    return re.sub(r"(?<=\d{9}RT)O|(?<=\d{9}RT\d)O|(?<=\d{9}RT\d\d)O", "0", s)
+
+
 def normalize_tax_id(value):
     """Read a free-form "Tax ID" (as in the ERP vendor export) for the GST/HST check.
 
@@ -117,7 +127,7 @@ def normalize_tax_id(value):
     can fix the vendor master.
     """
     raw = str(value or "").strip()
-    s = re.sub(r"[\s\-./]", "", raw).upper()
+    s = _compact_tax_id(raw)
     if re.fullmatch(r"\d{10}(TQ\d{4})?", s) and "TQ" in s:
         return "qst", s, ""
     if re.fullmatch(r"0{6,}(?:[A-Z]{2}\d*)?", s):  # 000000000RT0001, 00000000RT00001...
@@ -155,7 +165,7 @@ def tax_id_problem(value):
     if re.fullmatch(r"\s*\d(\.\d+)?[eE]\+?\d+\s*", raw):
         return "Excel scientific notation (digits lost)"
     kind, number, _ = normalize_tax_id(raw)
-    s = re.sub(r"[\s\-./]", "", raw).upper()
+    s = _compact_tax_id(raw)
     if kind == "zero":
         return "Placeholder (all zeros)"
     if kind == "qst":

@@ -74,7 +74,10 @@ class QstChecker:
     def check(self, number, suffix_assumed=False):
         """Validate a TQ number. `suffix_assumed` means the sheet had no TQ suffix and TQ0001 was filled in."""
         result = self._check(number)
-        if suffix_assumed and result.status != REGISTERED:
+        if suffix_assumed and result.status == REGISTERED:
+            result.detail = (f"No TQ suffix was given, so {number} was checked and is registered; add the full "
+                             f"number to the vendor record. {result.detail}")
+        elif suffix_assumed:
             result.detail = (
                 f"No TQ suffix was given, so {number} was checked. A business can have several QST "
                 f"accounts (TQ0001, TQ0002, ...); get the full number from the supplier. {result.detail}"

@@ -84,11 +84,15 @@ class QstApiResponses(unittest.TestCase):
         self.assertEqual(res.status, NOT_REGISTERED)
         self.assertIn("cancelled since 2007-09-02", res.detail)
 
-    def test_assumed_suffix_is_called_out_when_not_registered(self):
+    def test_assumed_suffix_is_called_out(self):
+        from taxcheck.report import provincial_issue
+
         res = qst_with(200, fixture("qst_cancelled.json")).check("1019288451TQ0001", suffix_assumed=True)
         self.assertIn("No TQ suffix was given", res.detail)
+        # Registered: fine for the tax, but the vendor record should get the full number (informational issue).
         res = qst_with(200, fixture("qst_registered.json")).check("1019288451TQ0001", suffix_assumed=True)
-        self.assertNotIn("No TQ suffix", res.detail)
+        self.assertIn("is registered; add the full number", res.detail)
+        self.assertEqual(provincial_issue("qst", res)[0], "Registered (TQ0001 assumed)")
 
     def test_unknown_status_needs_review(self):
         body = json.dumps({
