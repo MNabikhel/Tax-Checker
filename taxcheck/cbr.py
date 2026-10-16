@@ -40,6 +40,27 @@ def parse_docs(payload, bn9):
     return active + [n for n in inactive if n not in active]
 
 
+_PARTNERSHIP = re.compile(r"\b(?:l\.?\s?l?\.?\s?p\.?|limited\s+partnership|partnership|s\.?\s?e\.?\s?n\.?\s?c\.?)(?:\W|$)",
+                          re.I)
+
+
+def numbers_by_name(payload, name):
+    """(business number, registered name) for the registrations in a CBR name search whose name is `name` apart
+    from case, punctuation, "&"/"and" and legal suffix, and that are the same kind of entity (a partnership
+    "ACME LP" isn't the corporation "ACME INC."). Distinct numbers only."""
+    from .checks import core_name
+
+    want, partnership = core_name(name), bool(_PARTNERSHIP.search(str(name or "")))
+    found = {}
+    for doc in (payload or {}).get("docs", []):
+        bn9 = re.sub(r"\D", "", str(doc.get("BN") or ""))[:9]
+        registered = str(doc.get("Company_Name") or "").strip()
+        if (len(bn9) == 9 and registered and core_name(registered) == want
+                and bool(_PARTNERSHIP.search(registered)) == partnership):
+            found.setdefault(bn9, registered)
+    return list(found.items())
+
+
 class BusinessRegistries:
     label = "Canada's Business Registries"
 
@@ -50,18 +71,41 @@ class BusinessRegistries:
         self._cache = {} if cache is None else cache  # shareable between parallel workers
         self.error = None
 
+    def _search(self, query):
+        self.throttle.wait()
+        r = self.session.get(SEARCH, params={"fq": "keyword:{%s}" % query, "lang": "en", "queryaction": "fieldquery",
+                                             "sortfield": "score", "sortorder": "desc"}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+
+    def numbers_for_name(self, name):
+        """Business numbers registered under exactly this name (apart from punctuation and legal suffix), for a
+        supplier with no GST/HST number on file. A lead only: CRA must confirm it, and the supplier should too."""
+        query = re.sub(r"[^\w\s&-]", " ", str(name or "")).strip()
+        if len(re.sub(r"\W", "", query)) < 6 or self.health.down:
+            return []
+        key = ("name", query.lower())
+        if key in self._cache:
+            return self._cache[key]
+        try:
+            found = numbers_by_name(self._search(query), name)
+            self.health.record(True)
+        except Exception as e:
+            self.health.record(False, str(e))
+            log.warning("Canada's Business Registries name search for %r failed: %s", name, e)
+            return []
+        log.debug("Canada's Business Registries name=%r -> %s", name, found)
+        self._cache[key] = found
+        return found
+
     def names(self, bn9):
         """Registered names for a business number (empty if none, or if the search is down)."""
         if bn9 in self._cache:
             return self._cache[bn9]
         if self.health.down:
             return []
-        self.throttle.wait()
         try:
-            r = self.session.get(SEARCH, params={"fq": "keyword:{%s}" % bn9, "lang": "en", "queryaction": "fieldquery",
-                                                 "sortfield": "score", "sortorder": "desc"}, timeout=30)
-            r.raise_for_status()
-            found = parse_docs(r.json(), bn9)
+            found = parse_docs(self._search(bn9), bn9)
             self.health.record(True)
         except Exception as e:
             self.health.record(False, str(e))

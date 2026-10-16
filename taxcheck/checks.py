@@ -200,12 +200,19 @@ def vendor_name_candidates(name):
 def core_name(name):
     """Name for comparing with an official name: letters and digits only, "&"/"+" as "and", without legal
     suffixes or "the"."""
-    text = str(name or "").lower().replace("é", "e").replace("&", " and ").replace("+", " and ")
+    # Dots dropped first, so dotted abbreviations read as one word ("L.P." as LP, "B.C." as BC).
+    text = str(name or "").lower().replace(".", "").replace("é", "e").replace("&", " and ").replace("+", " and ")
     return "".join(w for w in re.findall(r"[a-z0-9]+", text) if w not in _LEGAL_SUFFIXES)
 
 
 _ENDS_WITH_SUFFIX = re.compile(r"\b(?:inc|incorporated|ltd|limited|corp|corporation|ulc|llc|lp|llp|ltee|ltée|"
                                r"limitee|limitée)\.?$", re.I)
+
+
+def _is_partnership(name):
+    from .cbr import _PARTNERSHIP
+
+    return bool(_PARTNERSHIP.search(str(name or "")))
 
 
 def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
@@ -223,6 +230,8 @@ def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
             mine = core_name(n)
             if not mine:
                 continue
+            if _is_partnership(n) != _is_partnership(half):
+                continue  # "ACME LP" (a partnership) isn't "ACME INC." (a corporation), though core names agree
             if mine == off:
                 return True
             if off.startswith(mine) and off[len(mine):].isdigit() and len(off) - len(mine) == 4:
@@ -547,6 +556,8 @@ class RowChecker:
             found = self._digital_economy(gst_names, date, out["gst"].detail)
             if found is not None:
                 out["gst"] = self._name_check(found, name, dnu)
+        if out["gst"].status == MISSING:
+            self._possible_number(out["gst"], gst_names, date)
         if qst:
             out["qst"] = qst
         elif prov == "QC" and self._has("qst") and self._on("qst"):
@@ -571,6 +582,33 @@ class RowChecker:
         for tax, res in out.items():
             log.debug("  %s: %s | %s | %s", tax, res.status, res.detail, res.registered_name)
         return out, ctx
+
+    def _possible_number(self, res, names, date):
+        """For a Canadian supplier with no GST/HST number: a business number registered under exactly the vendor's
+        name (Canada's Business Registries, by name) that CRA confirms is registered for GST/HST under that name on
+        the date. Noted on `res` as a lead for a person to confirm with the supplier; the status stays NO NUMBER.
+        Measured on suppliers whose number was known: 5 of 9 found, none wrong (2026-10-16)."""
+        sources = [s for s in getattr(self.gst, "name_sources", []) if hasattr(s, "numbers_for_name")]
+        if not sources or not hasattr(self.gst, "registry_lookup"):
+            return
+        for source in sources:
+            candidates = {}
+            for n in names[:2]:
+                for bn9, registered in source.numbers_for_name(n):
+                    candidates.setdefault(bn9, registered)
+            if len(candidates) != 1:
+                continue  # none, or several businesses with this name: no lead
+            (bn9, registered), = candidates.items()
+            try:
+                if self.gst.registry_lookup(bn9, registered, date) != "registered":
+                    continue
+            except Exception as e:
+                log.debug("Couldn't confirm possible GST/HST number %s: %s", bn9, e)
+                continue
+            res.facts.update(possible_number=bn9, possible_number_name=registered, possible_number_source=source.label)
+            res.detail += (f" Possible number: {source.label} lists '{registered}' with business number {bn9}, and CRA "
+                           f"confirms it's registered for GST/HST under that name on {date}.")
+            return
 
     def _digital_economy(self, names, date, why):
         """A supplier with no usable Canadian number whose name is on CRA's list of simplified GST/HST

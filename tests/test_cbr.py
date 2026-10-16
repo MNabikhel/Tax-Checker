@@ -53,5 +53,64 @@ class Lookups(unittest.TestCase):
         self.assertIn("lookups failed", a.error)
 
 
+class PossibleNumber(unittest.TestCase):
+    NAME_SEARCH = {"docs": [
+        {"BN": "123456782", "Company_Name": "PRAIRIE WIDGET MODELS INC.", "Status_State": "Active"},
+        {"BN": "123456782", "Company_Name": "PRAIRIE WIDGET MODELS INC.", "Status_State": "Active"},  # another province
+        {"BN": "999999998", "Company_Name": "PRAIRIE WIDGET MODELS GP INC.", "Status_State": "Active"},  # another entity
+        {"Company_Name": "PRAIRIE WIDGET MODELS LTD", "Status_State": "Active"},  # no number
+    ]}
+
+    def test_only_exactly_the_vendors_name(self):
+        from taxcheck.cbr import numbers_by_name
+
+        self.assertEqual(numbers_by_name(self.NAME_SEARCH, "Prairie Widget Models Ltd."),
+                         [("123456782", "PRAIRIE WIDGET MODELS INC.")])
+        self.assertEqual(numbers_by_name(self.NAME_SEARCH, "PRAIRIE WIDGET MODELS LP"), [])
+
+    def checker(self, found, cra_answer):
+        import datetime as dt
+
+        from taxcheck.checks import RowChecker
+
+        class Source:
+            label = "Canada's Business Registries"
+
+            def numbers_for_name(self, name):
+                return found
+
+        class Gst:
+            name_sources = [Source()]
+            asked = []
+
+            def registry_lookup(self, bn9, name, date):
+                self.asked.append((bn9, name))
+                return cra_answer
+
+            def check(self, *a, **k):
+                raise AssertionError("no number: CRA isn't asked about the sheet's number")
+
+        gst = Gst()
+        rc = RowChecker(gst, None, available={"name", "gst", "province"})
+        return rc.check({"name": "PRAIRIE WIDGET MODELS INC", "gst": None, "province": "MB"}, dt.date(2026, 9, 1))["gst"], gst
+
+    def test_lead_when_cra_confirms(self):
+        from taxcheck.report import gst_issue
+        from taxcheck.result import MISSING
+
+        res, gst = self.checker([("123456782", "PRAIRIE WIDGET MODELS INC.")], "registered")
+        self.assertEqual(res.status, MISSING)  # still a missing number: a lead, not a fact about the vendor record
+        self.assertEqual(res.facts["possible_number"], "123456782")
+        self.assertEqual(gst_issue(res)[0], "No GST/HST number - possible number found")
+        self.assertIn("123456782RT0001", gst_issue(res)[1])
+
+    def test_no_lead_when_cra_doesnt_confirm_or_names_are_ambiguous(self):
+        res, _ = self.checker([("123456782", "PRAIRIE WIDGET MODELS INC.")], "no_match")
+        self.assertNotIn("possible_number", res.facts)
+        res, gst = self.checker([("123456782", "X"), ("999999998", "Y")], "registered")
+        self.assertNotIn("possible_number", res.facts)
+        self.assertEqual(gst.asked, [])
+
+
 if __name__ == "__main__":
     unittest.main()

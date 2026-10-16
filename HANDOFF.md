@@ -481,8 +481,13 @@ Inc. `774075766`.
   4 of 6 "name not confirmed" now confirmed by CRA, one Manitoba RST found through the new name; (2) report
   notes for GST/HST numbers shared by differently named vendors and for names at the vendor master's length limit
   ("probably cut off"); (3) asterisks left around DO NOT USE markers dropped; (4) Saskatchewan issue labels say
-  why (name too short, daily limit, searches stopped, only similar names). Also checked: CRA's form token is
-  single-use and the results page has none, so 3 requests per CRA lookup is the minimum.
+  why (name too short, daily limit, searches stopped, only similar names); (5) suppliers with no GST/HST number
+  get a "possible number" lead when Canada's Business Registries has exactly one business number under exactly
+  the vendor's name (same kind of entity: an LP isn't the INC of the same name) and CRA confirms it under that
+  name (measured on 9 suppliers with known numbers: 5 found, 0 wrong); the status stays NO NUMBER; (6) the same
+  partnership-vs-corporation guard in `same_business_name`, and dotted abbreviations ("L.P.", "B.C.") compare as
+  one word. Checked and rejected: CRA's form token is single-use and the results page has none, so 3 requests per
+  CRA lookup is the minimum; CRA names guessed from a registry name search (no hits on the trial's misses).
 
 - **2026-10-16 (Manitoba: one word per name, plus CRA's name)**: TAXcess needs every typed word in the registered
   name, so a full-name search can only find less than its first distinctive word does. Each name is now searched

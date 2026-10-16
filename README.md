@@ -202,6 +202,15 @@ name cut off by the vendor master), [OrgBook BC](https://orgbook.gov.bc.ca) (com
 organizations registered in BC, via its public API), and, when the row has a QST number, the legal name
 Revenu Québec returns. It retries with each official name it finds.
 
+**Suppliers with no GST/HST number.** For a Canadian supplier with no number on file, the tool searches Canada's
+Business Registries by name. If exactly one business number is registered under exactly the vendor's name (and
+the same kind of entity), and CRA confirms that number is registered under that name, the row says "No GST/HST
+number - possible number found" with the number. It's a lead: confirm it with the supplier before adding it.
+
+**Report notes across rows.** A GST/HST number used by differently named vendors is flagged in Other Issues
+(with the name CRA accepts for it), and a name that fills the vendor master's name field (e.g. 40 characters)
+and that CRA couldn't confirm is flagged as probably cut off.
+
 If no name matches, the number alone still gets a definite answer. CRA checks the number against the date
 before it looks at the name, so one extra lookup shows whether the number is registered, not registered,
 or unknown to CRA. A number registered under a name other than the one in your sheet is reported as

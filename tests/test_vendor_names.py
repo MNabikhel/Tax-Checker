@@ -159,5 +159,14 @@ class LeftoverAsterisks(unittest.TestCase):
         self.assertEqual(clean_vendor_name("ACME* LTD"), ("ACME* LTD", False))  # no marker: left exactly as given
 
 
+class EntityKind(unittest.TestCase):
+    def test_partnership_is_not_the_corporation_of_the_same_name(self):
+        from taxcheck.checks import same_business_name
+
+        self.assertFalse(same_business_name(["ACME WIDGETS LP"], "ACME WIDGETS INC."))
+        self.assertTrue(same_business_name(["ACME WIDGETS LP"], "ACME WIDGETS L.P."))  # dotted abbreviation
+        self.assertTrue(same_business_name(["ACME WIDGETS LTD"], "ACME WIDGETS INC."))
+
+
 if __name__ == "__main__":
     unittest.main()

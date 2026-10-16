@@ -130,6 +130,12 @@ def gst_issue(res):
         if "placeholder" in res.detail.lower():
             return ("No GST/HST number (placeholder Tax ID)", "Replace the placeholder with the supplier's GST/HST "
                     "number (or record that they're a small supplier).", SEV_BAD_NUMBER)
+        if f.get("possible_number"):
+            bn = f["possible_number"]
+            return ("No GST/HST number - possible number found", f"{f.get('possible_number_source', 'A registry')} "
+                    f"lists '{f.get('possible_number_name', '')}' with business number {bn}, and CRA confirms it's "
+                    "registered for GST/HST under that name. Confirm with the supplier that it's theirs, then add it to "
+                    f"the vendor record (the GST/HST account is usually {bn}RT0001).", SEV_BAD_NUMBER)
         return ("No GST/HST number", "Ask the supplier for their GST/HST number (or confirm they're a small "
                 "supplier) and add it to the vendor record.", SEV_BAD_NUMBER)
     if st == NOT_CONFIRMED:
@@ -220,6 +226,8 @@ GENERIC_ACTIONS = {
     "Registered under another name": "CRA confirms the number under the name in 'Suggested Vendor Name'. If that is this supplier, "
                                      "update the vendor name; if not, get the correct GST/HST number from the supplier.",
     "Not registered": "Don't claim input tax credits on GST/HST from these suppliers; confirm with each supplier.",
+    "No GST/HST number - possible number found": "A business registered under exactly the vendor's name has a GST/HST "
+        "number CRA confirms ('GST/HST Details'). Confirm with the supplier that it's theirs, then add it.",
     "Registered after payment date": "Check GST/HST charged on invoices from before the supplier's registration date "
                                      "('GST/HST Registered Since').",
     "Registration cancelled since payment date": "Don't claim input tax credits on GST/HST charged on invoices dated "
