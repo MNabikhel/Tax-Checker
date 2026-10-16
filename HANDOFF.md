@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-16 · **Branch:** `main` (current; all work is merged) · **Tests:** 155 offline + 19 live
+**Last updated:** 2026-10-16 · **Branch:** `main` (current; all work is merged) · **Tests:** 197: 175 offline, 3 in a local browser, 19 live
 
 ---
 
@@ -183,7 +183,7 @@ the log only).
 | `taxcheck/bc_pst.py` | eTaxBC form automation | `BcPstChecker` |
 | `taxcheck/mb_rst.py` | TAXcess form automation, name variants down to the first word | `MbRstChecker`, `parse_results` |
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA | `SkPstAssistant`, `classify`, `search_terms` |
-| `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection | `new_session`, `Throttle`, `SiteHealth` |
+| `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection (pause and retry every 2 min; give up after 30 min; shared by workers) | `new_session`, `Throttle`, `SiteHealth` |
 | `taxcheck/logsetup.py` | Log file + console handlers | `setup_logging` |
 | `taxcheck/progress.py` | Per-supplier progress CSV, periodic progress/ETA lines, `--resume` loader | `ProgressReport`, `load_resume` |
 | `taxcheck/result.py` | Status constants and `Result` (`status`, `detail`, `registered_name`, `name_check`, `facts`) | `Result.copy` |
@@ -444,6 +444,27 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-16 (Saskatchewan; accuracy and efficiency review)**: Saskatchewan's CAPTCHA is needed once per
+  session (§7), so the menu asks and every Saskatchewan search runs at the start, straight after the person
+  ticks it; the search clicked the site-wide "Search SETS" header button, now the PST form's own (tested in a
+  real browser against a local stand-in registry). Two review agents then went through the code; every
+  finding was reproduced before fixing, with tests in `test_accuracy.py`, `test_efficiency.py`,
+  `test_vendor_names.py`:
+  - Accuracy: a wrong GST/HST number could be confirmed REGISTERED through a name not tied to it (Revenu
+    Québec's, or a sister company's via the 40-character rule); simplified registrants with their number on
+    file were Overall OK; "CDN", "Ont.", "B.C." etc. were foreign; labelled Tax IDs ("GST# ...") were
+    invalid; any foreign Tax ID containing "RT" was treated as a GST number; QST status ignored the payment
+    date; several name-splitting cases made junk candidates; `--trust-gst-number` didn't match the docs.
+  - Efficiency: parallel workers repeated in-progress duplicate lookups (now they wait for the one in
+    progress); CRA answers are remembered per (number, name as CRA compares it, date) and dates per number
+    (e.g. 82 → 25 lookups for one number paid on 5 dates); a short outage turned every remaining row into
+    ERROR (`SiteHealth` now pauses and retries, gives up after 30 min, and is shared by workers); Ctrl+C
+    now saves before waiting for running lookups, and a second Ctrl+C can't lose the workbook; the save no
+    longer clears every row's cells (20,000 rows: about 36 s to save, 21 s to load; `lxml` made no
+    difference); in parallel mode the Québec NR list is loaded once on the main thread (browser fallback)
+    and workers' error notes reach the summary.
+  - Not changed: a number CRA doesn't know still tries each name before the number-only check (a few
+    lookups for typo numbers, which the check digit mostly catches first).
 - **2026-10-16 (second agent's work reviewed and merged)**: A second agent tailored the tool to the user's
   ERP vendor-master export and ran it live on their corporate network (Windows 11, Python 3.14, Edge 155,
   TLS inspection; ~20k rows in 2 h 46 min with 3 workers, 13,469 CRA searches, no CRA errors). Its work came

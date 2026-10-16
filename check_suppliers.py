@@ -266,6 +266,21 @@ def save_workbook(sheet, results, out, notes, ok_statuses):
         return alt
 
 
+def save_final(sheet, results, out, notes, ok_statuses):
+    """The final save, with Ctrl+C ignored while it's written (a second Ctrl+C used to lose the workbook)."""
+    import signal
+
+    try:
+        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except ValueError:  # not the main thread (tests): nothing to protect against
+        return save_workbook(sheet, results, out, notes, ok_statuses)
+    log.info("Saving the results workbook (Ctrl+C is ignored until it's saved)...")
+    try:
+        return save_workbook(sheet, results, out, notes, ok_statuses)
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
 def prefetch_saskatchewan(checker, sk, rows):
     """Run every Saskatchewan search right after the person passes the registry's CAPTCHA, at the start.
 
@@ -413,7 +428,7 @@ def run(args, log_path):
                 date = cra_today()
             return date
 
-        executor = None
+        executor, worker_orgbooks = None, []
         workers = 1 if offline else max(1, min(args.workers, MAX_WORKERS))
         if workers > 1:
             # Each worker has its own CRA/Revenu Québec/OrgBook session and its own throttle (so each still waits
@@ -421,12 +436,27 @@ def run(args, log_path):
             # Browser checks (Manitoba/BC/SK) can't leave the main thread, so they run there as rows come back.
             if hasattr(gst.simplified, "_load") and gst.simplified._rows is None:
                 gst.simplified._load()  # once, on the main thread, where the browser fallback works
-            pool = []
+            # Québec's NR list may need the browser (some networks block the download), which only works on the
+            # main thread: load it here once if any supplier has an NR number, and give the workers that copy.
+            if any(re.search(r"\bNR\s*\d", f"{v.get('qst') or ''} {v.get('gst') or ''}", re.I) for _, v in to_check):
+                qst._load_nr_list()
+            pool, worker_orgbooks = [], []
             for _ in range(workers):
-                g = GstChecker(corporations=corporations, name_sources=[OrgBookBC()] if orgbook else None,
+                worker_orgbook = None
+                if orgbook:
+                    worker_orgbook = OrgBookBC()
+                    worker_orgbook.health = orgbook.health
+                    worker_orgbooks.append(worker_orgbook)
+                g = GstChecker(corporations=corporations, name_sources=[worker_orgbook] if worker_orgbook else None,
                                cache_dir=args.cache_dir)
                 g.simplified = gst.simplified
-                pool.append(RowChecker(g, QstChecker(nr_list_file=args.nr_list, cache_dir=args.cache_dir),
+                if hasattr(gst, "answers"):
+                    g.answers = gst.answers  # one memory of CRA's answers for all workers
+                    g.health = gst.health  # an outage is noticed once, and all workers pause together
+                worker_qst = QstChecker(nr_list_file=args.nr_list, cache_dir=args.cache_dir)
+                worker_qst._nr_rows = getattr(qst, "_nr_rows", None)  # None: loaded if needed
+                worker_qst.nr_error = getattr(qst, "nr_error", None)
+                pool.append(RowChecker(g, worker_qst,
                                        available=sheet.cols, taxes=args.taxes, cache=checker._cache, defer_browser=True,
                                        gst_dates=args.gst_dates))
             free = queue.SimpleQueue()
@@ -442,7 +472,9 @@ def run(args, log_path):
                 finally:
                     free.put(c)
 
-            executor = stack.enter_context(ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lookup"))
+            # Not in the ExitStack: leaving it would wait for lookups still running, and a stopped run should save
+            # its results first. Shut down explicitly below; Ctrl+C cancels what's queued and doesn't wait.
+            executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lookup")
             # Submit a window ahead (not everything at once). It's wide so the workers keep going while the main
             # thread spends ~6 s on a Manitoba browser lookup; Ctrl+C cancels whatever is still queued.
             pending = collections.deque()
@@ -475,6 +507,7 @@ def run(args, log_path):
                     out_row = checker.check(values, row_date(r, values))
                     yield r, values, out_row, time.monotonic() - t0
 
+        stopped_early = None  # set below; None if something stops the run before it's decided
         try:
             if sk:
                 prefetch_saskatchewan(checker, sk, [values for _, values in to_check])
@@ -503,6 +536,8 @@ def run(args, log_path):
         else:
             stopped_early = False
         finally:
+            if executor:
+                executor.shutdown(wait=stopped_early is False, cancel_futures=True)
             progress.close()
             checkpoints.wait()  # before the final save, which uses the same workbook
 
@@ -553,8 +588,8 @@ def run(args, log_path):
         pass
     elif gst.simplified.error:
         notes.append(gst.simplified.error)
-    for source in (corporations, orgbook):
-        if source and source.error:
+    for source in (corporations, orgbook, *worker_orgbooks):
+        if source and source.error and source.error not in notes:
             notes.append(source.error)
     if qst and qst.nr_error:
         notes.append(qst.nr_error)
@@ -563,7 +598,7 @@ def run(args, log_path):
     ok_statuses = (REGISTERED, NAME_NOT_MATCHED) if args.trust_gst_number else (REGISTERED,)
     if args.trust_gst_number:
         notes.append("--trust-gst-number: 'REGISTERED - NAME NOT MATCHED' counts as OK in the Overall column.")
-    saved = save_workbook(sheet, results, out, notes, ok_statuses)
+    saved = save_final(sheet, results, out, notes, ok_statuses)
     log.info("Results written to %s", saved)
     log.info("")
     log.info("=" * 70)

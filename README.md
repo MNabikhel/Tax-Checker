@@ -86,10 +86,12 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 To fix a name and re-check, edit the results file and run the script on it. It overwrites its own
 result columns rather than adding new ones.
 
-Press Ctrl+C to stop a long run early: the results so far are saved, and the summary sheet says the
-run stopped early. If a government site is down (they have maintenance windows), the script notices
-after two failed suppliers, stops trying that site for the rest of the run, and marks those rows
-ERROR so you can re-run later.
+Press Ctrl+C to stop a long run early: the results so far are saved straight away (a second Ctrl+C
+during the save is ignored), and the summary sheet says the run stopped early. If a government site
+stops responding (they have maintenance windows), the script notices after two failed lookups in a row,
+pauses that site's lookups and tries again every 2 minutes, so a short outage costs a pause instead of
+errors. Only after 30 minutes without an answer does it give up on that site for the rest of the run
+and mark its rows ERROR, which `--resume` re-checks later.
 
 To try it out, run it on `examples/sample_suppliers.xlsx`, which uses publicly published numbers.
 

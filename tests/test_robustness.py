@@ -64,7 +64,7 @@ class SiteDown(unittest.TestCase):
         Browser.check_response(None, "eTaxBC")  # no response object (e.g. same-page navigation) is fine
 
     def test_health_counts_consecutive_failures(self):
-        h = SiteHealth("X", limit=2)
+        h = SiteHealth("X", limit=2, give_up_after=0)
         h.record(False, "boom")
         h.record(True)
         h.record(False, "boom")
@@ -73,9 +73,33 @@ class SiteDown(unittest.TestCase):
         self.assertTrue(h.down)
         self.assertIn("boom again", h.down_message())
 
+    def test_a_short_outage_pauses_then_recovers(self):
+        now, slept = [0.0], []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            now[0] += seconds
+
+        h = SiteHealth("X", limit=2, retry_every=120, give_up_after=600, sleep=sleep, clock=lambda: now[0])
+        h.record(False, "down")
+        h.record(False, "down")
+        self.assertFalse(h.down)  # waits for the retry, then lets it through
+        self.assertEqual(slept, [120])
+        h.record(True)  # the retry worked: back to normal, nothing given up
+        self.assertFalse(h.down)
+        self.assertEqual(slept, [120])
+        # A long outage: retried every 2 minutes, given up after 10.
+        for _ in range(10):
+            h.record(False, "still down")
+            if h.down:
+                break
+        self.assertTrue(h.gave_up)
+        self.assertGreaterEqual(now[0] - 120, 600 - 120)
+
     def test_bc_stops_trying_after_two_failed_rows(self):
         browser = FailingBrowser()
         bc = BcPstChecker(browser, delay=0)
+        bc.health.give_up_after = 0  # no pause-and-retry in this test
         results = [bc.check("108161779", "1000-7572") for _ in range(5)]
         self.assertTrue(all(r.status == ERROR for r in results))
         self.assertEqual(browser.pages, 6)  # 2 rows x 3 attempts, then no more page loads
@@ -84,6 +108,7 @@ class SiteDown(unittest.TestCase):
     def test_manitoba_stops_trying_after_two_failed_rows(self):
         browser = FailingBrowser()
         mb = MbRstChecker(browser, delay=0)
+        mb.health.give_up_after = 0  # no pause-and-retry in this test
         results = [mb.check(["Some Co"], bn9="857305932") for _ in range(4)]
         self.assertTrue(all(r.status == ERROR for r in results))
         self.assertEqual(browser.pages, 6)
@@ -98,6 +123,7 @@ class CraDown(unittest.TestCase):
         from taxcheck.gst import GstChecker
 
         g = GstChecker(delay=0)
+        g.health.give_up_after = 0  # no pause-and-retry in this test (see SiteDown.test_a_short_outage...)
         calls = []
 
         def down(*a):

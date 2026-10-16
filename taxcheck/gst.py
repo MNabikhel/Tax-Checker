@@ -211,6 +211,9 @@ class GstChecker:
         self.corporations = corporations
         self.name_sources = [s for s in [corporations, *(name_sources or [])] if s]
         self.health = SiteHealth("The CRA GST/HST Registry")
+        # Every answer, by (business number, name as CRA compares it, date): the same question comes up again for
+        # duplicate rows, the "registered today?" and 1980 checks, and date searches. Shared by parallel workers.
+        self.answers = {}
 
     def registry_lookup(self, bn9, name, date, attempts=3):
         """One CRA registry search. Returns 'registered', 'not_registered', 'no_match' or 'invalid'.
@@ -218,12 +221,16 @@ class GstChecker:
         Searches are read-only and each attempt fetches a fresh form token, so a dropped connection
         is simply retried.
         """
+        key = (bn9, _name_key(name), date)
+        if key in self.answers:
+            return self.answers[key]
         if self.health.down:
             raise RuntimeError(self.health.down_message())
         for attempt in range(1, attempts + 1):
             try:
                 outcome = self._registry_lookup(bn9, name, date)
                 self.health.record(True)
+                self.answers[key] = outcome
                 return outcome
             except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
                 if attempt == attempts:

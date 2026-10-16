@@ -371,9 +371,7 @@ class SupplierSheet:
         action_rows = []
         wrap = Alignment(wrap_text=True, vertical="top")
         for r, by_tax in results.items():
-            for c in range(start, start + len(columns)):  # clear anything left from an earlier run
-                cell = ws.cell(r, c)
-                cell.value, cell.fill = None, PatternFill()
+            # (An earlier run's result columns were already cleared above, once, when re-running on its output.)
             statuses = [by_tax[k].status for k, _ in taxes if k in by_tax]
             if statuses and all(s == NOT_APPLICABLE for s in statuses):
                 overall = "NOT APPLICABLE"  # foreign supplier, nothing Canadian to check

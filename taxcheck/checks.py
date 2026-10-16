@@ -3,6 +3,7 @@
 import copy
 import logging
 import re
+import threading
 
 from .gst import _name_key
 from .numbers import BadNumber, _compact_tax_id, normalize_tax_id, parse_bc_pst, parse_bn, parse_gst, parse_mb_rst, parse_qst
@@ -375,7 +376,8 @@ class RowChecker:
                 g.detail += f" It is registered as of today ({today}): it registered after {date}."
                 f["registration_end"] = f"Active on {today}"
                 if can_search:
-                    since = first_change(self.gst, bn9, date, today, False)
+                    since = self._per_number("registered since", bn9, lambda s: s > date,
+                                             lambda: first_change(self.gst, bn9, date, today, False))
                     f["registered_since"] = str(since)
                     f["dates_source"] = "CRA registry (date search)"
                     g.detail += f" Registered since {since}."
@@ -384,6 +386,15 @@ class RowChecker:
         except Exception as e:
             f["dates_error"] = f"{type(e).__name__}: {e}"
             log.warning("Registration date search for %s failed: %s", bn9, e)
+
+    def _per_number(self, what, bn9, still_true, search):
+        """A registration date for a business number, searched once and reused for its other rows while it
+        still fits their payment date (e.g. a cancellation after one payment date is after earlier ones too)."""
+        key = ("date search", what, bn9)
+        if key in self._cache and still_true(self._cache[key]):
+            return self._cache[key]
+        self._cache[key] = found = search()
+        return found
 
     def _gst_dates(self, f, bn9, date, today):
         """Registration end (and, in "full" mode, start) for a number registered on `date`. Cached per number."""
@@ -404,13 +415,15 @@ class RowChecker:
                 if now:
                     found["registration_end"] = f"Active on {today}"
                 elif now is False:
-                    end = cancellation_date(self.gst, bn9, date, today)
+                    end = self._per_number("cancelled", bn9, lambda e: e >= date,
+                                           lambda: cancellation_date(self.gst, bn9, date, today))
                     found.update(registration_end=str(end), cancelled_after_payment=True, status_today=NOT_REGISTERED,
                                  today=str(today))
             else:
                 found["registration_end"] = f"Active on {today}"
             if self.gst_dates == "full":
-                start = registration_start(self.gst, bn9, date)
+                start = self._per_number("registration start", bn9, lambda st: st is None or st <= date,
+                                         lambda: registration_start(self.gst, bn9, date))
                 found["registered_since"] = str(start) if start else f"{gst_dates_start()} or earlier"
         except Exception as e:  # dates are extra information: never let them break the row
             found["dates_error"] = f"{type(e).__name__}: {e}"
@@ -572,9 +585,11 @@ class RowChecker:
             if key not in self._cache:
                 try:
                     self._cache[key] = self.gst.registry_lookup(bn9, entry["legal_name"], date)
-                except Exception as e:  # extra information: never let it break the row
+                except Exception as e:  # report it as an error, so --resume tries the row again
                     log.warning("Simplified-registrant confirmation for %s failed: %s", bn9, e)
-                    return None
+                    return Result(ERROR, f"{why} The name matches a simplified (digital economy) registrant on CRA's "
+                                         f"list ({entry['number']}), but confirming it with CRA failed: "
+                                         f"{type(e).__name__}: {e} (see log file)")
             if self._cache[key] != "registered":
                 log.debug("%s matches simplified registrant %s, but CRA answered %r for %s", names[0], bn9,
                           self._cache[key], date)
@@ -670,9 +685,19 @@ class RowChecker:
 
     def _guard(self, fn, *args):
         key = (fn.__name__, repr(args))
-        if key in self._cache:
-            log.debug("Reusing earlier result for %s%s", fn.__name__, args)
-            return self._cache[key].copy()  # own facts dict: later notes on this row mustn't leak into others
+        busy_key = ("in progress",) + key
+        while True:
+            if key in self._cache:
+                log.debug("Reusing earlier result for %s%s", fn.__name__, args)
+                return self._cache[key].copy()  # own facts dict: later notes on this row mustn't leak into others
+            # Parallel workers share the cache: if another one is already looking this up (duplicate rows are
+            # often next to each other), wait for its answer instead of asking the site again.
+            mine = threading.Event()
+            theirs = self._cache.setdefault(busy_key, mine)  # atomic: exactly one thread gets to look it up
+            if theirs is mine:
+                break
+            theirs.wait(timeout=900)
+            # Its answer is in the cache now, unless it failed (errors aren't cached): then try ourselves.
         try:
             result = fn(*args)
         except BadNumber as e:
@@ -681,9 +706,12 @@ class RowChecker:
             # One line on screen; the full traceback goes to the log file only.
             log.error("%s%s failed: %s: %s", fn.__name__, args, type(e).__name__, str(e).splitlines()[0] if str(e) else "")
             log.debug("Traceback for the failure above", exc_info=True)
-            return Result(ERROR, f"{type(e).__name__}: {e} (see log file)")
-        if result.status != ERROR:  # a failed lookup is worth retrying on a later duplicate row
-            self._cache[key] = result
+            result = Result(ERROR, f"{type(e).__name__}: {e} (see log file)")
+        finally:
+            if "result" in locals() and result.status != ERROR:  # a failed lookup is worth retrying later
+                self._cache[key] = result
+            self._cache.pop(busy_key, None)
+            mine.set()
         return result.copy()
 
     def _gst(self, value, names, date, extra_names=()):
