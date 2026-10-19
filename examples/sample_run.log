@@ -1,156 +1,175 @@
-2026-10-13 15:42:28,071 INFO    check_suppliers    Log file: logs/tax_check_20261013_154228.log
-2026-10-13 15:42:28,071 DEBUG   check_suppliers    Arguments: {'workbook': 'examples/sample_suppliers.xlsx', 'output': None, 'sheet': None, 'date': None, 'no_browser': False, 'sk_assist': False, 'no_name_lookup': False, 'cache_dir': 'cache', 'nr_list': None, 'log_dir': 'logs', 'verbose': False, 'trust_gst_number': False, 'check_columns': True, 'preview': 2}
-2026-10-13 15:42:28,075 DEBUG   check_suppliers    Python 3.12.3 on Linux-6.18.44-fc-v114-x86_64-with-glibc2.39
-2026-10-13 15:42:28,083 INFO    taxcheck.workbook  Reading sheet 'Suppliers': header on row 1
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column name       <- 'Supplier Name' (column A)
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column trade_name <- 'Trade Name' (column B)
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column province   <- 'Province' (column C)
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column gst        <- 'GST/HST Number' (column D)
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column qst        <- 'QST Number' (column E)
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column pst        <- 'PST Number' (column F)
-2026-10-13 15:42:28,083 DEBUG   taxcheck.workbook    column date       <- 'Transaction Date' (column G)
-2026-10-13 15:42:28,083 INFO    check_suppliers    Header row: 1 on sheet 'Suppliers'
-2026-10-13 15:42:28,083 INFO    check_suppliers    Recognized columns:
-2026-10-13 15:42:28,083 INFO    check_suppliers        A 'Supplier Name' -> name
-2026-10-13 15:42:28,083 INFO    check_suppliers        B 'Trade Name' -> trade_name
-2026-10-13 15:42:28,083 INFO    check_suppliers        C 'Province' -> province
-2026-10-13 15:42:28,084 INFO    check_suppliers        D 'GST/HST Number' -> gst
-2026-10-13 15:42:28,084 INFO    check_suppliers        E 'QST Number' -> qst
-2026-10-13 15:42:28,084 INFO    check_suppliers        F 'PST Number' -> pst
-2026-10-13 15:42:28,084 INFO    check_suppliers        G 'Transaction Date' -> date
-2026-10-13 15:42:28,084 INFO    check_suppliers    11 supplier rows. What the first 2 would check (no lookups are made):
-2026-10-13 15:42:28,088 INFO    check_suppliers      row 2: {'name': 'The University of British Columbia', 'trade_name': 'UBC', 'province': 'BC', 'gst': '10816 1779 RT0001', 'pst': 'PST-1000-7572'}
-2026-10-13 15:42:28,088 DEBUG   taxcheck.checks    Row input: {'name': 'The University of British Columbia', 'trade_name': 'UBC', 'province': 'BC', 'gst': '10816 1779 RT0001', 'qst': None, 'pst': 'PST-1000-7572', 'date': None} | province='BC' date=2026-10-13
-2026-10-13 15:42:28,088 DEBUG   taxcheck.checks      gst: WOULD CHECK | '108161779', ['The University of British Columbia', 'UBC'], datetime.date(2026, 10, 13) | 
-2026-10-13 15:42:28,088 DEBUG   taxcheck.checks      bc_pst: WOULD CHECK | '108161779', '1000-7572' | 
-2026-10-13 15:42:28,088 INFO    check_suppliers          gst     WOULD CHECK    '108161779', ['The University of British Columbia', 'UBC'], datetime.date(2026, 10, 13)
-2026-10-13 15:42:28,088 INFO    check_suppliers          bc_pst  WOULD CHECK    '108161779', '1000-7572'
-2026-10-13 15:42:28,088 INFO    check_suppliers      row 3: {'name': 'Amazon.com.ca ULC', 'province': 'ON', 'gst': '857305932RT0001'}
-2026-10-13 15:42:28,088 DEBUG   taxcheck.checks    Row input: {'name': 'Amazon.com.ca ULC', 'trade_name': None, 'province': 'ON', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-13
-2026-10-13 15:42:28,088 DEBUG   taxcheck.checks      gst: WOULD CHECK | '857305932', ['Amazon.com.ca ULC', None], datetime.date(2026, 10, 13) | 
-2026-10-13 15:42:28,088 INFO    check_suppliers          gst     WOULD CHECK    '857305932', ['Amazon.com.ca ULC', None], datetime.date(2026, 10, 13)
-2026-10-13 15:42:28,306 INFO    check_suppliers    Log file: logs/tax_check_20261013_154228.log
-2026-10-13 15:42:28,306 DEBUG   check_suppliers    Arguments: {'workbook': 'examples/sample_suppliers.xlsx', 'output': None, 'sheet': None, 'date': None, 'no_browser': False, 'sk_assist': False, 'no_name_lookup': False, 'cache_dir': 'cache', 'nr_list': None, 'log_dir': 'logs', 'verbose': False, 'trust_gst_number': False, 'check_columns': False, 'preview': 10}
-2026-10-13 15:42:28,311 DEBUG   check_suppliers    Python 3.12.3 on Linux-6.18.44-fc-v114-x86_64-with-glibc2.39
-2026-10-13 15:42:28,319 INFO    taxcheck.workbook  Reading sheet 'Suppliers': header on row 1
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column name       <- 'Supplier Name' (column A)
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column trade_name <- 'Trade Name' (column B)
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column province   <- 'Province' (column C)
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column gst        <- 'GST/HST Number' (column D)
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column qst        <- 'QST Number' (column E)
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column pst        <- 'PST Number' (column F)
-2026-10-13 15:42:28,320 DEBUG   taxcheck.workbook    column date       <- 'Transaction Date' (column G)
-2026-10-13 15:42:28,320 INFO    check_suppliers    11 suppliers found (columns used: name, trade_name, province, gst, qst, pst, date)
-2026-10-13 15:42:28,324 DEBUG   check_suppliers    ---- Row 2: The University of British Columbia
-2026-10-13 15:42:28,324 DEBUG   taxcheck.checks    Row input: {'name': 'The University of British Columbia', 'trade_name': 'UBC', 'province': 'BC', 'gst': '10816 1779 RT0001', 'qst': None, 'pst': 'PST-1000-7572', 'date': None} | province='BC' date=2026-10-13
-2026-10-13 15:42:28,942 DEBUG   taxcheck.http      GET https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/digital-economy-gsthst/confirming-simplified-gst-hst-account-number.html -> HTTP 200 (0.57s, 474298 bytes)
-2026-10-13 15:42:28,993 INFO    taxcheck.gst       Loaded CRA simplified GST/HST list: 1775 business numbers
-2026-10-13 15:42:29,560 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.56s, 10078 bytes)
-2026-10-13 15:42:29,865 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.30s, 397 bytes)
-2026-10-13 15:42:30,142 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.27s, 8187 bytes)
-2026-10-13 15:42:30,142 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='The University of British Columbia' date=2026-10-13 -> no_match (Insufficient information entered.)
-2026-10-13 15:42:30,780 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.28s, 10131 bytes)
-2026-10-13 15:42:31,093 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.31s, 397 bytes)
-2026-10-13 15:42:31,371 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.28s, 8201 bytes)
-2026-10-13 15:42:31,372 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='University of British Columbia' date=2026-10-13 -> registered (GST/HST number registered on this transaction date.)
-2026-10-13 15:42:32,401 DEBUG   taxcheck.browser   Started Chromium 153.0.8010.12 (headless=True)
-2026-10-13 15:42:39,150 DEBUG   taxcheck.bc_pst    eTaxBC bn=108161779 pst=1000-7572 -> 'PST number is valid' (attempt 1)
-2026-10-13 15:42:39,150 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-13 (matched name 'University of British Columbia'). | University of British Columbia
-2026-10-13 15:42:39,150 DEBUG   taxcheck.checks      bc_pst: REGISTERED | eTaxBC: PST-1000-7572 is valid for BN 108161779. | 
-2026-10-13 15:42:39,150 INFO    check_suppliers    [1/11] The University of British Columbia: gst=REGISTERED, bc_pst=REGISTERED
-2026-10-13 15:42:39,151 DEBUG   check_suppliers    ---- Row 3: Amazon.com.ca ULC
-2026-10-13 15:42:39,151 DEBUG   taxcheck.checks    Row input: {'name': 'Amazon.com.ca ULC', 'trade_name': None, 'province': 'ON', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-13
-2026-10-13 15:42:39,444 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.29s, 10127 bytes)
-2026-10-13 15:42:39,782 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.34s, 397 bytes)
-2026-10-13 15:42:40,084 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.30s, 8188 bytes)
-2026-10-13 15:42:40,085 DEBUG   taxcheck.gst       CRA registry bn=857305932 name='Amazon.com.ca ULC' date=2026-10-13 -> registered (GST/HST number registered on this transaction date.)
-2026-10-13 15:42:40,087 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-13 (matched name 'Amazon.com.ca ULC'). | Amazon.com.ca ULC
-2026-10-13 15:42:40,089 INFO    check_suppliers    [2/11] Amazon.com.ca ULC: gst=REGISTERED
-2026-10-13 15:42:40,089 DEBUG   check_suppliers    ---- Row 4: Avient Canada ULC
-2026-10-13 15:42:40,089 DEBUG   taxcheck.checks    Row input: {'name': 'Avient Canada ULC', 'trade_name': 'Spartech Plastiques', 'province': 'QC', 'gst': None, 'qst': '1019288451 TQ 0004', 'pst': None, 'date': None} | province='QC' date=2026-10-13
-2026-10-13 15:42:40,532 DEBUG   taxcheck.http      GET https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/1019288451TQ0004 -> HTTP 200 (0.44s, 259 bytes)
-2026-10-13 15:42:40,533 DEBUG   taxcheck.qst       QST API 1019288451TQ0004 -> HTTP 200 {'Resultat': {'StatutSousDossierUsager': 'R', 'DescriptionStatut': 'Regulier', 'DateStatut': '2017-08-01T00:00:00', 'NomEntreprise': 'AVIENT CANADA ULC', 'RaisonSociale': 'SPARTECH PLASTIQUES'}, 'OperationReussie': True, 'MessagesFonctionnels': [], 'MessagesInformatifs': []}
-2026-10-13 15:42:40,533 DEBUG   taxcheck.checks      gst: NO NUMBER | No GST/HST number provided. | 
-2026-10-13 15:42:40,533 DEBUG   taxcheck.checks      qst: REGISTERED | Revenu Québec: registration valid since 2017-08-01. | AVIENT CANADA ULC (trade name: SPARTECH PLASTIQUES)
-2026-10-13 15:42:40,533 INFO    check_suppliers    [3/11] Avient Canada ULC: gst=NO NUMBER, qst=REGISTERED
-2026-10-13 15:42:40,533 DEBUG   check_suppliers    ---- Row 5: AIRGSM PTE. LTD.
-2026-10-13 15:42:40,533 DEBUG   taxcheck.checks    Row input: {'name': 'AIRGSM PTE. LTD.', 'trade_name': 'Airalo', 'province': None, 'gst': '751950577RT9999', 'qst': None, 'pst': None, 'date': None} | province='' date=2026-10-13
-2026-10-13 15:42:40,533 DEBUG   taxcheck.gst       bn=751950577 is on the simplified list: {'legal_name': 'AIRGSM PTE. LTD.', 'trade_name': 'Airalo', 'number': '751950577RT9999', 'registered': datetime.date(2026, 9, 1), 'deregistered': None}
-2026-10-13 15:42:40,926 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.27s, 10114 bytes)
-2026-10-13 15:42:41,216 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.29s, 397 bytes)
-2026-10-13 15:42:41,532 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.31s, 8187 bytes)
-2026-10-13 15:42:41,532 DEBUG   taxcheck.gst       CRA registry bn=751950577 name='AIRGSM PTE. LTD.' date=2026-10-13 -> registered (GST/HST number registered on this transaction date.)
-2026-10-13 15:42:41,534 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-13 (matched name 'AIRGSM PTE. LTD.'). Simplified GST/HST registrant (non-resident digital seller): GST/HST they charge is not eligible for input tax credits, so give them your GST/HST number so they don't charge it. | AIRGSM PTE. LTD.
-2026-10-13 15:42:41,535 INFO    check_suppliers    [4/11] AIRGSM PTE. LTD.: gst=REGISTERED
-2026-10-13 15:42:41,535 DEBUG   check_suppliers    ---- Row 6: Typo Supplies Inc
-2026-10-13 15:42:41,535 DEBUG   taxcheck.checks    Row input: {'name': 'Typo Supplies Inc', 'trade_name': None, 'province': 'ON', 'gst': '123456789RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-13
-2026-10-13 15:42:41,535 DEBUG   taxcheck.checks      gst: INVALID NUMBER | '123456789RT0001' fails the CRA check digit, likely a typo | 
-2026-10-13 15:42:41,535 INFO    check_suppliers    [5/11] Typo Supplies Inc: gst=INVALID NUMBER
-2026-10-13 15:42:41,536 DEBUG   check_suppliers    ---- Row 7: Wrong Name Co
-2026-10-13 15:42:41,536 DEBUG   taxcheck.checks    Row input: {'name': 'Wrong Name Co', 'trade_name': None, 'province': 'ON', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-13
-2026-10-13 15:42:42,446 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.29s, 10113 bytes)
-2026-10-13 15:42:42,797 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.35s, 397 bytes)
-2026-10-13 15:42:43,174 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.37s, 8166 bytes)
-2026-10-13 15:42:43,174 DEBUG   taxcheck.gst       CRA registry bn=857305932 name='Wrong Name Co' date=2026-10-13 -> no_match (Insufficient information entered.)
-2026-10-13 15:42:43,176 INFO    taxcheck.fedcorp   Downloading federal corporations data: https://d4bf66bykfyaf.cloudfront.net/corporations-active-cbca-en.csv
-2026-10-13 15:42:45,210 DEBUG   taxcheck.http      GET https://d4bf66bykfyaf.cloudfront.net/corporations-active-cbca-en.csv -> HTTP 200 (0.42s, 103616001 bytes)
-2026-10-13 15:42:49,803 INFO    taxcheck.fedcorp   Downloading federal corporations data: https://d4bf66bykfyaf.cloudfront.net/corporations-active-non-cbca-en.csv
-2026-10-13 15:42:50,166 DEBUG   taxcheck.http      GET https://d4bf66bykfyaf.cloudfront.net/corporations-active-non-cbca-en.csv -> HTTP 200 (0.19s, 9209373 bytes)
-2026-10-13 15:42:50,423 INFO    taxcheck.fedcorp   Loaded federal corporate names for 693356 business numbers
-2026-10-13 15:42:51,342 DEBUG   taxcheck.http      GET https://orgbook.gov.bc.ca/api/v4/search/topic?q=857305932 -> HTTP 200 (0.92s, 2917 bytes)
-2026-10-13 15:42:51,343 DEBUG   taxcheck.orgbook   OrgBook BC bn=857305932 -> ['AMAZON.COM.CA ULC']
-2026-10-13 15:42:52,274 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.93s, 10110 bytes)
-2026-10-13 15:42:52,605 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.33s, 397 bytes)
-2026-10-13 15:42:52,948 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.34s, 8188 bytes)
-2026-10-13 15:42:52,948 DEBUG   taxcheck.gst       CRA registry bn=857305932 name='AMAZON.COM.CA ULC' date=2026-10-13 -> registered (GST/HST number registered on this transaction date.)
-2026-10-13 15:42:52,951 DEBUG   taxcheck.checks      gst: REGISTERED - NAME NOT MATCHED | CRA confirms this number is registered for GST/HST on 2026-10-13 under 'AMAZON.COM.CA ULC' (name from the BC registry (OrgBook BC)), not under the name in your sheet: 'Wrong Name Co'. If 'AMAZON.COM.CA ULC' is this supplier, update your vendor record; if not, the number may belong to another business. | AMAZON.COM.CA ULC
-2026-10-13 15:42:52,953 INFO    check_suppliers    [6/11] Wrong Name Co: gst=REGISTERED - NAME NOT MATCHED
-2026-10-13 15:42:52,954 DEBUG   check_suppliers    ---- Row 8: Bad QST Ltee
-2026-10-13 15:42:52,954 DEBUG   taxcheck.checks    Row input: {'name': 'Bad QST Ltee', 'trade_name': None, 'province': 'QC', 'gst': None, 'qst': '1234567890TQ0001', 'pst': None, 'date': None} | province='QC' date=2026-10-13
-2026-10-13 15:42:53,221 DEBUG   taxcheck.http      GET https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/1234567890TQ0001 -> HTTP 400 (0.27s, 165 bytes)
-2026-10-13 15:42:53,221 DEBUG   taxcheck.qst       QST API 1234567890TQ0001 -> HTTP 400 {'Resultat': None, 'OperationReussie': False, 'MessagesFonctionnels': [{'DescriptionMessage': None, 'CodeMessage': 'GX.IdentifiantEntreeInvalide'}], 'MessagesInformatifs': []}
-2026-10-13 15:42:53,221 DEBUG   taxcheck.checks      gst: NO NUMBER | No GST/HST number provided. | 
-2026-10-13 15:42:53,221 DEBUG   taxcheck.checks      qst: INVALID NUMBER | Revenu Québec says this is not a valid QST number (likely a typo). | 
-2026-10-13 15:42:53,221 INFO    check_suppliers    [7/11] Bad QST Ltee: gst=NO NUMBER, qst=INVALID NUMBER
-2026-10-13 15:42:53,222 DEBUG   check_suppliers    ---- Row 9: UBC wrong PST
-2026-10-13 15:42:53,222 DEBUG   taxcheck.checks    Row input: {'name': 'UBC wrong PST', 'trade_name': None, 'province': 'BC', 'gst': '108161779RT0001', 'qst': None, 'pst': 'PST-1000-7573', 'date': None} | province='BC' date=2026-10-13
-2026-10-13 15:42:53,552 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.32s, 10114 bytes)
-2026-10-13 15:42:53,906 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.35s, 397 bytes)
-2026-10-13 15:42:54,201 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.29s, 8166 bytes)
-2026-10-13 15:42:54,201 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='UBC wrong PST' date=2026-10-13 -> no_match (Insufficient information entered.)
-2026-10-13 15:42:54,330 DEBUG   taxcheck.http      GET https://orgbook.gov.bc.ca/api/v4/search/topic?q=108161779 -> HTTP 200 (0.13s, 107 bytes)
-2026-10-13 15:42:54,330 DEBUG   taxcheck.orgbook   OrgBook BC bn=108161779 -> []
-2026-10-13 15:42:55,061 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.33s, 10110 bytes)
-2026-10-13 15:42:55,429 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.37s, 397 bytes)
-2026-10-13 15:42:55,737 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.31s, 8581 bytes)
-2026-10-13 15:42:55,738 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='Name Not Supplied' date=1980-01-01 -> not_registered (GST/HST number was not registered on this transaction date.)
-2026-10-13 15:43:02,071 DEBUG   taxcheck.bc_pst    eTaxBC bn=108161779 pst=1000-7573 -> 'No Match Found' (attempt 1)
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks      gst: REGISTERED - NAME NOT MATCHED | CRA: this number is registered for GST/HST on 2026-10-13, but not under 'UBC wrong PST'. Confirm the number belongs to this supplier (e.g. the legal name on their invoice) before relying on it for input tax credits. | 
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks      bc_pst: NOT CONFIRMED | eTaxBC: no match for PST-1000-7573 with BN 108161779. The PST number is wrong, inactive, or belongs to a different business number. | 
-2026-10-13 15:43:02,071 INFO    check_suppliers    [8/11] UBC wrong PST: gst=REGISTERED - NAME NOT MATCHED, bc_pst=NOT CONFIRMED
-2026-10-13 15:43:02,071 DEBUG   check_suppliers    ---- Row 10: Prairie Example Ltd
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks    Row input: {'name': 'Prairie Example Ltd', 'trade_name': None, 'province': 'SK', 'gst': None, 'qst': None, 'pst': '1234567', 'date': None} | province='SK' date=2026-10-13
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks      gst: NO NUMBER | No GST/HST number provided. | 
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks      sk_pst: MANUAL CHECK | Saskatchewan's PST registry has a reCAPTCHA, so it needs a person: re-run with --sk-assist to tick it once and let the script do the searches, or search the business name at https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry. | 
-2026-10-13 15:43:02,071 INFO    check_suppliers    [9/11] Prairie Example Ltd: gst=NO NUMBER, sk_pst=MANUAL CHECK
-2026-10-13 15:43:02,071 DEBUG   check_suppliers    ---- Row 11: Amazon.com.ca ULC
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks    Row input: {'name': 'Amazon.com.ca ULC', 'trade_name': None, 'province': 'MB', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='MB' date=2026-10-13
-2026-10-13 15:43:02,071 DEBUG   taxcheck.checks    Reusing earlier result for _gst('857305932RT0001', ['Amazon.com.ca ULC', None], datetime.date(2026, 10, 13), ())
-2026-10-13 15:43:05,940 DEBUG   taxcheck.mb_rst    TAXcess RST name='Amazon.com.ca ULC' bn=857305932 rst=None -> [('Active', 'AMAZON.COM.CA ULC', '')]
-2026-10-13 15:43:05,940 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-13 (matched name 'Amazon.com.ca ULC'). | Amazon.com.ca ULC
-2026-10-13 15:43:05,940 DEBUG   taxcheck.checks      mb_rst: REGISTERED | Manitoba RST registry: active registration for BN 857305932. | AMAZON.COM.CA ULC
-2026-10-13 15:43:05,940 INFO    check_suppliers    [10/11] Amazon.com.ca ULC: gst=REGISTERED, mb_rst=REGISTERED
-2026-10-13 15:43:05,940 DEBUG   check_suppliers    ---- Row 12: NA Tutors
-2026-10-13 15:43:05,940 DEBUG   taxcheck.checks    Row input: {'name': 'NA Tutors', 'trade_name': None, 'province': 'ON', 'gst': '774075766RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-13
-2026-10-13 15:43:06,289 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.35s, 10114 bytes)
-2026-10-13 15:43:06,643 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.35s, 397 bytes)
-2026-10-13 15:43:06,935 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.29s, 8547 bytes)
-2026-10-13 15:43:06,935 DEBUG   taxcheck.gst       CRA registry bn=774075766 name='NA Tutors' date=2026-10-13 -> no_match (Insufficient information entered.)
-2026-10-13 15:43:07,760 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.32s, 10106 bytes)
-2026-10-13 15:43:08,097 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.34s, 397 bytes)
-2026-10-13 15:43:08,411 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.31s, 8582 bytes)
-2026-10-13 15:43:08,412 DEBUG   taxcheck.gst       CRA registry bn=774075766 name='North American Tutors Inc.' date=2026-10-13 -> registered (GST/HST number registered on this transaction date.)
-2026-10-13 15:43:08,414 DEBUG   taxcheck.checks      gst: REGISTERED - NAME NOT MATCHED | CRA confirms this number is registered for GST/HST on 2026-10-13 under 'North American Tutors Inc.' (name from the federal corporations registry), not under the name in your sheet: 'NA Tutors'. If 'North American Tutors Inc.' is this supplier, update your vendor record; if not, the number may belong to another business. | North American Tutors Inc.
-2026-10-13 15:43:08,415 INFO    check_suppliers    [11/11] NA Tutors: gst=REGISTERED - NAME NOT MATCHED
-2026-10-13 15:43:08,491 INFO    check_suppliers    Finished 11 suppliers in 40s: {'REGISTERED': 7, 'NO NUMBER': 3, 'INVALID NUMBER': 2, 'REGISTERED - NAME NOT MATCHED': 3, 'NOT CONFIRMED': 1, 'MANUAL CHECK': 1}
-2026-10-13 15:43:08,507 INFO    check_suppliers    Results written to examples/sample_suppliers_tax_check.xlsx
+2026-10-19 21:49:56,194 INFO    check_suppliers    Log file: logs/tax_check_20261019_214956.log
+2026-10-19 21:49:56,194 INFO    check_suppliers    GST/HST registration dates: still registered today / cancellation date
+2026-10-19 21:49:56,194 INFO    check_suppliers    Checking: GST/HST, QST, BC PST, Manitoba RST, Saskatchewan PST
+2026-10-19 21:49:56,194 DEBUG   check_suppliers    Arguments: {'workbook': 'examples/sample_suppliers.xlsx', 'output': None, 'sheet': None, 'date': None, 'no_browser': False, 'sk_assist': False, 'no_name_lookup': False, 'cache_dir': 'cache', 'nr_list': None, 'log_dir': 'examples/logs', 'verbose': False, 'trust_gst_number': False, 'paid_since': None, 'paid_within': None, 'check_columns': False, 'preview': 10, 'offline': False, 'taxes': None, 'gst_dates': 'end', 'ask': False, 'show_result': False, 'workers': 3, 'as_of_today': False, 'limit': None, 'resume': None, 'checkpoint_every': 2000, 'progress_every': 25}
+2026-10-19 21:49:56,199 DEBUG   check_suppliers    Python 3.13.16 on Linux-6.18.44-fc-v139-x86_64-with-glibc2.39
+2026-10-19 21:49:56,200 DEBUG   taxcheck.certs     Using the system certificate store (truststore 0.10.4)
+2026-10-19 21:49:56,200 DEBUG   check_suppliers    System certificate store in use: True
+2026-10-19 21:49:56,211 INFO    taxcheck.workbook  Reading sheet 'Suppliers': header on row 1
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column name       <- 'Supplier Name' (column A)
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column trade_name <- 'Trade Name' (column B)
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column province   <- 'Province' (column C)
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column gst        <- 'GST/HST Number' (column D)
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column qst        <- 'QST Number' (column E)
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column pst        <- 'PST Number' (column F)
+2026-10-19 21:49:56,211 DEBUG   taxcheck.workbook    column date       <- 'Transaction Date' (column G)
+2026-10-19 21:49:56,211 INFO    check_suppliers    11 suppliers found (columns used: name, trade_name, province, gst, qst, pst, date)
+2026-10-19 21:49:56,212 INFO    taxcheck.progress  Progress file: logs/progress_20261019_214956.csv
+2026-10-19 21:49:56,307 INFO    taxcheck.gst       Loaded CRA simplified GST/HST list from cached copy: 1781 business numbers
+2026-10-19 21:49:56,309 INFO    check_suppliers    Checking with 3 parallel lookups (each paced as before); browser checks run alongside
+2026-10-19 21:49:56,312 DEBUG   check_suppliers    ---- Row 2: The University of British Columbia
+2026-10-19 21:49:56,313 DEBUG   check_suppliers    ---- Row 3: Amazon.com.ca ULC
+2026-10-19 21:49:56,314 DEBUG   taxcheck.checks    Row input: {'name': 'The University of British Columbia', 'trade_name': 'UBC', 'province': 'BC', 'gst': '10816 1779 RT0001', 'qst': None, 'pst': 'PST-1000-7572', 'date': None} | province='BC' date=2026-10-19
+2026-10-19 21:49:56,315 DEBUG   check_suppliers    ---- Row 4: Avient Canada ULC
+2026-10-19 21:49:56,315 DEBUG   taxcheck.checks    Row input: {'name': 'Amazon.com.ca ULC', 'trade_name': None, 'province': 'ON', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-19
+2026-10-19 21:49:56,318 DEBUG   taxcheck.checks    Row input: {'name': 'Avient Canada ULC', 'trade_name': 'Spartech Plastiques', 'province': 'QC', 'gst': None, 'qst': '1019288451 TQ 0004', 'pst': None, 'date': None} | province='QC' date=2026-10-19
+2026-10-19 21:49:56,842 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.52s, 10078 bytes)
+2026-10-19 21:49:56,963 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.64s, 10078 bytes)
+2026-10-19 21:49:57,030 DEBUG   taxcheck.http      GET https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/1019288451TQ0004 -> HTTP 200 (0.71s, 259 bytes)
+2026-10-19 21:49:57,030 DEBUG   taxcheck.qst       QST API 1019288451TQ0004 -> HTTP 200 {'Resultat': {'StatutSousDossierUsager': 'R', 'DescriptionStatut': 'Regulier', 'DateStatut': '2017-08-01T00:00:00', 'NomEntreprise': 'AVIENT CANADA ULC', 'RaisonSociale': 'SPARTECH PLASTIQUES'}, 'OperationReussie': True, 'MessagesFonctionnels': [], 'MessagesInformatifs': []}
+2026-10-19 21:49:57,322 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.36s, 397 bytes)
+2026-10-19 21:49:57,583 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7BAvient+Canada+ULC%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.54s, 6374 bytes)
+2026-10-19 21:49:57,585 DEBUG   taxcheck.cbr       Canada's Business Registries name='Avient Canada ULC' -> [('141490367', 'AVIENT CANADA ULC')]
+2026-10-19 21:49:57,807 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.96s, 397 bytes)
+2026-10-19 21:49:58,112 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7BSpartech+Plastiques%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.07s, 85 bytes)
+2026-10-19 21:49:58,112 DEBUG   taxcheck.cbr       Canada's Business Registries name='Spartech Plastiques' -> []
+2026-10-19 21:49:58,560 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.44s, 10078 bytes)
+2026-10-19 21:50:04,924 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_02_Ld.action
+2026-10-19 21:50:05,395 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (7.59s, 7759 bytes)
+2026-10-19 21:50:05,396 DEBUG   taxcheck.gst       CRA registry bn=857305932 name='Amazon.com.ca ULC' date=2026-10-19 -> registered (GST/HST number registered on this transaction date.)
+2026-10-19 21:50:05,397 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-19 (matched name 'Amazon.com.ca ULC'). | Amazon.com.ca ULC
+2026-10-19 21:50:05,398 DEBUG   check_suppliers    ---- Row 5: AIRGSM PTE. LTD.
+2026-10-19 21:50:05,398 DEBUG   taxcheck.checks    Row input: {'name': 'AIRGSM PTE. LTD.', 'trade_name': 'Airalo', 'province': None, 'gst': '751950577RT9999', 'qst': None, 'pst': None, 'date': None} | province='' date=2026-10-19
+2026-10-19 21:50:05,398 DEBUG   taxcheck.gst       bn=751950577 is on the simplified list: {'legal_name': 'AIRGSM PTE. LTD.', 'trade_name': 'Airalo', 'number': '751950577RT9999', 'registered': datetime.date(2026, 9, 1), 'deregistered': None}
+2026-10-19 21:50:05,672 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.27s, 10114 bytes)
+2026-10-19 21:50:05,684 WARNING taxcheck.gst       CRA registry problem (attempt 1/3), retrying: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+2026-10-19 21:50:06,020 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.35s, 397 bytes)
+2026-10-19 21:50:06,374 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.35s, 7758 bytes)
+2026-10-19 21:50:06,374 DEBUG   taxcheck.gst       CRA registry bn=751950577 name='AIRGSM PTE. LTD.' date=2026-10-19 -> registered (GST/HST number registered on this transaction date.)
+2026-10-19 21:50:06,381 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-19 (matched name 'AIRGSM PTE. LTD.'). Simplified GST/HST registrant (non-resident digital seller): GST/HST they charge is not eligible for input tax credits, so give them your GST/HST number so they don't charge it. | AIRGSM PTE. LTD.
+2026-10-19 21:50:06,381 DEBUG   check_suppliers    ---- Row 6: Typo Supplies Inc
+2026-10-19 21:50:06,381 DEBUG   taxcheck.checks    Row input: {'name': 'Typo Supplies Inc', 'trade_name': None, 'province': 'ON', 'gst': '123456789RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-19
+2026-10-19 21:50:06,382 DEBUG   taxcheck.checks      gst: INVALID NUMBER | '123456789RT0001' fails the CRA check digit, likely a typo | 
+2026-10-19 21:50:06,382 DEBUG   check_suppliers    ---- Row 7: Wrong Name Co
+2026-10-19 21:50:06,382 DEBUG   taxcheck.checks    Row input: {'name': 'Wrong Name Co', 'trade_name': None, 'province': 'ON', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-19
+2026-10-19 21:50:07,199 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.30s, 10113 bytes)
+2026-10-19 21:50:08,187 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.50s, 10078 bytes)
+2026-10-19 21:50:09,505 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_02_Ld.action
+2026-10-19 21:50:09,991 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (12.67s, 8187 bytes)
+2026-10-19 21:50:09,992 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='The University of British Columbia' date=2026-10-19 -> no_match (Insufficient information entered.)
+2026-10-19 21:50:10,285 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.28s, 10131 bytes)
+2026-10-19 21:50:10,589 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.30s, 397 bytes)
+2026-10-19 21:50:10,884 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.29s, 8201 bytes)
+2026-10-19 21:50:10,885 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='University of British Columbia' date=2026-10-19 -> registered (GST/HST number registered on this transaction date.)
+2026-10-19 21:50:10,888 DEBUG   taxcheck.checks      gst: REGISTERED | Vendor name differs from CRA's records: CRA accepted 'University of British Columbia', not 'The University of British Columbia'. Update the vendor name. CRA GST/HST Registry confirms registration on 2026-10-19 (matched name 'University of British Columbia'). | University of British Columbia
+2026-10-19 21:50:10,890 DEBUG   taxcheck.checks      bc_pst: DEFERRED | browser check still to run | 
+2026-10-19 21:50:10,890 DEBUG   check_suppliers    ---- Row 8: Bad QST Ltee
+2026-10-19 21:50:10,890 DEBUG   taxcheck.checks    Row input: {'name': 'Bad QST Ltee', 'trade_name': None, 'province': 'QC', 'gst': None, 'qst': '1234567890TQ0001', 'pst': None, 'date': None} | province='QC' date=2026-10-19
+2026-10-19 21:50:11,318 DEBUG   taxcheck.http      GET https://svcnab2b.revenuquebec.ca/2019/02/ValidationTVQ/1234567890TQ0001 -> HTTP 400 (0.42s, 165 bytes)
+2026-10-19 21:50:11,318 DEBUG   taxcheck.qst       QST API 1234567890TQ0001 -> HTTP 400 {'Resultat': None, 'OperationReussie': False, 'MessagesFonctionnels': [{'DescriptionMessage': None, 'CodeMessage': 'GX.IdentifiantEntreeInvalide'}], 'MessagesInformatifs': []}
+2026-10-19 21:50:11,585 DEBUG   taxcheck.browser   Started TAXCHECK_CHROMIUM 141.0.7390.37 (headless=True)
+2026-10-19 21:50:14,319 WARNING taxcheck.gst       CRA registry problem (attempt 1/3), retrying: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+2026-10-19 21:50:15,314 WARNING taxcheck.gst       CRA registry problem (attempt 2/3), retrying: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+2026-10-19 21:50:16,736 DEBUG   taxcheck.bc_pst    eTaxBC bn=108161779 pst=1000-7572 -> 'PST number is valid' (attempt 1)
+2026-10-19 21:50:16,737 DEBUG   taxcheck.checks      bc_pst: REGISTERED | eTaxBC: PST-1000-7572 is valid for BN 108161779. | 
+2026-10-19 21:50:16,737 INFO    check_suppliers    [1/11] row 2 The University of British Columbia: gst=REGISTERED, bc_pst=REGISTERED
+2026-10-19 21:50:16,737 INFO    check_suppliers    [2/11] row 3 Amazon.com.ca ULC: gst=REGISTERED
+2026-10-19 21:50:18,556 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /cbr/srch/api/v1/search?fq=keyword%3A%7BBad+QST+Ltee%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc
+2026-10-19 21:50:28,705 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_01_Ld.action
+2026-10-19 21:50:29,780 WARNING urllib3.connectionpool Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /cbr/srch/api/v1/search?fq=keyword%3A%7BBad+QST+Ltee%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc
+2026-10-19 21:50:31,682 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_01_Ld.action
+2026-10-19 21:50:32,220 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (12.90s, 10078 bytes)
+2026-10-19 21:50:32,518 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.30s, 397 bytes)
+2026-10-19 21:50:32,792 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.27s, 7759 bytes)
+2026-10-19 21:50:32,792 DEBUG   taxcheck.gst       CRA registry bn=141490367 name='AVIENT CANADA ULC' date=2026-10-19 -> registered (GST/HST number registered on this transaction date.)
+2026-10-19 21:50:32,792 DEBUG   taxcheck.checks      gst: NO NUMBER | No GST/HST number provided. Possible number: Canada's Business Registries lists 'AVIENT CANADA ULC' with business number 141490367, and CRA confirms it's registered for GST/HST under that name on 2026-10-19. | 
+2026-10-19 21:50:32,792 DEBUG   taxcheck.checks      qst: REGISTERED | Revenu Québec: registration valid since 2017-08-01. | AVIENT CANADA ULC (trade name: SPARTECH PLASTIQUES)
+2026-10-19 21:50:32,792 DEBUG   check_suppliers    ---- Row 9: UBC wrong PST
+2026-10-19 21:50:32,793 DEBUG   taxcheck.checks    Row input: {'name': 'UBC wrong PST', 'trade_name': None, 'province': 'BC', 'gst': '108161779RT0001', 'qst': None, 'pst': 'PST-1000-7573', 'date': None} | province='BC' date=2026-10-19
+2026-10-19 21:50:32,794 INFO    check_suppliers    [3/11] row 4 Avient Canada ULC: gst=NO NUMBER, qst=REGISTERED
+2026-10-19 21:50:32,796 INFO    check_suppliers    [4/11] row 5 AIRGSM PTE. LTD.: gst=REGISTERED
+2026-10-19 21:50:32,796 INFO    check_suppliers    [5/11] row 6 Typo Supplies Inc: gst=INVALID NUMBER
+2026-10-19 21:50:33,083 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.29s, 10114 bytes)
+2026-10-19 21:50:33,391 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.31s, 397 bytes)
+2026-10-19 21:50:33,711 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.32s, 8166 bytes)
+2026-10-19 21:50:33,711 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='UBC wrong PST' date=2026-10-19 -> no_match (Insufficient information entered.)
+2026-10-19 21:50:33,715 DEBUG   taxcheck.fedcorp   Using cached cache/corporations-active-cbca-en.csv
+2026-10-19 21:50:37,884 DEBUG   taxcheck.fedcorp   Using cached cache/corporations-active-non-cbca-en.csv
+2026-10-19 21:50:38,565 INFO    taxcheck.fedcorp   Loaded federal corporate names for 694224 business numbers
+2026-10-19 21:50:38,630 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7B108161779%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.06s, 85 bytes)
+2026-10-19 21:50:38,630 DEBUG   taxcheck.cbr       Canada's Business Registries bn=108161779 -> []
+2026-10-19 21:50:39,146 DEBUG   taxcheck.http      GET https://orgbook.gov.bc.ca/api/v4/search/topic?q=108161779 -> HTTP 200 (0.51s, 107 bytes)
+2026-10-19 21:50:39,146 DEBUG   taxcheck.orgbook   OrgBook BC bn=108161779 -> []
+2026-10-19 21:50:39,628 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.48s, 10110 bytes)
+2026-10-19 21:50:39,919 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.29s, 397 bytes)
+2026-10-19 21:50:40,257 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.34s, 8581 bytes)
+2026-10-19 21:50:40,258 DEBUG   taxcheck.gst       CRA registry bn=108161779 name='Name Not Supplied' date=1980-01-01 -> not_registered (GST/HST number was not registered on this transaction date.)
+2026-10-19 21:50:40,261 DEBUG   taxcheck.checks      gst: REGISTERED - NAME NOT MATCHED | CRA: this number is registered for GST/HST on 2026-10-19, but not under 'UBC wrong PST'. Confirm the number belongs to this supplier (e.g. the legal name on their invoice) before relying on it for input tax credits. | 
+2026-10-19 21:50:40,261 DEBUG   taxcheck.checks      bc_pst: DEFERRED | browser check still to run | 
+2026-10-19 21:50:40,261 DEBUG   check_suppliers    ---- Row 10: Prairie Example Ltd
+2026-10-19 21:50:40,261 DEBUG   taxcheck.checks    Row input: {'name': 'Prairie Example Ltd', 'trade_name': None, 'province': 'SK', 'gst': None, 'qst': None, 'pst': '1234567', 'date': None} | province='SK' date=2026-10-19
+2026-10-19 21:50:40,338 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7BPrairie+Example+Ltd%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.08s, 85 bytes)
+2026-10-19 21:50:40,338 DEBUG   taxcheck.cbr       Canada's Business Registries name='Prairie Example Ltd' -> []
+2026-10-19 21:50:40,478 WARNING urllib3.connectionpool Retrying (Retry(total=1, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_01_Ld.action
+2026-10-19 21:50:40,749 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (24.42s, 10113 bytes)
+2026-10-19 21:50:41,038 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.29s, 397 bytes)
+2026-10-19 21:50:41,318 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.28s, 8166 bytes)
+2026-10-19 21:50:41,319 DEBUG   taxcheck.gst       CRA registry bn=857305932 name='Wrong Name Co' date=2026-10-19 -> no_match (Insufficient information entered.)
+2026-10-19 21:50:41,330 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7BPrairie+Example+LIMITED%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.07s, 85 bytes)
+2026-10-19 21:50:41,330 DEBUG   taxcheck.cbr       Canada's Business Registries name='Prairie Example LIMITED' -> []
+2026-10-19 21:50:41,330 DEBUG   taxcheck.checks      gst: NO NUMBER | No GST/HST number provided. | 
+2026-10-19 21:50:41,330 DEBUG   taxcheck.checks      sk_pst: DEFERRED | browser check still to run | 
+2026-10-19 21:50:41,330 DEBUG   check_suppliers    ---- Row 11: Amazon.com.ca ULC
+2026-10-19 21:50:41,331 DEBUG   taxcheck.checks    Row input: {'name': 'Amazon.com.ca ULC', 'trade_name': None, 'province': 'MB', 'gst': '857305932RT0001', 'qst': None, 'pst': None, 'date': None} | province='MB' date=2026-10-19
+2026-10-19 21:50:41,331 DEBUG   taxcheck.checks    Reusing earlier result for _gst('857305932RT0001', ['Amazon.com.ca ULC', None], datetime.date(2026, 10, 19), ())
+2026-10-19 21:50:41,331 DEBUG   taxcheck.checks      gst: REGISTERED | CRA GST/HST Registry confirms registration on 2026-10-19 (matched name 'Amazon.com.ca ULC'). | Amazon.com.ca ULC
+2026-10-19 21:50:41,331 DEBUG   taxcheck.checks      mb_rst: DEFERRED | browser check still to run | 
+2026-10-19 21:50:41,331 DEBUG   check_suppliers    ---- Row 12: NA Tutors
+2026-10-19 21:50:41,331 DEBUG   taxcheck.checks    Row input: {'name': 'NA Tutors', 'trade_name': None, 'province': 'ON', 'gst': '774075766RT0001', 'qst': None, 'pst': None, 'date': None} | province='ON' date=2026-10-19
+2026-10-19 21:50:41,584 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.26s, 10110 bytes)
+2026-10-19 21:50:41,732 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (0.40s, 10114 bytes)
+2026-10-19 21:50:41,896 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.31s, 397 bytes)
+2026-10-19 21:50:42,067 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.33s, 397 bytes)
+2026-10-19 21:50:42,178 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.28s, 8171 bytes)
+2026-10-19 21:50:42,178 DEBUG   taxcheck.gst       CRA registry bn=857305932 name='Wrong Name COMPANY' date=2026-10-19 -> no_match (Insufficient information entered.)
+2026-10-19 21:50:42,506 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7B857305932%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.32s, 3756 bytes)
+2026-10-19 21:50:42,507 DEBUG   taxcheck.cbr       Canada's Business Registries bn=857305932 -> ['AMAZON.COM.CA ULC']
+2026-10-19 21:50:42,507 DEBUG   taxcheck.checks      gst: REGISTERED - NAME NOT MATCHED | CRA confirms this number is registered for GST/HST on 2026-10-19 under 'AMAZON.COM.CA ULC' (name from Canada's Business Registries), not under the name in your sheet: 'Wrong Name Co'; 'Wrong Name COMPANY'. If 'AMAZON.COM.CA ULC' is this supplier, update your vendor record; if not, the number may belong to another business. | AMAZON.COM.CA ULC
+2026-10-19 21:50:42,508 INFO    check_suppliers    [6/11] row 7 Wrong Name Co: gst=REGISTERED - NAME NOT MATCHED
+2026-10-19 21:50:49,250 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_02_Ld.action
+2026-10-19 21:50:49,817 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (7.75s, 8547 bytes)
+2026-10-19 21:50:49,818 DEBUG   taxcheck.gst       CRA registry bn=774075766 name='NA Tutors' date=2026-10-19 -> no_match (Insufficient information entered.)
+2026-10-19 21:50:50,158 WARNING urllib3.connectionpool Retrying (Retry(total=0, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /cbr/srch/api/v1/search?fq=keyword%3A%7BBad+QST+Ltee%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc
+2026-10-19 21:50:50,806 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7BBad+QST+Ltee%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (39.49s, 85 bytes)
+2026-10-19 21:50:50,806 DEBUG   taxcheck.cbr       Canada's Business Registries name='Bad QST Ltee' -> []
+2026-10-19 21:50:50,881 DEBUG   taxcheck.http      GET https://ised-isde.canada.ca/cbr/srch/api/v1/search?fq=keyword%3A%7BBad+QST+LIMITEE%7D&lang=en&queryaction=fieldquery&sortfield=score&sortorder=desc -> HTTP 200 (0.07s, 85 bytes)
+2026-10-19 21:50:50,882 DEBUG   taxcheck.cbr       Canada's Business Registries name='Bad QST LIMITEE' -> []
+2026-10-19 21:50:50,882 DEBUG   taxcheck.checks      gst: NO NUMBER | No GST/HST number provided. | 
+2026-10-19 21:50:50,882 DEBUG   taxcheck.checks      qst: INVALID NUMBER | Revenu Québec says this is not a valid QST number (likely a typo). | 
+2026-10-19 21:50:50,882 INFO    check_suppliers    [7/11] row 8 Bad QST Ltee: gst=NO NUMBER, qst=INVALID NUMBER
+2026-10-19 21:50:55,439 DEBUG   taxcheck.bc_pst    eTaxBC bn=108161779 pst=1000-7573 -> 'No Match Found' (attempt 1)
+2026-10-19 21:50:55,439 DEBUG   taxcheck.checks      bc_pst: NOT CONFIRMED | eTaxBC: no match for PST-1000-7573 with BN 108161779. The PST number is wrong, inactive, or belongs to a different business number. | 
+2026-10-19 21:50:55,439 INFO    check_suppliers    [8/11] row 9 UBC wrong PST: gst=REGISTERED - NAME NOT MATCHED, bc_pst=NOT CONFIRMED
+2026-10-19 21:50:55,439 DEBUG   taxcheck.checks      sk_pst: MANUAL CHECK | Saskatchewan's PST registry has a reCAPTCHA, so it needs a person: re-run with --sk-assist to tick it once and let the script do the searches, or search the business name at https://www.sets.saskatchewan.ca/rptp/portal/footer/pst-registry. | 
+2026-10-19 21:50:55,440 INFO    check_suppliers    [9/11] row 10 Prairie Example Ltd: gst=NO NUMBER, sk_pst=MANUAL CHECK
+2026-10-19 21:51:00,014 DEBUG   taxcheck.mb_rst    TAXcess RST name='Amazon.com.ca' bn=857305932 rst=None -> [('Active', 'AMAZON.COM.CA ULC', '')]
+2026-10-19 21:51:00,014 DEBUG   taxcheck.checks      mb_rst: REGISTERED | Manitoba RST registry: active registration for BN 857305932. | AMAZON.COM.CA ULC
+2026-10-19 21:51:00,015 INFO    check_suppliers    [10/11] row 11 Amazon.com.ca ULC: gst=REGISTERED, mb_rst=REGISTERED
+2026-10-19 21:51:01,936 WARNING urllib3.connectionpool Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectionResetError(104, 'Connection reset by peer')': /ebci/brom/registry/pub/reg_01_Ld.action
+2026-10-19 21:51:02,217 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Ld.action -> HTTP 200 (12.39s, 10106 bytes)
+2026-10-19 21:51:02,538 DEBUG   taxcheck.http      POST https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_01_Sbmt.action -> HTTP 302 (0.32s, 397 bytes)
+2026-10-19 21:51:02,857 DEBUG   taxcheck.http      GET https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/reg_02_Ld.action -> HTTP 200 (0.32s, 8582 bytes)
+2026-10-19 21:51:02,857 DEBUG   taxcheck.gst       CRA registry bn=774075766 name='North American Tutors Inc.' date=2026-10-19 -> registered (GST/HST number registered on this transaction date.)
+2026-10-19 21:51:02,857 DEBUG   taxcheck.checks      gst: REGISTERED - NAME NOT MATCHED | CRA confirms this number is registered for GST/HST on 2026-10-19 under 'North American Tutors Inc.' (name from the federal corporations registry), not under the name in your sheet: 'NA Tutors'. If 'North American Tutors Inc.' is this supplier, update your vendor record; if not, the number may belong to another business. | North American Tutors Inc.
+2026-10-19 21:51:02,858 INFO    taxcheck.progress  PROGRESS 11/11 (100.0%) | elapsed 0:01:06 | 6.1 s/supplier | about 0:00:00 left (done ~21:51) | rows with errors 0 | so far: REGISTERED 7, NO NUMBER 3, REGISTERED - NAME NOT MATCHED 3, INVALID NUMBER 2, NOT CONFIRMED 1, MANUAL CHECK 1
+2026-10-19 21:51:02,858 INFO    check_suppliers    [11/11] row 12 NA Tutors: gst=REGISTERED - NAME NOT MATCHED
+2026-10-19 21:51:02,949 INFO    check_suppliers    Finished 11 suppliers in 67s: {'REGISTERED': 7, 'NO NUMBER': 3, 'INVALID NUMBER': 2, 'REGISTERED - NAME NOT MATCHED': 3, 'NOT CONFIRMED': 1, 'MANUAL CHECK': 1}
+2026-10-19 21:51:02,949 INFO    check_suppliers    Saving the results workbook (Ctrl+C is ignored until it's saved)...
+2026-10-19 21:51:02,982 INFO    check_suppliers    Results written to examples/sample_suppliers_tax_check.xlsx
+2026-10-19 21:51:02,982 INFO    check_suppliers    
+2026-10-19 21:51:02,982 INFO    check_suppliers    ======================================================================
+2026-10-19 21:51:02,982 INFO    check_suppliers    RESULTS WORKBOOK: sample_suppliers_tax_check.xlsx
+2026-10-19 21:51:02,982 INFO    check_suppliers    SAVED IN:         examples
+2026-10-19 21:51:02,982 INFO    check_suppliers    ======================================================================
+2026-10-19 21:51:02,982 INFO    check_suppliers    Log written to logs/tax_check_20261019_214956.log
+2026-10-19 21:51:02,982 INFO    check_suppliers    Progress file: logs/progress_20261019_214956.csv

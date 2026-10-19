@@ -4,11 +4,37 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-16 · **Branch:** `main` (current; all work is merged) · **Tests:** 197: 175 offline, 3 in a local browser, 19 live
+**Last updated:** 2026-10-19 · **Branch:** `main` (current; all work is merged) · **Tests:** 228: 208 offline
+(some in a local browser), 20 live (17 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
 
 ## 0. Start here (for GitHub Copilot or any AI agent tailoring this tool)
+
+### Current state (2026-10-19) and what's next
+
+**Ready for the user's full run.** Every tax was verified end to end against the live sites on public test
+businesses (§9), and a replay of the user's trial suppliers (kept out of git) gave the expected answers.
+The user has done trial runs on their PC (Windows 11, Edge 155, Python 3.14, corporate TLS inspection).
+
+What the next agent will most likely be asked to do, in order:
+1. **Read the user's full-run output** (log + "Tax Check Summary" sheet). Look for a block of ERROR rows
+   (a site down or changed: §10), MANUAL CHECK rows (why: the issue label says), and the counts per issue.
+2. **Saskatchewan past 100 suppliers:** the registry allows 100 searches per 24 hours; the rest are MANUAL
+   CHECK with the time searches reopen. The user re-runs with `--resume` the next day (counter in
+   `cache/saskatchewan_searches.json`).
+3. **Data the vendor master could add** (each is read automatically if a column appears, see `COLUMNS`):
+   QST numbers ("QST Number"), Manitoba RST numbers ("RST Number"), BC PST numbers. Today the user's file has
+   only a Tax ID column, so QST/BC PST are checked only when such a number is in it, and Manitoba is searched
+   with the business number (only finds RST accounts tied to it, §7).
+4. **Still unverified on a real page** (§2): Revenu Québec's NR list parser (blocked from the cloud).
+
+Things deliberately *not* done (asked or researched, and rejected): guessing legal names (only forms of the
+vendor's own name and registry names CRA then accepts); filtering by payment amount; bypassing the
+Saskatchewan CAPTCHA; a name search to guess CRA names (no hits in testing). Leads like "possible GST/HST
+number" never change a status: they go in Action Needed for a person to confirm.
+
+### How to work
 
 The tool is already tailored to the user's ERP vendor-master export (README, "ERP vendor-master
 exports") and has done a full live run of it on their corporate network. The decisions still open for
@@ -31,7 +57,7 @@ Work in this order:
    `logs` folder next to it, then the full file.
 
 Rules: keep the government-site code (`gst.py`, `qst.py`, `bc_pst.py`, `mb_rst.py`, `sk_pst.py`,
-`orgbook.py`, `fedcorp.py`) unchanged unless a live test or a run shows a site changed; never bypass a
+`orgbook.py`, `cbr.py`, `fedcorp.py`) unchanged unless a live test or a run shows a site changed; never bypass a
 CAPTCHA, loosen TLS, or remove the throttling; update this file's change log with what you changed.
 
 ## 1. What it does
@@ -75,7 +101,9 @@ Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need th
 
 **Still open for the user:**
 - Saskatchewan in assisted mode (someone ticks a CAPTCHA once at the start): asked in the launcher's menu
-  when Saskatchewan is chosen; Enter = yes.
+  when Saskatchewan is chosen; Enter = yes. Verified on the real site (probe, 2026-10-16: three searches on
+  one CAPTCHA; results page layout captured, §7).
+- Whether the vendor master can export QST / RST / BC PST numbers (see §0, item 3).
 
 **Unverified parts.** Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
 that settles it in one command on a normal Canadian connection. Run them first and record the result
@@ -94,17 +122,11 @@ TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSask
    list/paragraph layouts. The test skips only if every source answers with an HTTP error; if the page
    loads but no NR numbers are found it **fails**, meaning `qst.parse_nr_list` needs updating: save the
    page from a browser and add it as a fixture.
-2. **Saskatchewan results page** (`test_known_vendor`, or **`Saskatchewan Probe.bat`** on the user's PC: it saves
-   each results page as .html + screenshot + what `classify` read, in `logs/sk_probe_<date>`). Needs a person to
-   tick the reCAPTCHA in the window that opens. Normal runs also save each search's page (.html) next to the log. The flow itself (one CAPTCHA, all searches straight after it, back to the search box,
-   stopping if the CAPTCHA is asked for again, the PST form's own Search button rather than the site-wide one)
-   is tested in a real browser against a local stand-in registry (`tests/test_sk_assisted.py`), and against
-   the real site with nobody ticking (waits, then MANUAL CHECK for every row without asking again). The reCAPTCHA only guards the terms page (confirmed from the site's
-   `pstLookup.js`); the search page has a `#pstSearch` box (min. 4 characters). The results layout is
-   unknown, so `sk_pst.classify()` is conservative: REGISTERED only when a table row contains the
-   supplier's name and "vendor" or "consumer". The test searches Federated Co-operatives Limited (a
-   retailer across Saskatchewan, so certainly licensed); if it fails, the screenshot `sk_*.png` in the
-   repo folder and the logged page text show the real layout to adapt `classify()` to.
+2. **Saskatchewan: done (2026-10-16).** `Saskatchewan Probe.bat` on the user's PC captured the real results
+   page (table `#pstLookUp`, Type code `PSTVEND`; see §7), `classify()` was fitted to it and the captured rows
+   are a test (`tests/test_sk_assisted.py`, `RealResultsPage`). Still unseen: the Type code for a registered
+   consumer (read as "CONS"/"consumer") and the daily-limit message (read loosely by `SEARCH_LIMIT`). If a run
+   shows something unexpected, the `.html` saved next to the log is the page to fit `classify()` to.
 
 ## 3. Setup on a new PC
 
@@ -159,13 +181,15 @@ check_suppliers.main()
   ├─ logsetup.setup_logging()            <workbook folder>/logs/tax_check_<ts>.log (DEBUG) + console (INFO)
   └─ run()
       ├─ workbook.SupplierSheet(path)    find header row, map columns via COLUMNS aliases
-      ├─ build checkers                  GstChecker(+FederalCorporations, OrgBookBC name sources), QstChecker,
+      ├─ build checkers                  GstChecker(+FederalCorporations, BusinessRegistries, OrgBookBC name sources), QstChecker,
       │                                  shared headless Browser (lazy) → BcPstChecker, MbRstChecker, QST NR fallback
       │                                  separate visible Browser (only with --sk-assist) → SkPstAssistant
       ├─ for each row: checks.RowChecker.check(values, date)
       │     decides which taxes apply (numbers present / province), calls checkers,
       │     catches every exception → Result(ERROR), caches duplicate lookups
-      └─ SupplierSheet.write_results()   result columns + "Tax Check Summary" sheet → <input>_tax_check.xlsx
+      ├─ prefetch_saskatchewan()         with --sk-assist: one CAPTCHA, then every SK search up front
+      └─ SupplierSheet.write_results()   result columns, cross-row notes (shared GST/HST numbers, cut-off names),
+                                         "Action List" + "Tax Check Summary" sheets → <input>_tax_check.xlsx
 ```
 
 Every check returns a `result.Result(status, detail, registered_name)`. Nothing raises out of a row:
@@ -179,7 +203,7 @@ the log only).
 | `check_suppliers.py` | CLI, file picker, menus (`--ask`), output locations, run orchestration with parallel workers (`--workers`), trial/resume/offline, background checkpoint saves, summary-sheet notes | `main`, `choose_workbook`, `run`, `parse_taxes`, `CheckpointSaver`, `save_workbook` |
 | `check_setup.py` | Setup test: Python, certificates, each site, browser, workbook, real lookups → READY / NOT READY report | `main`, `check_*`, `explain_error` |
 | `Test Setup.bat`, `Run Trial (25 suppliers).bat`, `Run Tax Check.bat`, `Setup.bat` | Windows double-click launchers (`Setup.bat` just calls `Test Setup.bat`) | |
-| `taxcheck/workbook.py` | Read .xlsx/.xlsm/.csv, header detection, column aliases, provinces, dates, write results | `COLUMNS`, `PROVINCES`, `SupplierSheet`, `InputError`, `as_text` |
+| `taxcheck/workbook.py` | Read .xlsx/.xlsm/.csv, header detection, column aliases, provinces, dates, write results and cross-row notes | `COLUMNS`, `PROVINCES`, `SupplierSheet`, `_cross_row_notes`, `InputError`, `as_text` |
 | `taxcheck/checks.py` | Per-row routing (country/postal, foreign vendors, which taxes), vendor-name candidates, official-name confirmation, digital-economy match, registration-date facts, caching, error containment, deferred browser checks for worker threads | `RowChecker`, `vendor_name_candidates`, `clean_vendor_name`, `same_business_name`, `Deferred`, `Offline`, `DryRun` |
 | `taxcheck/report.py` | Issue / Action / severity per tax, Main Issue per supplier | `gst_issue`, `provincial_issue`, `row_summary` |
 | `taxcheck/gst_dates.py` | GST/HST registration start and end found by asking the registry about specific days | `registered_on`, `registration_start`, `cancellation_date` |
@@ -188,13 +212,14 @@ the log only).
 | `taxcheck/numbers.py` | Offline parsing/validation of every number format; CRA Luhn check digit; free-form "Tax ID" normalization | `parse_gst`, `parse_bn`, `normalize_tax_id`, `tax_id_problem`, `BadNumber` |
 | `taxcheck/gst.py` | CRA registry form, result parsing, name variants, simplified list, federal-name fallback, Ottawa date | `GstChecker`, `parse_registry_result`, `SimplifiedList`, `cra_today`, `name_variants` |
 | `taxcheck/fedcorp.py` | Corporations Canada CSVs → `{bn9: [official names]}`, weekly cache | `FederalCorporations` |
-| `taxcheck/cbr.py` | Canada's Business Registries search → registered names by business number (all provinces) | `BusinessRegistries`, `parse_docs` |
+| `taxcheck/cbr.py` | Canada's Business Registries search → registered names by business number (all provinces); business numbers by exact name (possible-number leads) | `BusinessRegistries`, `parse_docs`, `numbers_by_name` |
 | `taxcheck/orgbook.py` | OrgBook BC API → official names for BC-registered organizations by business number | `OrgBookBC`, `parse_topics` |
 | `taxcheck/qst.py` | Revenu Québec API; NR list with download → browser → file fallbacks and cache | `QstChecker`, `parse_nr_list` |
 | `taxcheck/browser.py` | Shared lazily-started browser (Chromium → Edge → Chrome), fresh context per lookup, failure screenshots, fail-fast on HTTP errors | `Browser`, `BrowserUnavailable` |
 | `taxcheck/bc_pst.py` | eTaxBC form automation | `BcPstChecker` |
-| `taxcheck/mb_rst.py` | TAXcess form automation, name variants down to the first word | `MbRstChecker`, `parse_results` |
-| `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA | `SkPstAssistant`, `classify`, `search_terms` |
+| `taxcheck/mb_rst.py` | TAXcess form automation, one distinctive word per name (sheet, trade name, CRA's name) | `MbRstChecker`, `name_variants`, `parse_results` |
+| `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA; one failed search affects only that supplier | `SkPstAssistant`, `classify`, `search_terms` |
+| `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection (pause and retry every 2 min; give up after 30 min; shared by workers) | `new_session`, `Throttle`, `SiteHealth` |
 | `taxcheck/logsetup.py` | Log file + console handlers | `setup_logging` |
 | `taxcheck/progress.py` | Per-supplier progress CSV, periodic progress/ETA lines, `--resume` loader | `ProgressReport`, `load_resume` |
@@ -209,8 +234,8 @@ the log only).
 | NOT REGISTERED | Source definitively says no (or cancelled / deregistered) | |
 | NOT CONFIRMED | Source couldn't match; not definitive | BC PST/BN mismatch; no MB/SK match; unusual QST status |
 | INVALID NUMBER | Malformed, fails check digit, or Excel scientific notation | Typos |
-| NO NUMBER | Tax applies (by province) but no number given | Missing data |
-| MANUAL CHECK | Not checked automatically | SK without `--sk-assist`; no browser; CAPTCHA not completed |
+| NO NUMBER | Tax applies (by province) but no number given | Missing data (GST/HST: a "possible number" lead may be in Action Needed) |
+| MANUAL CHECK | Not checked automatically | SK without `--sk-assist`, CAPTCHA not completed, daily limit, name too short; no browser |
 | ERROR | Lookup failed (network, site down, page changed) | Re-run later; see log |
 | NOT APPLICABLE | Foreign supplier with no explicit Canadian GST/HST number | Country column not CA |
 | NOT LOOKED UP | `--offline` run; passed offline checks | |
@@ -400,7 +425,7 @@ loaded; rows come from DataTables' data if it has taken over the table (it shows
    US/foreign suppliers: decide with the user whether they should be skipped, reported as "not
    applicable", or checked only if they have a GST number (non-residents selling digital services may
    be simplified registrants); implement that in `RowChecker.check`. If the file has a Country column,
-   that's the natural signal: add a `country` key to `COLUMNS` and branch on it there (it isn't read today).
+   that's the natural signal: `country` is already in `COLUMNS` and drives the foreign-supplier routing.
 4. **Several numbers in one cell** (e.g. "GST 123... / QST 456..."): split them in
    `SupplierSheet.rows()` or a pre-processing step, rather than loosening the number parsers.
 5. **Header not in the first 15 rows**, or multiple sheets: `_find_header` scans 15 rows; `--sheet`
@@ -423,7 +448,8 @@ loaded; rows come from DataTables' data if it has taken over the table (it shows
 To poke at the code from another folder, run Python from the repo root or set `PYTHONPATH` to it
 (`taxcheck` isn't an installed package).
 
-Performance: about 3.5 s per supplier when the GST name matches first time (throttled ~1.5 s per CRA
+Performance (user's PC, 3 workers): about 4 s per supplier that needs a lookup; rows for foreign suppliers are
+instant. A 19,911-row file with ~40% Canadian rows is a 6–10 hour run. Per lookup: about 3.5 s when the GST name matches first time (throttled ~1.5 s per CRA
 request, ~4–5 s per browser lookup). 500 suppliers ≈ 30 minutes. A past check date adds one CRA lookup (~1.5 s) per registered number, to see
 whether it's still registered. Duplicate numbers are looked up once.
 Ctrl+C saves what's done; re-running on the output file overwrites its result columns.
@@ -445,7 +471,7 @@ Ctrl+C saves what's done; re-running on the output file overwrites its result co
 
 `examples/`: `suppliers_template.xlsx` (blank headers), `sample_suppliers.xlsx` (11 public test
 suppliers covering every outcome), `sample_suppliers_results.xlsx` and `sample_run.log` (a full run's
-output and log from a fresh clone on 2026-10-13, useful to see what a log looks like).
+output and log from 2026-10-19, after the last changes, useful to see what a log looks like).
 
 Public test data used: UBC GST `108161779RT0001` + BC PST `PST-1000-7572`; Amazon.com.ca ULC
 `857305932RT0001` (also active for Manitoba RST); Avient Canada ULC QST `1019288451TQ0004`
@@ -475,6 +501,12 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-19 (handoff refresh)**: §0 now opens with the current state and the likely next jobs; stale parts
+  updated (Saskatchewan results page known, test counts, run diagram with Canada's Business Registries and the
+  Saskatchewan prefetch, code map, statuses, performance for the user's file). `examples/sample_run.log` and
+  `sample_suppliers_results.xlsx` regenerated with the current output (new columns, notes, leads).
+  `.github/copilot-instructions.md` updated to match.
 
 - **2026-10-19 (end-to-end check; QST accounts)**: Full run on public businesses (QST active/cancelled/no
   suffix/made-up, BC PST, Manitoba, CRA name mismatch, digital economy, foreign) gave the expected answer on
