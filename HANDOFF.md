@@ -476,6 +476,12 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-19 (end-to-end check; QST accounts)**: Full run on public businesses (QST active/cancelled/no
+  suffix/made-up, BC PST, Manitoba, CRA name mismatch, digital economy, foreign) gave the expected answer on
+  every row. Found: a QST number without its TQ suffix was read as TQ0001, which for Avient is cancelled (2007)
+  though TQ0004 is active. Now, with no suffix and TQ0001 not active, TQ0002..TQ0010 are tried; an active one is
+  REGISTERED ("Registered under another QST account", number to put on file in QST Number Checked).
+
 - **2026-10-16 (improvement sweep)**: Replaying the user's 27 Canadian trial suppliers live found: (1) Canada's
   Business Registries gives provincial legal names by BN (`cbr.py`, new name source after the federal data):
   4 of 6 "name not confirmed" now confirmed by CRA, one Manitoba RST found through the new name; (2) report

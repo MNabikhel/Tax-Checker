@@ -160,6 +160,10 @@ def provincial_issue(key, res):
                 f"{res.facts.get('registered_since', '')}. Check any {label} charged before then.", SEV_LATE)
     if st == REGISTERED:
         if key == "qst" and "no tq suffix" in low:
+            checked = res.facts.get("number_checked", "")
+            if checked and not checked.endswith("TQ0001"):
+                return ("Registered under another QST account", f"Add the active QST number {checked} to the vendor "
+                        "record (the number on file has no TQ suffix, and TQ0001 isn't active).", SEV_NAME)
             return ("Registered (TQ0001 assumed)", "Get the full QST number (with its TQ suffix) from the supplier.",
                     SEV_NAME)
         return "Registered", "", SEV_OK

@@ -71,9 +71,26 @@ class QstChecker:
         self.nr_error = None
         self.nr_refusals = []
 
+    OTHER_ACCOUNTS = 9  # TQ0002..TQ0010 are tried when the suffix was missing and TQ0001 isn't active
+
     def check(self, number, suffix_assumed=False):
-        """Validate a TQ number. `suffix_assumed` means the sheet had no TQ suffix and TQ0001 was filled in."""
+        """Validate a TQ number. `suffix_assumed` means the sheet had no TQ suffix and TQ0001 was filled in.
+
+        A business can have several QST accounts and the first is often closed (seen live: TQ0001 cancelled in
+        2007, TQ0004 active). So with no suffix given and TQ0001 not active, the next accounts are tried; an
+        active one means the business is registered, and the row says which number to put on file."""
         result = self._check(number)
+        if suffix_assumed and result.status not in (REGISTERED, INVALID, ERROR):
+            for n in range(2, 2 + self.OTHER_ACCOUNTS):
+                other = f"{number[:10]}TQ{n:04d}"
+                found = self._check(other)
+                if found.status == ERROR:
+                    break
+                if found.status == REGISTERED:
+                    found.detail = (f"No TQ suffix was given. {number} isn't active ({result.detail.rstrip('.')}), "
+                                    f"but {other} is: add {other} to the vendor record. {found.detail}")
+                    found.facts["number_checked"] = other
+                    return found
         if suffix_assumed and result.status == REGISTERED:
             result.detail = (f"No TQ suffix was given, so {number} was checked and is registered; add the full "
                              f"number to the vendor record. {result.detail}")
