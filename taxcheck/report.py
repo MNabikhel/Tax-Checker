@@ -66,10 +66,14 @@ def gst_issue(res):
     if st == ERROR:
         return "Lookup failed", "Re-run with --resume later (the CRA site may have been busy or down).", SEV_ERROR
     if st == REGISTERED and f.get("digital_economy_match"):
+        check = ""
+        if f.get("digital_economy_match") == "probable":
+            check = (f"First check that this vendor is '{f.get('accepted_name', '')}' (the names differ only in legal "
+                     "form, region or a word like 'Technologies'). ")
         return ("Simplified (digital economy) registrant: number not on file",
-                f"CRA lists this supplier as a simplified GST/HST registrant ({f.get('number_checked', '')}). GST/HST "
-                "they charge isn't eligible for input tax credits: give them our GST/HST number so they stop charging "
-                "it, and add their simplified number to the vendor record.", SEV_OTHER_NAME)
+                f"{check}CRA lists this supplier as a simplified GST/HST registrant ({f.get('number_checked', '')}). "
+                "GST/HST they charge isn't eligible for input tax credits: give them our GST/HST number so they stop "
+                "charging it, and add their simplified number to the vendor record.", SEV_OTHER_NAME)
     if st in (REGISTERED, NAME_NOT_MATCHED) and f.get("simplified_registrant") and f.get("cra_answer") != "deregistered":
         return ("Simplified (digital economy) registrant",
                 "CRA lists this supplier as a simplified GST/HST registrant (a non-resident digital seller). GST/HST "

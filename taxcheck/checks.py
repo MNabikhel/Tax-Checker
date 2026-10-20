@@ -234,6 +234,8 @@ def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
                 continue  # "ACME LP" (a partnership) isn't "ACME INC." (a corporation), though core names agree
             if mine == off:
                 return True
+            if len(mine) >= MIN_LIST_NAME and loose_name(n) == loose_name(half) == mine:
+                return True  # a foreign legal form or region the vendor master leaves out: "SPOTIFY" / "SPOTIFY AB"
             if off.startswith(mine) and off[len(mine):].isdigit() and len(off) - len(mine) == 4:
                 return True  # "(2011)" successor-company year
             # The ERP's name field holds 40 characters: a name that (nearly) filled it was probably cut off. Only a
@@ -246,33 +248,77 @@ def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
     return False
 
 
-# Shortest normalized name compared with the simplified list: short names ("ABC", "MEDIA") collide too easily.
-MIN_LIST_NAME = 6
+# Shortest normalized name compared with the simplified list: shorter names ("ABC", "ZOOM", "MIRO") collide too
+# easily. Five letters still covers listed sellers such as Canva, Figma, Udemy, Asana and Slack.
+MIN_LIST_NAME = 5
+
+# Words a non-resident seller's listed name often ends with that a vendor master leaves out ("Canva Pty Ltd",
+# "Spotify AB", "Squarespace Ireland Limited", "GoDaddy.com LLC", "Slack Technologies, Inc."). Only trailing
+# words are dropped, for the "probable" match below.
+_FOREIGN_FORMS = {"pty", "pte", "ab", "ag", "bv", "nv", "gmbh", "sarl", "srl", "sa", "spa", "plc", "oy", "oyj",
+                  "as", "asa", "aps", "kk", "uc", "dac", "pbc", "sl", "sas", "sasu", "ltda", "sro", "kft", "bhd",
+                  "sdn", "pvt", "private", "unlimited", "public", "com"}
+_REGIONS = {"ireland", "international", "intl", "emea", "europe", "uk", "usa", "us", "global", "asia", "pacific",
+            "apac", "worldwide", "operations"}
+_DESCRIPTORS = {"technologies", "technology", "labs", "software", "systems", "solutions", "services", "media",
+                "communications", "networks", "platforms", "online", "digital", "studios", "apps"}
+_TRAILING = _LEGAL_SUFFIXES | _FOREIGN_FORMS | _REGIONS | _DESCRIPTORS
 
 
-def _simplified_by_name(simplified, names):
-    """Business numbers on CRA's simplified-registrant list whose legal or trade name is one of `names`
-    (compared with core_name). The index is built once per list and shared by parallel workers."""
+def loose_name(name, descriptors=False):
+    """core_name without trailing legal forms (also foreign ones), ".com" and regions, and with `descriptors`
+    also trailing words like "Technologies" or "Labs". Descriptors are only dropped from a listed name: dropped
+    from both, "CLERK TECHNOLOGIES INC" would match a listed "CLERK, INC." (seen when measuring false matches)."""
+    text = str(name or "").lower().replace(".", " ").replace("é", "e").replace("&", " and ").replace("+", " and ")
+    words = re.findall(r"[a-z0-9]+", text)
+    trailing = _TRAILING if descriptors else _TRAILING - _DESCRIPTORS
+    while words and words[-1] in trailing:
+        words.pop()
+    return "".join(w for w in words if w not in _LEGAL_SUFFIXES)
+
+
+def _simplified_index(simplified):
+    """({core name: [bn9]}, {loose name: [bn9]}) over the list's legal and trade names, built once per list and
+    shared by parallel workers."""
     index = getattr(simplified, "_name_index", None)
     if index is None:
         if simplified._rows is None:
             simplified._load()
-        index = {}
+        exact, loose = {}, {}
         for bn9, entries in (simplified._rows or {}).items():
             for e in entries:
                 for listed in (e["legal_name"], e["trade_name"]):
-                    key = core_name(listed)
-                    if len(key) >= MIN_LIST_NAME:
-                        index.setdefault(key, [])
-                        if bn9 not in index[key]:
-                            index[key].append(bn9)
-        simplified._name_index = index
+                    for table, key in ((exact, core_name(listed)), (loose, loose_name(listed)),
+                                       (loose, loose_name(listed, descriptors=True))):
+                        if len(key) >= MIN_LIST_NAME and bn9 not in table.setdefault(key, []):
+                            table[key].append(bn9)
+        index = simplified._name_index = (exact, loose)
+    return index
+
+
+def _simplified_by_name(simplified, names, probable=False):
+    """Business numbers on CRA's simplified-registrant list whose legal or trade name is one of `names`.
+
+    Exact: equal apart from case, punctuation and legal suffix (core_name). With `probable`, a looser match
+    (loose_name: trailing foreign legal forms, ".com", regions and descriptor words dropped on both sides) that
+    points at exactly one business; it's reported as probable, for a person to confirm."""
+    exact, loose = _simplified_index(simplified)
+    table, keyfn = (loose, loose_name) if probable else (exact, core_name)
     found = []
     for n in names:
-        for bn9 in index.get(core_name(n), []) if n else []:
+        key = keyfn(n) if n else ""
+        for bn9 in table.get(key, []) if len(key) >= MIN_LIST_NAME else []:
             if bn9 not in found:
                 found.append(bn9)
+    if probable and len(found) > 1:
+        return []  # several listed businesses: too vague to suggest one
     return found
+
+
+def _card_style_names(names):
+    """'GOOGLE *GSUITE' (card-statement style) -> 'GOOGLE' as an extra name to compare with the list."""
+    extra = [re.split(r"\s*\*", str(n))[0].strip() for n in names if n and "*" in str(n).strip("* ")]
+    return [n for n in names if n] + [e for e in extra if e and e not in names]
 
 
 class RowChecker:
@@ -352,6 +398,15 @@ class RowChecker:
                 "number_checked": (g.facts.get("number_checked") if g.facts.get("digital_economy_match")
                                    else "" if g.status == NOT_APPLICABLE else ctx["gst_value"] or ""),
             })
+            listed = f.get("listed_number", "")
+            entered = _compact_tax_id(str(row.get("gst") or ""))
+            if (listed.endswith("RT9999") and re.fullmatch(r"\d{9}RT\d{4}", entered or "") and entered != listed
+                    and not f["tax_id_problem"]):
+                # Simplified registrants moved from RT0001 to RT9999 on 2023-07-01; the old account is closed.
+                f["tax_id_problem"] = (f"CRA lists this simplified registrant's current number as {listed}; "
+                                       f"'{row.get('gst')}' is an older or wrong account. Update the Tax ID.")
+            elif listed.endswith("RT9999") and re.fullmatch(r"\d{9}", entered or "") and not f["tax_id_problem"]:
+                f["tax_id_problem"] = f"Only the 9-digit business number is on file; the full number is {listed}."
             if g.status in (REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED, NOT_CONFIRMED) or "date_checked" in f:
                 f.setdefault("date_checked", str(date))
             today = cra_today()
@@ -507,6 +562,8 @@ class RowChecker:
             # a bare 9-digit Tax ID is usually a US EIN, which can pass the CRA check digit by chance.
             # Explicit: 9 digits followed by a program code (123456789RT0001, ...RC0001), or the old R123456789.
             explicit = kind == "gst" and bool(re.search(r"^R\d{9}|\d{9}[A-Z]{2}", _compact_tax_id(str(row.get("gst")))))
+            if kind == "gst" and not explicit and self._on_simplified_list(gst_value):
+                explicit = True  # a bare 9-digit number that is a simplified registrant's: not a US EIN
             where = f"country {country}" if country else how or "country unknown"
             if not explicit:
                 if _blank(row.get("gst")):
@@ -553,7 +610,7 @@ class RowChecker:
         if gst_note:
             out["gst"].detail = f"{gst_note} {out['gst'].detail}".strip()
         if out["gst"].status in (MISSING, INVALID):
-            found = self._digital_economy(gst_names, date, out["gst"].detail)
+            found = self._digital_economy(gst_names, date, out["gst"].detail, foreign=False)
             if found is not None:
                 out["gst"] = self._name_check(found, name, dnu)
         if out["gst"].status == MISSING:
@@ -610,7 +667,16 @@ class RowChecker:
                            f"confirms it's registered for GST/HST under that name on {date}.")
             return
 
-    def _digital_economy(self, names, date, why):
+    def _on_simplified_list(self, number):
+        simplified = getattr(self.gst, "simplified", None)
+        if simplified is None or not hasattr(simplified, "parse") or _blank(number):
+            return False
+        if simplified._rows is None:
+            simplified._load()
+        rows = simplified._rows
+        return isinstance(rows, dict) and str(number)[:9] in rows
+
+    def _digital_economy(self, names, date, why, foreign=True):
         """A supplier with no usable Canadian number whose name is on CRA's list of simplified GST/HST
         (digital economy) registrants, confirmed with the CRA registry; None if not.
 
@@ -622,35 +688,44 @@ class RowChecker:
         simplified = getattr(self.gst, "simplified", None)
         if simplified is None or not hasattr(simplified, "parse") or not hasattr(self.gst, "registry_lookup"):
             return None  # --offline / --check-columns stand-ins
-        for bn9 in _simplified_by_name(simplified, names):
-            entry = simplified.lookup(bn9, date)
-            key = ("digital_economy", bn9, str(date))
-            if key not in self._cache:
-                try:
-                    self._cache[key] = self.gst.registry_lookup(bn9, entry["legal_name"], date)
-                except Exception as e:  # report it as an error, so --resume tries the row again
-                    log.warning("Simplified-registrant confirmation for %s failed: %s", bn9, e)
-                    return Result(ERROR, f"{why} The name matches a simplified (digital economy) registrant on CRA's "
-                                         f"list ({entry['number']}), but confirming it with CRA failed: "
-                                         f"{type(e).__name__}: {e} (see log file)")
-            if self._cache[key] != "registered":
-                log.debug("%s matches simplified registrant %s, but CRA answered %r for %s", names[0], bn9,
-                          self._cache[key], date)
-                continue
-            listed = entry["legal_name"] + (f" (trade name: {entry['trade_name']})" if entry["trade_name"] else "")
-            return Result(
-                REGISTERED,
-                f"{why} The vendor name matches '{listed}' on CRA's list of simplified GST/HST (digital economy) "
-                f"registrants, and CRA confirms {entry['number']} under that name on {date}. Simplified registrants "
-                "can't give input tax credits for GST/HST they charge.",
-                entry["legal_name"],
-                facts={"digital_economy_match": True, "simplified_registrant": True, "cra_answer": "registered",
-                       "number_checked": entry["number"].replace(" ", ""), "accepted_name": entry["legal_name"],
-                       "official_name": entry["legal_name"], "name_source": "CRA's simplified registrant list",
-                       "registered_since": str(entry["registered"] or ""),
-                       "registration_end": str(entry["deregistered"] or ""),
-                       "dates_source": "CRA simplified registrant list"},
-            )
+        names = _card_style_names(names)
+        # A probable (looser) match only for foreign vendors: a Canadian business with no number on file isn't
+        # likely to be a non-resident digital seller, so only an exact name match counts for it.
+        for probable in (False, True) if foreign else (False,):
+            for bn9 in _simplified_by_name(simplified, names, probable=probable):
+                entry = simplified.lookup(bn9, date)
+                key = ("digital_economy", bn9, str(date))
+                if key not in self._cache:
+                    try:
+                        self._cache[key] = self.gst.registry_lookup(bn9, entry["legal_name"], date)
+                    except Exception as e:  # report it as an error, so --resume tries the row again
+                        log.warning("Simplified-registrant confirmation for %s failed: %s", bn9, e)
+                        return Result(ERROR, f"{why} The name matches a simplified (digital economy) registrant on "
+                                             f"CRA's list ({entry['number']}), but confirming it with CRA failed: "
+                                             f"{type(e).__name__}: {e} (see log file)")
+                if self._cache[key] != "registered":
+                    log.debug("%s matches simplified registrant %s, but CRA answered %r for %s", names[0], bn9,
+                              self._cache[key], date)
+                    continue
+                listed = entry["legal_name"] + (f" (trade name: {entry['trade_name']})" if entry["trade_name"] else "")
+                how = (f"The vendor name probably is '{listed}' on CRA's list of simplified GST/HST (digital economy) "
+                       "registrants (the names differ only in legal form, region or a word like 'Technologies': "
+                       "check it's the same business)" if probable else
+                       f"The vendor name matches '{listed}' on CRA's list of simplified GST/HST (digital economy) "
+                       "registrants")
+                return Result(
+                    REGISTERED,
+                    f"{why} {how}, and CRA confirms {entry['number']} under that name on {date}. Simplified "
+                    "registrants can't give input tax credits for GST/HST they charge.",
+                    entry["legal_name"],
+                    facts={"digital_economy_match": "probable" if probable else True, "simplified_registrant": True,
+                           "cra_answer": "registered", "number_checked": entry["number"].replace(" ", ""),
+                           "accepted_name": entry["legal_name"], "official_name": entry["legal_name"],
+                           "name_source": "CRA's simplified registrant list",
+                           "registered_since": str(entry["registered"] or ""),
+                           "registration_end": str(entry["deregistered"] or ""),
+                           "dates_source": "CRA simplified registrant list"},
+                )
         return None
 
     @staticmethod

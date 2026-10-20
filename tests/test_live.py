@@ -17,7 +17,7 @@ import unittest
 from taxcheck.certs import use_system_certificates
 from taxcheck.gst import GstChecker, cra_today
 from taxcheck.qst import QstChecker
-from taxcheck.result import INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
+from taxcheck.result import NOT_APPLICABLE, INVALID, NOT_CONFIRMED, NOT_REGISTERED, REGISTERED
 
 LIVE = os.environ.get("TAXCHECK_LIVE") == "1"
 if LIVE:
@@ -286,6 +286,23 @@ class LiveDigitalEconomy(unittest.TestCase):
         res = rc.check({"name": "Airalo", "gst": "91-0000001", "country": "US"}, TODAY)["gst"]
         self.assertEqual(res.status, REGISTERED, res.detail)
         self.assertEqual(res.facts["number_checked"], "751950577RT9999")
+
+    def test_vendor_master_spellings_of_listed_sellers(self):
+        # Public simplified registrants on CRA's list (2026-10-20), spelt the way vendor masters do.
+        from taxcheck.checks import RowChecker
+
+        rc = RowChecker(GstChecker(delay=1.0), None, available={"name", "gst", "country"})
+        canva = rc.check({"name": "CANVA", "gst": None, "country": "AU"}, TODAY)["gst"]  # listed "Canva Pty Ltd"
+        self.assertEqual(canva.status, REGISTERED, canva.detail)
+        self.assertTrue(canva.facts["number_checked"].endswith("RT9999"))
+        slack = rc.check({"name": "SLACK", "gst": None, "country": "US"}, TODAY)["gst"]  # "Slack Technologies, Inc."
+        self.assertEqual(slack.facts.get("digital_economy_match"), "probable", slack.detail)
+        old = rc.check({"name": "SPOTIFY AB", "gst": "762089746RT0001", "country": "SE"}, TODAY)["gst"]
+        self.assertIn("762089746RT9999", old.facts["tax_id_problem"])  # RT0001 closed when RT9999 began (2023)
+        bare = rc.check({"name": "SPOTIFY", "gst": "762089746", "country": "SE"}, TODAY)["gst"]
+        self.assertNotEqual(bare.status, NOT_APPLICABLE)  # on CRA's list, so not taken for a US EIN
+        zoom = rc.check({"name": "ZOOM VIDEO COMMUNICATIONS", "gst": None, "country": "US"}, TODAY)["gst"]
+        self.assertEqual(zoom.status, NOT_APPLICABLE)  # not a simplified registrant
 
 
 @unittest.skipUnless(LIVE, "set TAXCHECK_LIVE=1 to run live tests")

@@ -327,6 +327,7 @@ class GstChecker:
         if listed:
             # CRA's published list gives the dates for simplified (non-resident digital seller) registrations.
             res.facts["simplified_registrant"] = True
+            res.facts["listed_number"] = re.sub(r"\s", "", listed["number"])
             if listed.get("registered"):
                 res.facts["registered_since"] = str(listed["registered"])
             if listed.get("deregistered"):
