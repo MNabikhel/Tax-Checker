@@ -7,7 +7,7 @@ choose). This guide explains, end to end, what the tool does and why, what is kn
 step-by-step way to tailor and verify. `HANDOFF.md` is the engineering reference (every site's quirks, code map,
 change log); this file is the "how to think about it and what to do" guide. Read this first, then HANDOFF §0.
 
-Last updated 2026-10-20. Tests: 220 offline, 21 live (`TAXCHECK_LIVE=1`).
+Last updated 2026-10-20. Tests: 225 offline, 21 live (`TAXCHECK_LIVE=1`).
 
 ---
 
@@ -65,6 +65,8 @@ Example (made up): a row in the ERP export
 1. **Read and map columns** (`taxcheck/workbook.py`, `SupplierSheet`). The header row is found in the first 15
    rows; each header is matched to a field through `COLUMNS` aliases (lowercased, punctuation removed, exact
    match). Fields: `name, trade_name, gst, bn, qst, pst, bc_pst, sk_pst, mb_rst, province, country, postal, date`.
+   When two columns fit one field ("Zip" and "Postal Code"), one with data wins, then the more specific spelling
+   (earlier in that field's `COLUMNS` list), then the leftmost; the choice is logged.
    Values are cleaned (`clean_value`: Excel floats such as `857305932.0` back to whole numbers; scientific notation is flagged later as an invalid number).
 2. **Clean the name** (`checks.clean_vendor_name`, `vendor_name_candidates`). "(DNU)" is removed (the row is
    marked do-not-use and still checked); "O/A PW SUPPLY" makes "PRAIRIE WIDGET" the legal part and "PW SUPPLY" a
@@ -84,8 +86,9 @@ Example (made up): a row in the ERP export
    number-only inference (§2). Outcomes: REGISTERED (sheet name accepted), REGISTERED - NAME NOT MATCHED (number
    registered, not under our name; CRA's name shown when known), NOT REGISTERED, INVALID NUMBER, NO NUMBER.
    `RowChecker._confirm_official` turns NAME NOT MATCHED into REGISTERED + "UPDATE NAME" when the official name
-   is just another form of the vendor's own name (punctuation, suffix, cut-off at 40 characters, "SPOTIFY" vs
-   "SPOTIFY AB"; never "ACME LP" vs "ACME INC.", different entities). Registration dates (`gst_dates.py`):
+   is just another form of the vendor's own name (punctuation, suffix, cut-off at 40 characters, a foreign
+   legal form left out: "SPOTIFY" vs "SPOTIFY AB"; never a region or "International" left out, which names a sister
+   company; never "ACME LP" vs "ACME INC.", different entities; "ACME" vs "ACME LP" is fine). Registration dates (`gst_dates.py`):
    Quick mode finds the cancellation day if it's no longer registered today.
 6. **Digital economy** (`RowChecker._digital_economy`): for a foreign vendor with no usable Canadian number (or
    a Canadian one whose number is missing or invalid): exact name match against the simplified list's legal and trade names (case,
@@ -103,9 +106,11 @@ Example (made up): a row in the ERP export
    A wrong or 9-digit-only Tax ID gets the full `RT9999` number in "GST/HST Tax ID Problem".
 7. **No number at all** (`RowChecker._possible_number`): a Canadian vendor with no GST/HST number gets a lead
    when Canada's Business Registries has exactly one BN under exactly that name (same kind of entity) and CRA
-   confirms it. Status stays NO NUMBER.
-8. **Provincial checks**: QST if a QST number exists (no TQ suffix → TQ0001, then TQ0002..TQ0010 if TQ0001
-   isn't active); BC PST if a BC PST number exists; MB RST if province is MB (searched with the BN; one
+   confirms it, and only when every match fits on the result page. Status stays NO NUMBER. `--no-number-search`
+   turns it off (it costs one registry search per Canadian supplier with no number).
+8. **Provincial checks**: QST if a QST number exists (no TQ suffix → TQ0001; if it wasn't registered on the
+   payment date, TQ0002, TQ0003... each read against that date, stopping at the first account Revenu Québec
+   doesn't know); BC PST if a BC PST number exists; MB RST if province is MB (searched with the BN; one
    distinctive word per name; the name CRA accepted is tried too); SK PST if province is SK (only with
    `--sk-assist`; one CAPTCHA, all searches up front, 100/day). Browser checks run on the main thread.
 9. **Facts and report** (`_annotate`, `report.py`, `workbook.write_results`): per tax a Status, Issue,
