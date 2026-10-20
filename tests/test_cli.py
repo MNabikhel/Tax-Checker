@@ -198,3 +198,59 @@ class ResumeSaskatchewan(unittest.TestCase):
                 for r, data in rows.items():
                     w.writerow({"sheet_row": r, "results_json": json.dumps(data)})
             self.assertEqual(sorted(load_resume(path)), [2, 4])  # 3 (limit) and 5 (error) are checked again
+
+
+class ResumeLastRun(unittest.TestCase):
+    """"Resume Last Run.bat" (--resume last): the latest full run's workbook, progress file and answers."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patcher = mock.patch.object(check_suppliers, "LAST_RUN", Path(self.tmp.name) / ".last_run")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.progress = Path(self.tmp.name) / "progress_20260101_000000.csv"
+        self.progress.write_text("sheet_row,results_json\n", encoding="utf-8")
+
+    def args(self, **kw):
+        base = dict(limit=None, offline=False, workbook=str(Path(self.tmp.name) / "vendors.xlsx"), taxes={"gst", "qst"},
+                    sk_assist=False, gst_dates="none", paid_since="2022-01-01")
+        base.update(kw)
+        return mock.Mock(**{k: base.get(k) for k in check_suppliers.RUN_SETTINGS + ("limit", "offline", "workbook")})
+
+    def resumed_args(self, answers=()):
+        seen = {}
+        with mock.patch.object(check_suppliers, "run", side_effect=lambda args, log_path: seen.update(vars(args))), \
+                mock.patch.object(check_suppliers, "setup_logging", return_value=Path(self.tmp.name) / "x.log"), \
+                mock.patch.object(check_suppliers, "apply_tailoring", return_value=""), \
+                mock.patch("builtins.input", side_effect=list(answers)) as asked:
+            code = check_suppliers.main(["--resume", "last"])
+        return code, seen, asked
+
+    def test_same_workbook_progress_and_answers_without_asking(self):
+        check_suppliers.remember_run(self.args(), self.progress)
+        code, seen, asked = self.resumed_args()
+        self.assertEqual(code, 0)
+        self.assertEqual(seen["resume"], str(self.progress.resolve()))
+        self.assertEqual(Path(seen["workbook"]).name, "vendors.xlsx")
+        self.assertEqual(seen["taxes"], {"gst", "qst"})
+        self.assertEqual((seen["gst_dates"], seen["paid_since"], seen["ask"]), ("none", "2022-01-01", False))
+        asked.assert_not_called()  # Saskatchewan wasn't among the taxes: nothing to ask
+
+    def test_saskatchewan_skipped_last_time_is_asked_again(self):
+        check_suppliers.remember_run(self.args(taxes=None), self.progress)
+        code, seen, asked = self.resumed_args(answers=["y"])
+        self.assertEqual(code, 0)
+        self.assertTrue(seen["sk_assist"])
+        self.assertIsNone(seen["taxes"])  # everything, as before
+
+    def test_trials_and_offline_runs_arent_resumed(self):
+        check_suppliers.remember_run(self.args(limit=25), self.progress)
+        check_suppliers.remember_run(self.args(offline=True), self.progress)
+        code, seen, _ = self.resumed_args()
+        self.assertEqual((code, seen), (1, {}))  # nothing to resume: says so instead of starting a run
+
+    def test_missing_progress_file(self):
+        check_suppliers.remember_run(self.args(), self.progress)
+        self.progress.unlink()
+        self.assertEqual(self.resumed_args()[0], 1)

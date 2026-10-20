@@ -47,7 +47,8 @@ def name_source(res):
         if _key(accepted) == _key(f.get("vendor_name")):
             return "Vendor name as entered"
         if _key(accepted) == _key(f.get("name_used")):
-            return "Vendor name without do-not-use marker"
+            # The name lost a do-not-use marker, or text the tailoring file removes ("- INACTIVE").
+            return "Vendor name without do-not-use marker" if f.get("dnu") else "Vendor name without vendor-master marking"
         return "Vendor name, reworded (legal part / suffix)"
     return SOURCE_LABELS.get(source, source or "")
 
@@ -64,7 +65,7 @@ def gst_issue(res):
     if st == NOT_LOOKED_UP:
         return "Not looked up (offline run)", "Run the online check.", SEV_OK
     if st == ERROR:
-        return "Lookup failed", "Re-run with --resume later (the CRA site may have been busy or down).", SEV_ERROR
+        return "Lookup failed", "Double-click \"Resume Last Run.bat\" later (the CRA site may have been busy or down).", SEV_ERROR
     if st == REGISTERED and f.get("digital_economy_match"):
         check = ""
         if f.get("digital_economy_match") == "probable":
@@ -172,20 +173,25 @@ def provincial_issue(key, res):
                     SEV_NAME)
         return "Registered", "", SEV_OK
     if st == ERROR:
-        return "Lookup failed", "Re-run with --resume later (the site may have been busy or in maintenance).", SEV_ERROR
+        return "Lookup failed", "Double-click \"Resume Last Run.bat\" later (the site may have been busy or in maintenance).", SEV_ERROR
     if st == MANUAL:
         if key == "sk_pst":
             if "at least 4 letters" in low:
                 return ("Manual check needed (name too short to search)", "Search the full name by hand on "
                         "Saskatchewan's PST registry.", SEV_MANUAL)
             if "searches per 24 hours" in low:
-                return ("Manual check needed (daily search limit reached)", "Re-run with --resume after the time in "
-                        "the details (the registry allows 100 searches a day).", SEV_MANUAL)
+                return ("Manual check needed (daily search limit reached)", "Double-click \"Resume Last Run.bat\" after the "
+                        "time in the details (the registry allows 100 searches a day).", SEV_MANUAL)
             if "window was closed" in low or "wasn't completed in time" in low or "asked for the captcha again" in low:
-                return ("Manual check needed (Saskatchewan searches stopped)", "Re-run with --resume and tick the "
-                        "CAPTCHA, or search the name on Saskatchewan's PST registry.", SEV_MANUAL)
-            return ("Manual check needed (CAPTCHA)", "Re-run with --sk-assist (tick the CAPTCHA once) or search the "
-                    "name on Saskatchewan's PST registry.", SEV_MANUAL)
+                return ("Manual check needed (Saskatchewan searches stopped)", "Double-click \"Resume Last Run.bat\" and tick "
+                        "the CAPTCHA, or search the name on Saskatchewan's PST registry.", SEV_MANUAL)
+            if "couldn't open a browser" in low:
+                return ("Manual check needed (browser didn't open)", "Run \"Test Setup.bat\", then double-click "
+                        "\"Resume Last Run.bat\" and answer Y to the Saskatchewan question, or search the name on "
+                        "Saskatchewan's PST registry.", SEV_MANUAL)
+            return ("Manual check needed (CAPTCHA)", "Double-click \"Resume Last Run.bat\" and answer Y to the "
+                    "Saskatchewan question (tick the CAPTCHA once), or search the name on Saskatchewan's PST registry.",
+                    SEV_MANUAL)
         return "Manual check needed", "See the details.", SEV_MANUAL
     if st == MISSING:
         if key == "mb_rst":

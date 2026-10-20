@@ -27,7 +27,8 @@ def _log_response(response, *args, **kwargs):
 def new_session():
     s = requests.Session()
     s.headers.update({"User-Agent": USER_AGENT})
-    retry = Retry(total=3, backoff_factor=2, status_forcelist=(500, 502, 503, 504))
+    # 429 = "too many requests": wait (the site's Retry-After when it sends one) and try again, like a server error.
+    retry = Retry(total=3, backoff_factor=2, status_forcelist=(429, 500, 502, 503, 504))
     s.mount("https://", HTTPAdapter(max_retries=retry))
     s.hooks["response"].append(_log_response)
     return s
@@ -83,7 +84,7 @@ class SiteHealth:
             if self.clock() - self.first_failure_at >= self.give_up_after:
                 if not self.gave_up:
                     log.warning("%s hasn't responded for %.0f minutes; giving up on it for the rest of this run "
-                                "(re-run later with --resume)", self.site, (self.clock() - self.first_failure_at) / 60)
+                                "(double-click \"Resume Last Run.bat\" later)", self.site, (self.clock() - self.first_failure_at) / 60)
                 self.gave_up = True
                 return True
             wait = self.retry_every - (self.clock() - self.last_failure_at)
@@ -98,7 +99,7 @@ class SiteHealth:
         return (
             f"{self.site} wasn't responding for {minutes:.0f} minutes ({self.failures} lookups in a row failed, last "
             f"error: {self.last_error}), so it wasn't tried again in this run. It may be down for maintenance; "
-            "re-run later with --resume."
+            "double-click \"Resume Last Run.bat\" later."
         )
 
     def record(self, ok, error=""):

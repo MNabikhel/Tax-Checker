@@ -36,7 +36,7 @@ class Profile(unittest.TestCase):
         self.assertIn("999999999AA9999", text)  # Tax ID shapes
         self.assertIn("Ont.", text)  # province spellings as written
         self.assertEqual({len(r[1]) for r in rows if len(r[1]) > 30}, {40})
-        self.assertIn("Longest name: 40 characters, reached by 3 names (probably the vendor master field limit", text)
+        self.assertIn("Longest name: 40 characters, reached by 3 distinct names (probably the vendor master field limit", text)
         self.assertIn("do-not-use marker", text)
         self.assertIn("operating-as", text)
         self.assertIn("Corporate income tax account (RC)", text)
@@ -63,6 +63,14 @@ class Profile(unittest.TestCase):
         self.assertEqual(profile_workbook.safe_value("Ont."), "Ont.")
         self.assertEqual(profile_workbook.safe_value("123 Main Street Suite 4"), "999 AAAA AAAAAA AAAA...")
         self.assertEqual(profile_workbook.safe_value("Newfoundland and Labrador"), "Newfoundland and Labrador")
+
+    def test_status_words_outside_brackets_are_pointed_out(self):
+        rx = dict(profile_workbook.NAME_PATTERNS)[next(label for label, _ in profile_workbook.NAME_PATTERNS
+                                                       if label.startswith("status word"))]
+        for name in ("ACME WIDGETS LTD - INACTIVE", "ACME WIDGETS DO NOT PAY", "ZZ CLOSED ACME"):
+            self.assertTrue(rx.search(name), name)
+        for name in ("ACME WIDGETS (INACTIVE)", "ACME WIDGETS [CLOSED]", "CLOSEDLOOP SYSTEMS INC"):
+            self.assertFalse(rx.search(name), name)  # brackets are dropped built-in; part of a word isn't one
 
 
 if __name__ == "__main__":

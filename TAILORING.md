@@ -143,7 +143,8 @@ From the user's trial runs (logs they shared; no supplier data kept):
 - **Environment:** Windows 11, Python 3.14, corporate network with TLS inspection (the tool uses the Windows
   certificate store via `truststore`), Playwright's Chromium download blocked → **Microsoft Edge** is used; the
   tool folder and workbooks live in OneDrive. The user runs `.bat` files: `Test Setup.bat`, `Run Trial (25
-  suppliers).bat`, `Run Tax Check.bat`, `Saskatchewan Probe.bat`, `Profile Workbook.bat`.
+  suppliers).bat`, `Run Tax Check.bat`, `Resume Last Run.bat`, `Offline Check.bat`, `Saskatchewan Probe.bat`,
+  `Profile Workbook.bat`.
 - **Earlier full run** (before the latest improvements): ~2 h 45 min with 3 parallel lookups, dates off.
 
 What is **not** known, and how to find out: the exact frequency of each Tax ID shape, province/country
@@ -179,11 +180,11 @@ and a mistake stops the run with a message. An agent that can't run code (Copilo
 | Many "Corporate income tax account (RC)" | vendor master holds RC numbers | already handled (checked by BN, flagged); just report it |
 | Province values left as `(blank)` or not two-letter codes in the routing | spelling not known | add to `PROVINCES`; postal codes already fill blanks |
 | Country values for Canada other than `CA`, `CAN`, `CANADA`, `CDN` | normalization | add to `COUNTRIES_CA` in `workbook.py` |
-| Name markers with high counts not in §4 (e.g. `- INACTIVE`, `ZZ`, `XX`) | vendor-master shorthand | `_DNU`, `_STATUS_TAG`, `_JUNK`, `_OPERATING_AS` in `checks.py`; candidates must stay forms of the vendor's own name |
-| Longest name = N with many at N | field limit N | automatic (cross-row note); `same_business_name(truncated_at=...)` uses 34+ |
+| Name markers with high counts not in §4 (e.g. `- INACTIVE`, `ZZ`, `XX`; the profile's "status word outside brackets" line) | vendor-master shorthand | no code: `remove from names` / `do not use marker` rows in `tailoring.xlsx`; in code, `_DNU`, `_STATUS_TAG`, `_JUNK`, `_OPERATING_AS` in `checks.py`; candidates must stay forms of the vendor's own name |
+| Longest name = N reached by many distinct names | field limit N | automatic (cross-row note); `same_business_name(truncated_at=...)` uses 34+ |
 | Dates "unreadable text" | date format | add the format to `parse_date` (day-first is the Canadian default) |
 | Many `gst NOT APPLICABLE` from foreign rows with Canadian-looking numbers | foreign vendors with GST numbers | explicit RT numbers are already checked; a bare 9-digit EIN is not sent (can pass the check digit by chance) unless it is on CRA's simplified list |
-| `sk_pst WOULD CHECK` above ~100 | Saskatchewan daily limit | expected: the run marks the rest MANUAL with the reopening time; `--resume <progress csv>` the next day searches them (resume re-checks ERROR rows and Saskatchewan rows whose search couldn't run) |
+| `sk_pst WOULD CHECK` above ~100 | Saskatchewan daily limit | expected: the run marks the rest MANUAL with the reopening time; `Resume Last Run.bat` the next day searches them (resume re-checks ERROR rows and Saskatchewan rows whose search couldn't run) |
 | ONLINE SELLERS count high, or many foreign rows NOT APPLICABLE you expected to be online sellers | vendor-master spellings the matcher misses | measure first (as in HANDOFF §12, 2026-10-20) with made-up spellings; extend `_FOREIGN_FORMS`/`_REGIONS`/`_DESCRIPTORS` in `checks.py`; re-check the false-match rate on unrelated names before shipping |
 
 **Step 3. Test every change** with made-up rows that copy the *shape* from the profile (never real values).
@@ -201,7 +202,7 @@ tests need Playwright's Chromium or Edge, else they skip).
    log and the Tax Check Summary sheet. **Pass:** no ERROR rows (or only ones the log explains, e.g. a site in
    maintenance); no MANUAL CHECK on Manitoba/BC; every Canadian row has a GST/HST status other than NOT
    APPLICABLE; the counts look plausible to the user (NO NUMBER / NOT REGISTERED rows they can recognise).
-4. Full run (`Run Tax Check.bat`), overnight; `--resume <progress csv>` after any stop.
+4. Full run (`Run Tax Check.bat`), overnight; `Resume Last Run.bat` after any stop.
 
 **Step 5. Read results like this.** Start with the summary sheet's notes (sources that failed, cut-offs) and
 counts per issue; then the Action List. Red flags: a block of ERROR on one tax (site down or changed: HANDOFF

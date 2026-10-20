@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 252: 231 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 263: 242 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -25,7 +25,7 @@ What the next agent will most likely be asked to do, in order:
 1. **Read the user's full-run output** (log + "Tax Check Summary" sheet). Look for a block of ERROR rows
    (a site down or changed: §10), MANUAL CHECK rows (why: the issue label says), and the counts per issue.
 2. **Saskatchewan past 100 suppliers:** the registry allows 100 searches per 24 hours; the rest are MANUAL
-   CHECK with the time searches reopen. The user re-runs with `--resume` the next day (counter in
+   CHECK with the time searches reopen. The user double-clicks `Resume Last Run.bat` the next day (counter in
    `cache/saskatchewan_searches.json`).
 3. **Data the vendor master could add** (each is read automatically if a column appears, see `COLUMNS`):
    QST numbers ("QST Number"), Manitoba RST numbers ("RST Number"), BC PST numbers. Today the user's file has
@@ -228,6 +228,7 @@ the log only).
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA; one failed search affects only that supplier | `SkPstAssistant`, `classify`, `search_terms` |
 | `taxcheck/tailoring.py`, `tailoring.example.json`, `examples/tailoring_template.xlsx` | Tailoring without code: extra column/province/country spellings, date formats first, name markings, from `tailoring.json` or `tailoring.xlsx` in the tool folder | `apply`, `reset`, `TailoringError` |
 | `Offline Check.bat` | `--offline` run on a chosen workbook (format and check digit only) | |
+| `Resume Last Run.bat` | `--resume last`: continues the latest full run (workbook, progress file and menu answers noted in `.last_run` in the tool folder by `remember_run`; trials and offline runs aren't noted) | `check_suppliers.resume_last_run` |
 | `profile_workbook.py`, `Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
 | `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection (pause and retry every 2 min; give up after 30 min; shared by workers) | `new_session`, `Throttle`, `SiteHealth` |
@@ -517,6 +518,23 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (final walkthrough, as the user will run it)**: from the zip: setup, tests, `check_setup` READY;
+  a 29-row export of public businesses in the user's layout through Profile → `tailoring.xlsx` from the template →
+  Profile → Offline Check → Trial via the menus → full run → Ctrl+C → resume. Every row's answer matched the
+  live tests; the interrupted and resumed run gave the same answers as the trial on every row. Fixed: (1) the
+  cut-off-name check counted rows, so one long vendor repeated on 3+ rows (one per payment) looked like a field
+  limit: now distinct names, in the profile and the report; (2) "SPOTIFY AB" / "SPOTIFY" on one number were
+  flagged as different vendors: the shared-number note now uses `foreign_form_name`; (3) **`Resume Last Run.bat`**
+  (`--resume last`): resuming used to mean typing a progress-file path in a console; full runs now note their
+  workbook, progress file and answers in `.last_run`, and the resume reuses them (asking again only about
+  Saskatchewan if it was skipped); every "re-run with --resume" message now names the file; (4) Revenu Québec
+  answered HTTP 429 (Cloudflare "Just a moment") after many lookups from one address: sessions now wait and retry
+  on 429 like on a server error (honouring Retry-After), and QST lookups slow down (doubling the gap, up to 5 s)
+  after one, so the rest of the run isn't refused; (5) wording: a name with tailoring-file text removed says
+  "Vendor name without vendor-master marking", not "do-not-use marker"; a Saskatchewan browser that didn't open
+  has its own label; the profile points out status words outside brackets ("- INACTIVE") for a tailoring row;
+  `--limit` says when the whole file needs fewer lookups than the limit.
 
 - **2026-10-20 (Copilot Cowork as the tailoring agent)**: the user will tailor with Microsoft 365 Copilot Cowork,
   which works with OneDrive files but doesn't run code or use GitHub. Added `taxcheck/tailoring.py`: column,

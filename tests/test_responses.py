@@ -107,6 +107,33 @@ class QstApiResponses(unittest.TestCase):
     def test_non_json_is_error(self):
         self.assertEqual(qst_with(503, "<html>down</html>").check("1019288451TQ0004").status, ERROR)
 
+    def test_too_many_requests_slows_the_rest_of_the_run(self):
+        import requests
+
+        qst = qst_with(429, "<html><title>Just a moment...</title></html>")  # seen live from Revenu Québec
+        self.assertEqual(qst.check("1019288451TQ0004").status, ERROR)  # this row: retried by Resume Last Run
+        self.assertEqual(qst.throttle.seconds, 1.0)
+        qst.throttle.seconds = 0  # (don't wait in the test)
+
+        class Exhausted(FakeSession):  # the session's own retries ran out on 429s
+            def get(self, url, timeout=None):
+                raise requests.exceptions.RetryError("Max retries exceeded (too many 429 error responses)")
+
+        qst.session = Exhausted(None)
+        with self.assertRaises(requests.exceptions.RetryError):
+            qst._check("1019288451TQ0004")
+        self.assertEqual(qst.throttle.seconds, 1.0)  # 0 -> at least 1 s
+        for _ in range(5):
+            qst._slow_down()
+        self.assertEqual(qst.throttle.seconds, QstChecker.MAX_DELAY)  # capped
+
+    def test_sessions_wait_and_retry_on_too_many_requests(self):
+        from taxcheck.http import new_session
+
+        retry = new_session().get_adapter("https://example.org").max_retries
+        self.assertIn(429, retry.status_forcelist)
+        self.assertTrue(retry.respect_retry_after_header)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -71,6 +71,7 @@ class QstChecker:
         self.nr_error = None
         self.nr_refusals = []
 
+    MAX_DELAY = 5.0  # seconds between QST lookups at most, after Revenu Québec has asked us to slow down
     OTHER_ACCOUNTS = 9  # TQ0002..TQ0010 are tried when the suffix was missing and TQ0001 isn't active
 
     def check(self, number, suffix_assumed=False, judge=None):
@@ -103,9 +104,24 @@ class QstChecker:
             )
         return result
 
+    def _slow_down(self):
+        """Revenu Québec answered "too many requests" even after the session's retries: space out the rest of
+        the run (never faster than before)."""
+        if self.throttle.seconds < self.MAX_DELAY:
+            self.throttle.seconds = min(max(self.throttle.seconds * 2, 1.0), self.MAX_DELAY)
+            log.warning("Revenu Québec asked us to slow down (HTTP 429); QST lookups now %.0f s apart",
+                        self.throttle.seconds)
+
     def _check(self, number):
         self.throttle.wait()
-        r = self.session.get(API.format(number), timeout=30)
+        try:
+            r = self.session.get(API.format(number), timeout=30)
+        except requests.exceptions.RetryError as e:
+            if "429" in str(e):
+                self._slow_down()
+            raise
+        if r.status_code == 429:
+            self._slow_down()
         try:
             body = r.json()
             log.debug("QST API %s -> HTTP %s %s", number, r.status_code, body)

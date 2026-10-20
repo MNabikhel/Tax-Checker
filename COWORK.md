@@ -51,7 +51,9 @@ run. If something needs a code change, write a change request instead (below).
    "Tax Check Summary" sheet and the log: NO NUMBER, INVALID NUMBER, NOT APPLICABLE counts; anything surprising
    goes back to step 3.
 6. **User:** `Run Trial (25 suppliers).bat`. **Cowork:** check against TAILORING §5 step 4's pass criteria.
-7. **User:** `Run Tax Check.bat` (all rows; 3–4 hours; overnight is fine; `--resume` after any stop).
+7. **User:** `Run Tax Check.bat` (all rows; 3–4 hours; overnight is fine). After any stop (restart, network
+   drop, Ctrl+C), and the next day for Saskatchewan suppliers past the registry's 100-a-day limit:
+   `Resume Last Run.bat` (same workbook and answers, no typing).
    **Cowork:** walk the tax lead through the summary sheet and the Action List.
 
 ## When a change needs code

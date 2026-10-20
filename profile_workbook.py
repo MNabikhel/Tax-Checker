@@ -55,6 +55,8 @@ NAME_PATTERNS = [
     ("ends in Inc/Ltd/Corp/LLC...", re.compile(r"\b(?:inc|ltd|limited|corp|corporation|llc|ulc|lp|llp|ltee)\.?\s*$", re.I)),
     ("foreign legal form (Pty, GmbH, AB, BV, PLC...)", re.compile(r"\b(?:pty|pte|gmbh|ab|bv|b\.v\.|nv|plc|sarl|srl|"
                                                                  r"s\.a\.|ag|oy)\b\.?", re.I)),
+    ("status word outside brackets (- INACTIVE, CLOSED, DO NOT PAY: add to tailoring)",
+     re.compile(r"(?<![(\[])\b(?:inactive|closed|obsolete|do\s+not\s+pay|on\s+hold|duplicate)\b(?!\s*[)\]])", re.I)),
     ("trailing spaces + number", re.compile(r"\s{2,}\d+\s*$")),
     ("all upper case", re.compile(r"^[^a-z]*[A-Z][^a-z]*$")),
 ]
@@ -202,10 +204,10 @@ def profile(path, sheet_name=None, with_lists=False):
     out("")
     out(f"NAMES: {len(names)} filled, {len(set(n.upper() for n in names))} distinct (ignoring case), "
         f"{len(names) - len(set(n.upper() for n in names))} repeats")
-    lengths = Counter(len(n) for n in names)
+    lengths = Counter(len(n) for n in {n.upper() for n in names})  # distinct names: vendors repeat per payment
     if lengths:
         longest = max(lengths)
-        out(f"  Longest name: {longest} characters, reached by {lengths[longest]} names "
+        out(f"  Longest name: {longest} characters, reached by {lengths[longest]} distinct names "
             f"({'probably the vendor master field limit: names this long are likely cut off' if lengths[longest] >= 3 else 'no sign of a field limit'})")
         out("  Lengths near the top: " + ", ".join(f"{k} chars: {lengths[k]}" for k in sorted(lengths)[-6:]))
     for label, rx in NAME_PATTERNS:

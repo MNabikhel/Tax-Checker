@@ -177,6 +177,14 @@ class CrossRowNotes(unittest.TestCase):
         self.assertIsNone(table[4]["Other Issues"])  # the same vendor twice, spelt differently: not flagged
         self.assertTrue(any(r[1] == "Same GST/HST number as another vendor" and r[2] == 2 for r in summary))
 
+    def test_foreign_legal_form_isnt_another_vendor(self):
+        number = {"number_checked": "123456782RT9999"}
+        table, _ = self.write([[1, "WIDGETIFY AB", "123456782RT0001", ""], [2, "WIDGETIFY", "123456782", ""]],
+                              {2: {"gst": Result(REGISTERED, "ok", facts=dict(number))},
+                               3: {"gst": Result(REGISTERED, "ok", facts=dict(number))}})
+        self.assertFalse(table[2]["Other Issues"])
+        self.assertFalse(table[3]["Other Issues"])
+
     def test_same_vendor_spelt_differently_or_invalid_numbers_arent_flagged(self):
         from taxcheck.result import INVALID
 
@@ -205,8 +213,24 @@ class CrossRowNotes(unittest.TestCase):
         self.assertIn("probably cut off", table[4]["Action Needed"])
         self.assertNotIn("cut off", table[5]["Action Needed"] or "")  # shorter than the limit
 
+    def test_one_long_vendor_repeated_isnt_a_length_limit(self):
+        name = "ANCHOR CONSTRUCTION INDUSTRIAL PRODUCT"  # 38 characters, on 3 rows (one per payment)
+        unconfirmed = Result(NAME_NOT_MATCHED, "not under the name", name_check=NAME_UNCONFIRMED)
+        table, _ = self.write([[i, n, "", "AB"] for i, n in enumerate([name, name.lower(), name, "SHORT NAME LTD"])],
+                              {r: {"gst": unconfirmed.copy()} for r in range(2, 6)})
+        for r in range(2, 6):
+            self.assertNotIn("cut off", table[r]["Action Needed"] or "", r)
+
 
 class SaskatchewanLabels(unittest.TestCase):
+    def test_browser_that_didnt_open_and_skipped_searches(self):
+        issue, action, _ = provincial_issue("sk_pst", Result(MANUAL, "Couldn't open a browser for the assisted check: "
+                                                                     "browser couldn't start"))
+        self.assertEqual(issue, "Manual check needed (browser didn't open)")
+        self.assertIn("Resume Last Run.bat", action)
+        issue, action, _ = provincial_issue("sk_pst", Result(MANUAL, "Saskatchewan's registry needs a person"))
+        self.assertIn("answer Y to the Saskatchewan question", action)
+
     def test_manual_and_near_match_reasons(self):
         self.assertEqual(provincial_issue("sk_pst", Result(MANUAL, "needs at least 4 letters of the name"))[0],
                          "Manual check needed (name too short to search)")
@@ -217,6 +241,18 @@ class SaskatchewanLabels(unittest.TestCase):
                          "Only similar names in Saskatchewan registry")
         self.assertEqual(provincial_issue("sk_pst", Result(NOT_CONFIRMED, "found no business"))[0],
                          "Not found in Saskatchewan registry")
+
+
+
+class NameSourceWording(unittest.TestCase):
+    def test_marking_removed_by_tailoring_isnt_called_do_not_use(self):
+        from taxcheck.report import name_source
+
+        facts = {"accepted_name": "ACME WIDGETS LTD", "name_source": "sheet", "name_used": "ACME WIDGETS LTD"}
+        tailored = Result(REGISTERED, "ok", facts={**facts, "vendor_name": "ACME WIDGETS LTD - INACTIVE", "dnu": False})
+        dnu = Result(REGISTERED, "ok", facts={**facts, "vendor_name": "(DNU) ACME WIDGETS LTD", "dnu": True})
+        self.assertEqual(name_source(tailored), "Vendor name without vendor-master marking")
+        self.assertEqual(name_source(dnu), "Vendor name without do-not-use marker")
 
 
 if __name__ == "__main__":

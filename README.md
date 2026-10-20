@@ -77,7 +77,7 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 | `--check-columns` | Check nothing: show how your columns are read and what the first rows would check (offline). |
 | `--offline` | Look nothing up: check every row's number format, CRA check digit and routing, and write the results file. Rows that pass show `NOT LOOKED UP` (Overall `PENDING`). |
 | `--limit 25` | Trial run: only check the first 25 suppliers. |
-| `--resume logs\progress_<date>.csv` | Continue a run that stopped: suppliers finished in that run are kept, ones with errors are re-checked. |
+| `--resume logs\progress_<date>.csv` | Continue a run that stopped: suppliers finished in that run are kept, ones with errors are re-checked. `--resume last` (what `Resume Last Run.bat` runs) = the latest full run, with its workbook and answers. |
 | `--checkpoint-every 2000` | Save the results workbook every N suppliers during the run (default 2000; `0` = only at the end). |
 | `--progress-every 25` | Write a progress line (done, speed, time left, counts) every N suppliers (default 25). |
 | `--gst-dates end` | GST/HST registration dates: `none`, `end` (default: still registered today; cancellation date) or `full` (also every start date; slow). The .bat launchers ask. |
@@ -139,9 +139,11 @@ and all taxes (registration dates off); expect roughly 3x that one at a time. Fo
   per supplier, time left, and status counts so far.
 - **Checkpoint saves** of the results workbook every 2,000 suppliers, marked "IN PROGRESS" on the summary sheet.
 
-If the run stops (Ctrl+C, PC restart, network drop), start it again with
-`--resume logs\progress_<date>_<time>.csv`. Finished suppliers are kept, suppliers with errors are re-checked,
-and the new progress file includes both, so the latest one is always complete.
+If the run stops (Ctrl+C, PC restart, network drop), double-click **`Resume Last Run.bat`** (`--resume last`):
+it continues the latest full run with the same workbook and answers (asking again only about Saskatchewan, if
+it was skipped). Or name a progress file: `--resume logs\progress_<date>_<time>.csv`. Finished suppliers are
+kept, suppliers with errors are re-checked, and the new progress file includes both, so the latest one is
+always complete.
 
 ## Input columns
 

@@ -263,7 +263,7 @@ class SkPstAssistant:
         again = dt.datetime.fromtimestamp(min(self._searched_at) + 24 * 3600) if self._searched_at else None
         when = f" More searches are possible from {again:%Y-%m-%d %H:%M}." if again else ""
         return (f"Saskatchewan's registry allows {self.daily_limit} searches per 24 hours and they're used up.{when} "
-                f"Re-run later with --resume, or search by hand at {SK_REGISTRY}")
+                f"Double-click \"Resume Last Run.bat\" later, or search by hand at {SK_REGISTRY}")
 
     # Result rows: from DataTables' own data when it has taken over the table (it keeps only one page of rows on
     # screen), otherwise from the page. Header rows (no <td>) are left out.

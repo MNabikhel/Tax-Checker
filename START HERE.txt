@@ -27,10 +27,10 @@ THE REAL RUN (what you do each time)
    A progress line every 25 suppliers shows how many are done and the time left.
 6. When it finishes, File Explorer opens on  <workbook>_tax_check.xlsx  next to the workbook.
 
-If it stops part way (restart, network drop, Ctrl+C), open Command Prompt in the Tax-Checker
-folder and run (use the newest file in the logs folder next to the workbook):
-   "Run Tax Check.bat" --resume "<...>\logs\progress_<date>_<time>.csv"
-Suppliers already finished are kept; ones with errors are tried again.
+If it stops part way (restart, network drop, Ctrl+C), double-click "Resume Last Run.bat". It picks up
+the last full run by itself (same workbook, same answers; it only asks about Saskatchewan again if you
+said N). Suppliers already finished are kept; ones with errors are tried again. It also does the
+Saskatchewan suppliers left over by the registry's 100-searches-a-day limit: use it the next day.
 
 OFFLINE CHECK (2 minutes, no lookups)
 -------------------------------------

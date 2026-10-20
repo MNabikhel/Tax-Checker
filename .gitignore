@@ -8,6 +8,7 @@ logs/
 cache/
 .last_folder
 .last_workbook
+.last_run
 *_tax_check_TRIAL.xlsx
 diagnostics_dir.txt
 # Supplier files are company data: never commit them (only the made-up examples are tracked).

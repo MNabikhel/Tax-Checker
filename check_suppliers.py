@@ -12,6 +12,7 @@ See README.md for the expected columns and what each check does.
 import argparse
 import collections
 import contextlib
+import json
 import queue
 import re
 import datetime as dt
@@ -50,6 +51,10 @@ log = logging.getLogger("check_suppliers")
 MAX_WORKERS = 6  # parallel lookups; each keeps its own pacing, so this caps the load on each government site
 HERE = Path(__file__).resolve().parent  # the tool's own folder, for data shared between runs
 LAST_FOLDER = HERE / ".last_folder"  # where the file picker opens next time
+LAST_RUN = HERE / ".last_run"  # the latest full run's workbook, progress file and menu answers ("Resume Last Run.bat")
+# Menu answers and options a resumed run reuses, so it checks the same things without asking again.
+RUN_SETTINGS = ("sheet", "output", "date", "taxes", "sk_assist", "gst_dates", "paid_since", "paid_within", "as_of_today",
+                "no_browser", "no_number_search", "no_name_lookup", "trust_gst_number", "nr_list", "workers")
 
 
 def _start_folder():
@@ -108,6 +113,42 @@ def show_in_explorer(path):
         subprocess.Popen(["explorer", "/select,", str(Path(path).resolve())])
     except Exception as e:
         log.debug("Couldn't open Explorer: %s", e)
+
+
+def remember_run(args, progress_path, finished=False):
+    """Note the latest full run (not a trial or offline run) so --resume last can pick it up after a stop."""
+    if args.limit or args.offline:
+        return
+    data = {k: getattr(args, k, None) for k in RUN_SETTINGS}
+    data["taxes"] = sorted(args.taxes) if args.taxes else None
+    data.update(workbook=str(Path(args.workbook).resolve()), progress=str(Path(progress_path).resolve()),
+                finished=finished)
+    try:
+        LAST_RUN.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    except OSError:
+        pass  # only a convenience
+
+
+def resume_last_run(args):
+    """--resume last: the latest full run's workbook, progress file and menu answers. Returns an error message, or ""."""
+    try:
+        data = json.loads(LAST_RUN.read_text(encoding="utf-8"))
+        progress = Path(data["progress"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return ("There's no earlier full run in this folder to resume. Start one with \"Run Tax Check.bat\", or resume "
+                "a progress file by hand: --resume \"<...>\\logs\\progress_<date>_<time>.csv\"")
+    if not progress.exists():
+        return f"The last run's progress file is missing ({progress}); resume a progress file by hand with --resume."
+    args.resume, args.workbook = str(progress), args.workbook or data.get("workbook")
+    for k in RUN_SETTINGS:
+        if k in data and not getattr(args, k, None):
+            setattr(args, k, data[k])
+    if data.get("taxes") is not None:
+        args.taxes = set(data["taxes"])
+    args.ask = False  # same answers as the run being resumed
+    print(f"Resuming the run of {args.workbook}" + (" (it had finished: the results are rewritten, and anything "
+                                                       "left for a re-run is tried again)" if data.get("finished") else ""))
+    return ""
 
 
 def remember_workbook(path):
@@ -326,7 +367,7 @@ def prefetch_saskatchewan(checker, sk, rows):
     left = sk.searches_left()
     if len(jobs) > left:
         log.warning("Saskatchewan: %d suppliers to search, but the registry allows only %d searches per 24 hours "
-                    "(%d left now). Suppliers past the limit are marked for a manual check; re-run later with --resume "
+                    "(%d left now). Suppliers past the limit are marked for a manual check; double-click \"Resume Last Run.bat\" later "
                     "to search the rest.", len(jobs), sk.daily_limit, left)
     log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
                 "once and click Next. The searches then run by themselves, then the rest of the check.", len(jobs))
@@ -425,8 +466,12 @@ def run(args, log_path):
                     cut = i + 1
                     break
         to_check = to_check[:cut]
-        log.info("--limit %d: checking the first %d suppliers, which include %d that need an online lookup",
-                 args.limit, len(to_check), found)
+        if found < args.limit:
+            log.info("--limit %d: only %d suppliers need an online lookup, so all %d are checked", args.limit, found,
+                     len(to_check))
+        else:
+            log.info("--limit %d: checking the first %d suppliers, which include %d that need an online lookup",
+                     args.limit, len(to_check), found)
 
     offline = args.offline
     if offline:
@@ -442,6 +487,7 @@ def run(args, log_path):
                          cache_dir=args.cache_dir)
 
     progress = ProgressReport(log_path.parent, len(to_check), every_rows=args.progress_every)
+    remember_run(args, progress.path)
     for r, values in rows:  # carry resumed rows into the new progress file, so the latest file is complete
         if r in results:
             progress.record(r, values, results[r], 0.0, source="resumed")
@@ -584,7 +630,8 @@ def run(args, log_path):
                     checkpoints.save(results)
         except KeyboardInterrupt:
             # A long run stopped with Ctrl+C keeps what it has; --resume with the progress file finishes the rest.
-            log.warning("Stopped early after %d of %d suppliers; saving the results so far.", len(results), len(rows))
+            log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s", len(results), len(rows),
+                        "" if args.limit or offline else " To continue later, double-click \"Resume Last Run.bat\".")
             stopped_early = True
             if executor:
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -646,7 +693,7 @@ def run(args, log_path):
     if args.limit and len(results) < len(rows):
         notes.insert(0, f"TRIAL RUN (--limit {args.limit}): only {len(results)} of {len(rows)} suppliers have results.")
     if failure is not None:
-        notes.insert(0, f"RUN FAILED: {type(failure).__name__}: {failure}. See the log; re-run with --resume to continue.")
+        notes.insert(0, f"RUN FAILED: {type(failure).__name__}: {failure}. See the log; double-click \"Resume Last Run.bat\" to continue.")
     if gst.__class__ is Offline:
         pass
     elif gst.simplified.error:
@@ -657,7 +704,8 @@ def run(args, log_path):
     if qst and qst.nr_error:
         notes.append(qst.nr_error)
     if stopped_early:
-        notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked.")
+        notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked: "
+                        "double-click \"Resume Last Run.bat\" to check them.")
     ok_statuses = (REGISTERED, NAME_NOT_MATCHED) if args.trust_gst_number else (REGISTERED,)
     if args.trust_gst_number:
         notes.insert(0, "NUMBER-ONLY RESULTS (--accept-number-only): 'REGISTERED - NAME NOT MATCHED' counts as OK in the "
@@ -667,6 +715,8 @@ def run(args, log_path):
         notes.insert(0, f"PAID-SINCE CUT-OFF: vendors last paid before {cutoff} were not checked ({skipped} suppliers, "
                         "Overall 'NOT CHECKED'). Vendors with a blank or unreadable date were checked.")
     saved = save_final(sheet, results, out, notes, ok_statuses)
+    if failure is None and not stopped_early:
+        remember_run(args, progress.path, finished=True)
     log.info("Results written to %s", saved)
     log.info("")
     log.info("=" * 70)
@@ -726,7 +776,8 @@ def main(argv=None):
     ap.add_argument("--as-of-today", action="store_true",
                     help="ignore the date column and confirm every registration as of today (or --date)")
     ap.add_argument("--limit", type=int, help="only check the first N suppliers (a trial run)")
-    ap.add_argument("--resume", help="progress_*.csv from an earlier run that stopped: skip the suppliers it finished")
+    ap.add_argument("--resume", help="progress_*.csv from an earlier run that stopped: skip the suppliers it finished; "
+                                     "'last' = the latest full run, with the same workbook and answers (Resume Last Run.bat)")
     # Each save rewrites the whole ~20,000-row workbook (tens of seconds, during which lookups pause), so not too
     # often; the progress file already records every supplier as it finishes and is what --resume uses.
     ap.add_argument("--checkpoint-every", type=int, default=2000,
@@ -734,6 +785,13 @@ def main(argv=None):
     ap.add_argument("--progress-every", type=int, default=25,
                     help="write a progress line (done, speed, time left) every N suppliers (default 25)")
     args = ap.parse_args(argv)
+    if str(args.resume or "").lower() == "last":
+        problem = resume_last_run(args)
+        if problem:
+            print(problem)
+            return 1
+        if not args.sk_assist and (args.taxes is None or "sk_pst" in args.taxes):
+            args.sk_assist = ask_saskatchewan()  # skipped last time: the one question worth asking again
     if args.date and not parse_date(args.date):
         ap.error("--date must look like 2026-09-30")
     if not args.workbook:

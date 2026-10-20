@@ -527,7 +527,7 @@ class SupplierSheet:
     def _cross_row_notes(self, results):
         """Findings that need the whole sheet. Returns ({row: [notes]} for GST/HST numbers that differently named
         vendors share, {rows whose name is probably cut off}, the vendor master's apparent name length limit)."""
-        from .checks import clean_vendor_name, core_name
+        from .checks import clean_vendor_name, foreign_form_name
 
         names = {r: str(self._cell_value(r, "name") or "").strip() for r in results}
         by_number = defaultdict(list)
@@ -541,8 +541,9 @@ class SupplierSheet:
                 by_number[number].append(r)
         shared = defaultdict(list)
         for rows in by_number.values():
-            # The same vendor spelt two ways ("ACME" / "ACME INC.", "Café Ltée" / "Cafe Ltee") isn't flagged.
-            keys = {r: core_name(clean_vendor_name(names[r])[0]) or names[r].lower() for r in rows}
+            # The same vendor spelt two ways ("ACME" / "ACME INC.", "Café Ltée" / "Cafe Ltee", "SPOTIFY" /
+            # "SPOTIFY AB") isn't flagged.
+            keys = {r: foreign_form_name(clean_vendor_name(names[r])[0]) or names[r].lower() for r in rows}
             if len(set(keys.values())) < 2:
                 continue
             first_of = {}  # one example row per distinct name, so long groups stay quick
@@ -560,8 +561,8 @@ class SupplierSheet:
 
         # A vendor-master name field has a length limit (40 characters in one ERP): names that long are probably
         # cut off, and CRA only accepts the full legal name. Detected from the sheet itself: the longest length,
-        # if several names reach it exactly.
-        lengths = Counter(len(n) for n in names.values() if n)
+        # if several distinct names reach it exactly (one vendor repeated on many rows isn't a sign of a limit).
+        lengths = Counter(len(n) for n in {n.upper() for n in names.values() if n})
         limit = max(lengths) if lengths else 0
         cut = set()
         if limit >= 30 and lengths[limit] >= 3:
