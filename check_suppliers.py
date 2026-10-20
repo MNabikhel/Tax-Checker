@@ -13,6 +13,7 @@ import argparse
 import collections
 import contextlib
 import json
+import os
 import queue
 import re
 import datetime as dt
@@ -52,6 +53,11 @@ MAX_WORKERS = 6  # parallel lookups; each keeps its own pacing, so this caps the
 HERE = Path(__file__).resolve().parent  # the tool's own folder, for data shared between runs
 LAST_FOLDER = HERE / ".last_folder"  # where the file picker opens next time
 LAST_RUN = HERE / ".last_run"  # the latest full run's workbook, progress file and menu answers ("Resume Last Run.bat")
+# Run Test.bat sets this to its own folder: the test keeps its own "last run" note there (so it can never resume,
+# or overwrite the note of, the user's real run) and ignores the tailoring file (the test data is fixed).
+TEST_RUN = os.environ.get("TAXCHECK_TEST_RUN")
+if TEST_RUN:
+    LAST_RUN = Path(TEST_RUN) / ".last_run"
 # Menu answers and options a resumed run reuses, so it checks the same things without asking again.
 RUN_SETTINGS = ("sheet", "output", "date", "taxes", "sk_assist", "gst_dates", "paid_since", "paid_within", "as_of_today",
                 "no_browser", "no_number_search", "no_name_lookup", "trust_gst_number", "nr_list", "workers")
@@ -153,6 +159,8 @@ def resume_last_run(args):
 
 def remember_workbook(path):
     """So "Test Setup.bat" can offer the trial on the same workbook without asking again."""
+    if TEST_RUN:
+        return
     try:
         (HERE / ".last_workbook").write_text(str(Path(path).resolve()), encoding="utf-8")
     except OSError:
@@ -369,8 +377,14 @@ def prefetch_saskatchewan(checker, sk, rows):
         log.warning("Saskatchewan: %d suppliers to search, but the registry allows only %d searches per 24 hours "
                     "(%d left now). Suppliers past the limit are marked for a manual check; double-click \"Resume Last Run.bat\" later "
                     "to search the rest.", len(jobs), sk.daily_limit, left)
-    log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
-                "once and click Next. The searches then run by themselves, then the rest of the check.", len(jobs))
+    answered = getattr(sk, "answered", lambda names: False)
+    fresh = sum(1 for names, _ in jobs if not answered(names))
+    if fresh:
+        log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
+                    "once and click Next. The searches then run by themselves, then the rest of the check.", fresh)
+    if fresh < len(jobs):
+        log.info("Saskatchewan: %d answers from this tool's searches in the last day are reused (no CAPTCHA, no daily "
+                 "searches used for them).", len(jobs) - fresh)
     started = time.monotonic()
     for i, (names, had_number) in enumerate(jobs, 1):
         res = checker._guard(checker._sk_noted, names, had_number)
@@ -510,7 +524,8 @@ def run(args, log_path):
             sk = None
             if args.sk_assist:
                 sk = SkPstAssistant(stack.enter_context(Browser(headless=False, debug_dir=log_path.parent)),
-                                    counter_file=Path(args.cache_dir) / "saskatchewan_searches.json")
+                                    counter_file=Path(args.cache_dir) / "saskatchewan_searches.json",
+                                    answers_file=Path(args.cache_dir) / "saskatchewan_answers.json")
             checker = RowChecker(
                 gst,
                 qst,
@@ -808,7 +823,7 @@ def main(argv=None):
     log_path = setup_logging(args.log_dir or default_log_dir(args.workbook), args.verbose)
     log.info("Log file: %s", log_path)
     try:
-        args.tailoring = apply_tailoring(HERE / TAILORING_FILE)
+        args.tailoring = "" if TEST_RUN else apply_tailoring(HERE / TAILORING_FILE)
     except TailoringError as e:
         log.error("%s", e)
         return 1

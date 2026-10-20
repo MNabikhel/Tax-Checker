@@ -274,3 +274,23 @@ class ResumeLastRun(unittest.TestCase):
         check_suppliers.remember_run(self.args(), self.progress)
         self.progress.unlink()
         self.assertEqual(self.resumed_args()[0], 1)
+
+
+class TestRunIsolation(unittest.TestCase):
+    """Run Test.bat (TAXCHECK_TEST_RUN) must never resume or overwrite the user's own run, or use their tailoring."""
+
+    def test_test_runs_keep_their_own_last_run_note_and_skip_tailoring(self):
+        import os
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code = ("import check_suppliers as c; print(c.LAST_RUN); print(bool(c.TEST_RUN)); "
+                    "c.remember_workbook('x.xlsx'); print((c.HERE / '.last_workbook').exists())")
+            env = dict(os.environ, TAXCHECK_TEST_RUN=tmp)
+            before = (check_suppliers.HERE / ".last_workbook").exists()
+            out = subprocess.run([sys.executable, "-c", code], cwd=check_suppliers.HERE, env=env, text=True,
+                                 capture_output=True, check=True).stdout.split("\n")
+        self.assertEqual(Path(out[0]), Path(tmp) / ".last_run")
+        self.assertEqual(out[1], "True")
+        self.assertEqual(out[2], str(before))  # .last_workbook left as it was

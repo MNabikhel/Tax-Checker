@@ -173,8 +173,9 @@ class SkPstAssistant:
     """
 
     REASK_MIN = 3
+    ANSWER_AGE = 24 * 3600  # a resumed or repeated run within a day reuses answers: no CAPTCHA, no daily searches
 
-    def __init__(self, browser, wait_minutes=5, counter_file=None, daily_limit=DAILY_LIMIT):
+    def __init__(self, browser, wait_minutes=5, counter_file=None, daily_limit=DAILY_LIMIT, answers_file=None):
         self.browser = browser  # must be headed (visible) so a person can complete the CAPTCHA
         # Times of searches in the last 24 hours, kept between runs, because the registry allows only 100 a day.
         self.counter_file = Path(counter_file) if counter_file else None
@@ -186,6 +187,33 @@ class SkPstAssistant:
         self.captchas = 0  # times the person was asked to complete it
         self.searches_since_captcha = 0
         self._per_captcha = []  # searches answered after each earlier CAPTCHA
+        # The registry's answer to each search term, kept a day between runs (see ANSWER_AGE).
+        self.answers_file = Path(answers_file) if answers_file else None
+        self._answers = self._load_answers()
+        self.reused_at = None  # when the answer just returned was searched, if it came from an earlier run
+
+    def _load_answers(self):
+        try:
+            data = json.loads(self.answers_file.read_text(encoding="utf-8")) if self.answers_file else {}
+            now = time.time()
+            return {t: a for t, a in data.items() if now - float(a["at"]) < self.ANSWER_AGE}
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            return {}
+
+    def answered(self, names):
+        """True when every search these names need has an answer from the last day (no browser needed)."""
+        terms = search_terms(*names)
+        return bool(terms) and all(t in self._answers for t in terms)
+
+    def _save_answer(self, term, rows, text):
+        if not self.answers_file:
+            return
+        self._answers[term] = {"at": time.time(), "rows": rows, "text": text[:50000]}
+        try:
+            self.answers_file.parent.mkdir(parents=True, exist_ok=True)
+            self.answers_file.write_text(json.dumps(self._answers, default=str), encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            pass  # only saves a CAPTCHA on a resume
 
     def _search_box_visible(self):
         box = self.page.locator(SEARCH_BOX)
@@ -347,13 +375,20 @@ class SkPstAssistant:
 
     def _answered_search(self, term):
         """One search, tried a second time if it fails or lands on a page without the search box (an error page,
-        or the terms page when the session ended). Raises if the second try fails too."""
+        or the terms page when the session ended). Raises if the second try fails too. An answer from an earlier
+        run within a day is reused without the browser."""
+        self.reused_at = None
+        saved = self._answers.get(term)
+        if saved:
+            self.reused_at = dt.datetime.fromtimestamp(float(saved["at"]))
+            return saved["rows"], saved["text"]
         for attempt in (1, 2):
             try:
                 self._ready()
                 rows, text = self._search(term)
                 if self._search_box_visible():
                     self.searches_since_captcha += 1
+                    self._save_answer(term, rows, text)
                     return rows, text
                 problem = "the registry showed a page without its search box: " + re.sub(r"\s+", " ", text)[:150]
             except _STOPS_THE_RUN:
@@ -378,11 +413,13 @@ class SkPstAssistant:
             for term in terms:
                 rows, text = self._answered_search(term)
                 status, detail, row = classify(rows, text, names)
-                last = (status, detail, term)
+                note = (f" (Registry answer from this tool's search at {self.reused_at:%Y-%m-%d %H:%M}, reused "
+                        "within a day.)" if self.reused_at else self._evidence(term))
+                last = (status, detail, term, note)
                 if status == REGISTERED:
-                    return Result(status, detail + self._evidence(term), row)
-            status, detail, term = last
-            return Result(status, f"{detail} (searched: {', '.join(terms)}).{self._evidence(term)}")
+                    return Result(status, detail + note, row)
+            status, detail, term, note = last
+            return Result(status, f"{detail} (searched: {', '.join(terms)}).{note}")
         except DailyLimitReached:
             self.unavailable = self._limit_message()
         except (CaptchaEverySearch, CaptchaNotCompleted, WindowClosed) as e:

@@ -17,6 +17,7 @@ Nothing in the workbook is changed.
 
 import datetime as dt
 import logging
+import os
 import platform
 import sys
 import time
@@ -366,7 +367,8 @@ def check_lookups(rep, samples, site_ok, browser_ok, log_dir):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    print("Tax-Checker setup test. Choose the supplier workbook in the window that opens...", flush=True)
+    print("Tax-Checker setup test." + ("" if argv else " Choose the supplier workbook in the window that opens..."),
+          flush=True)
     sys.path.insert(0, str(HERE))
     from check_suppliers import choose_workbook, default_log_dir
     from taxcheck.diagnostics import copy_to_diagnostics
@@ -419,7 +421,8 @@ def main(argv=None):
             rep.say(f"   - {what}: {detail}" + (f"  ->  {fix}" if fix else ""))
     else:
         rep.say("  READY: GST/HST lookups work." + (f" {len(warns)} warning(s) above (other checks may be limited)." if warns else ""))
-        rep.say("  This test doesn't create a results workbook. The trial (next) does: 25 real lookups, about 2 minutes.")
+        if not os.environ.get("TAXCHECK_TEST_RUN"):
+            rep.say("  This test doesn't create a results workbook. The trial (next) does: 25 real lookups, about 2 minutes.")
     rep.say(f"  Report: {report_path}")
     rep.say(f"  Detailed log: {log_path}")
     rep.save(report_path)

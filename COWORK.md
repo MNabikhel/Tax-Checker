@@ -28,7 +28,8 @@ run. If something needs a code change, write a change request instead (below).
 
 ## The tailoring loop
 
-1. **User:** `Test Setup.bat` once (expects READY).
+1. **User:** `Test Setup.bat` once (expects READY). (`Run Test.bat` is a one-click test on built-in public test
+   data; its `TaxCheck_Test_Results_<date>.zip` goes to the tool's maintainer, not into tailoring.)
 2. **User:** `Profile Workbook.bat`, choose the workbook. **Cowork:** read `logs/profile_<date>.txt` next to the
    workbook, and look at the workbook itself (it's in OneDrive): column headers, how Tax IDs, provinces, countries,
    names and dates are written.

@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 269: 248 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 271: 250 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -519,6 +519,15 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (review of the one-click test)**: an independent review found that step 4 (`--resume last`) could
+  resume the user's own run if step 3 failed before noting the test run, and that closing the window mid-test
+  could leave the user's note pointing at the test. Now `TAXCHECK_TEST_RUN` (set by `run_test.py`) gives the test
+  its own `.last_run` in its folder, skips the tailoring file and `.last_workbook`; step 4 only runs if step 3
+  noted the test. Also: Ctrl+C still writes the zip; the final check reads the newest results workbook and lists
+  Saskatchewan statuses; clearer messages. **Saskatchewan answers are reused for a day**
+  (`cache/saskatchewan_answers.json`, `SkPstAssistant.ANSWER_AGE`): a resume or re-run within 24 hours needs no
+  CAPTCHA and no daily searches for suppliers already searched (the details say the answer was reused).
 
 - **2026-10-20 (simplified list read half-built)**: a fresh-folder test run found every online seller NOT
   APPLICABLE: the setup check read CRA's simplified-list page from the browser's live view while its scripts were

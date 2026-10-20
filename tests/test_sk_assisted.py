@@ -209,6 +209,31 @@ class AssistedFlow(unittest.TestCase):
             other.close()
         self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)  # still works after the other closed
 
+    def test_a_resume_within_a_day_reuses_answers_without_the_browser(self):
+        answers = self.tmp / "saskatchewan_answers.json"
+        first = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5, answers_file=answers)
+        self.assertEqual(first.check(["PRAIRIE HARDWARE LTD"]).status, REGISTERED)
+        self.assertEqual(first.check(["UNKNOWN WIDGETS"]).status, NOT_CONFIRMED)
+        searched = list(FakeRegistry.searches)
+
+        class NoBrowser:  # the resumed run must not open the window for these
+            debug_dir = None
+
+            def new_persistent_page(self):
+                raise AssertionError("no CAPTCHA needed")
+
+        again = sk_pst.SkPstAssistant(NoBrowser(), answers_file=answers)
+        self.assertTrue(again.answered(["PRAIRIE HARDWARE LTD"]))
+        self.assertFalse(again.answered(["NORTHERN SUPPLY"]))
+        res = again.check(["PRAIRIE HARDWARE LTD"])
+        self.assertEqual(res.status, REGISTERED)
+        self.assertIn("reused within a day", res.detail)
+        self.assertEqual(again.check(["UNKNOWN WIDGETS"]).status, NOT_CONFIRMED)
+        self.assertEqual((FakeRegistry.searches, again.captchas), (searched, 0))
+
+        with mock.patch.object(sk_pst.SkPstAssistant, "ANSWER_AGE", 0):  # a day later: searched again
+            self.assertFalse(sk_pst.SkPstAssistant(NoBrowser(), answers_file=answers).answered(["PRAIRIE HARDWARE LTD"]))
+
     def test_probe_saves_each_page_and_what_was_read(self):
         import json
 
