@@ -4,12 +4,16 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-19 · **Branch:** `main` (current; all work is merged) · **Tests:** 228: 208 offline
-(some in a local browser), 20 live (17 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 238: 217 offline
+(some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
 
 ## 0. Start here (for GitHub Copilot or any AI agent tailoring this tool)
+
+**If your job is tailoring the tool to the user's data, read [`TAILORING.md`](TAILORING.md) first**: Canadian
+sales tax in brief, one row end to end, what's known about the user's file, and a step-by-step playbook driven
+by `profile_workbook.py` (counts and patterns of the user's file, no supplier data). This file is the reference.
 
 ### Current state (2026-10-19) and what's next
 
@@ -219,6 +223,7 @@ the log only).
 | `taxcheck/bc_pst.py` | eTaxBC form automation | `BcPstChecker` |
 | `taxcheck/mb_rst.py` | TAXcess form automation, one distinctive word per name (sheet, trade name, CRA's name) | `MbRstChecker`, `name_variants`, `parse_results` |
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA; one failed search affects only that supplier | `SkPstAssistant`, `classify`, `search_terms` |
+| `profile_workbook.py`, `Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
 | `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection (pause and retry every 2 min; give up after 30 min; shared by workers) | `new_session`, `Throttle`, `SiteHealth` |
 | `taxcheck/logsetup.py` | Log file + console handlers | `setup_logging` |
@@ -449,7 +454,8 @@ To poke at the code from another folder, run Python from the repo root or set `P
 (`taxcheck` isn't an installed package).
 
 Performance (user's PC, 3 workers): about 4 s per supplier that needs a lookup; rows for foreign suppliers are
-instant. A 19,911-row file with ~40% Canadian rows is a 6–10 hour run. Per lookup: about 3.5 s when the GST name matches first time (throttled ~1.5 s per CRA
+instant. The user's earlier full run (19,911 rows, 3 workers, dates off) took about 2 h 45 min; Quick dates and
+the newer name sources add some time for rows that don't match first time (plan on 3–4 hours). Per lookup: about 3.5 s when the GST name matches first time (throttled ~1.5 s per CRA
 request, ~4–5 s per browser lookup). 500 suppliers ≈ 30 minutes. A past check date adds one CRA lookup (~1.5 s) per registered number, to see
 whether it's still registered. Duplicate numbers are looked up once.
 Ctrl+C saves what's done; re-running on the output file overwrites its result columns.
@@ -501,6 +507,15 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (simplified GST/HST; tailoring guide)**: Researched CRA's simplified regime (RT9999 numbers since
+  July 2023; no ITCs on GST/HST these sellers charge) and measured the matching on CRA's real list (2,366 entries)
+  with realistic vendor-master spellings: 33 of 56 found before, 50 of 56 now, no false matches among
+  non-listed vendors; 11 probable hits on 694,224 unrelated federal corporation names. Changes in `checks.py`:
+  foreign legal forms, 5-letter names, probable tier (foreign vendors only, one listed business, descriptors
+  dropped from the listed name only), card-style names, bare 9-digit numbers on the list, RT0001→RT9999 and
+  9-digit Tax ID notes, "SPOTIFY"/"SPOTIFY AB" as the same name. Added `TAILORING.md` and
+  `profile_workbook.py` / `Profile Workbook.bat` for the next agent.
 
 - **2026-10-19 (handoff refresh)**: §0 now opens with the current state and the likely next jobs; stale parts
   updated (Saskatchewan results page known, test counts, run diagram with Canada's Business Registries and the

@@ -32,6 +32,12 @@ folder and run (use the newest file in the logs folder next to the workbook):
    "Run Tax Check.bat" --resume "<...>\logs\progress_<date>_<time>.csv"
 Suppliers already finished are kept; ones with errors are tried again.
 
+PROFILE WORKBOOK (to help tailor the tool)
+------------------------------------------
+"Profile Workbook.bat" asks for your supplier file and saves logs\profile_<date>.txt next to it: counts and
+patterns only (how Tax IDs, provinces, names and dates are written), no supplier names or numbers. Send that
+file to whoever is tailoring the tool.
+
 SASKATCHEWAN PROBE (only if asked)
 ----------------------------------
 "Saskatchewan Probe.bat" opens the Saskatchewan registry: tick the CAPTCHA, click Next, and it searches a

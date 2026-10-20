@@ -99,6 +99,10 @@ To try it out, run it on `examples/sample_suppliers.xlsx`, which uses publicly p
 
 ## ERP vendor-master exports (Company Name / Tax ID / Country layout)
 
+**Profile Workbook.bat** (`python profile_workbook.py [file]`) prints the shape of a supplier file without its
+contents (column mapping, Tax ID formats, spellings, name markers, what would be checked) and saves it in
+`logs\profile_<date>.txt`: safe to send to whoever tailors the tool (see `TAILORING.md`).
+
 The tool reads a typical ERP vendor-master export as it comes, with these headers (any other columns are left
 alone):
 
