@@ -18,3 +18,5 @@ diagnostics_dir.txt
 *.csv
 !examples/*.xlsx
 !tests/fixtures/**
+test_run/
+TaxCheck_Test_Results_*.zip

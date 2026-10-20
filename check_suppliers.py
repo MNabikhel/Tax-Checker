@@ -628,6 +628,8 @@ def run(args, log_path):
                 log.info("[%d/%d] row %d %s: %s", i, len(to_check), r, values.get("name"), summary)
                 if args.checkpoint_every and i % args.checkpoint_every == 0 and i < len(to_check):
                     checkpoints.save(results)
+                if args.stop_after and i >= args.stop_after and i < len(to_check):
+                    raise KeyboardInterrupt  # --stop-after: exactly what Ctrl+C does (Run Test.bat tests resuming)
         except KeyboardInterrupt:
             # A long run stopped with Ctrl+C keeps what it has; --resume with the progress file finishes the rest.
             log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s", len(results), len(rows),
@@ -776,6 +778,8 @@ def main(argv=None):
     ap.add_argument("--as-of-today", action="store_true",
                     help="ignore the date column and confirm every registration as of today (or --date)")
     ap.add_argument("--limit", type=int, help="only check the first N suppliers (a trial run)")
+    ap.add_argument("--stop-after", type=int, help="stop after N suppliers as if Ctrl+C was pressed (Run Test.bat "
+                                                   "uses it to test resuming)")
     ap.add_argument("--resume", help="progress_*.csv from an earlier run that stopped: skip the suppliers it finished; "
                                      "'last' = the latest full run, with the same workbook and answers (Resume Last Run.bat)")
     # Each save rewrites the whole ~20,000-row workbook (tens of seconds, during which lookups pause), so not too

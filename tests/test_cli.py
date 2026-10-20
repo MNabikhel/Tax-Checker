@@ -108,6 +108,27 @@ class Cli(unittest.TestCase):
         self.assertEqual(wb["Sheet"]["G2"].value, "OK")  # first supplier's result was kept
         notes = [r[0] for r in wb["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
         self.assertTrue(any(str(n).startswith("STOPPED EARLY") for n in notes), notes)
+
+    def test_stop_after_then_resume_last(self):
+        # What Run Test.bat does: stop as Ctrl+C would, then resume through the "last run" note.
+        with mock.patch.object(check_suppliers, "LAST_RUN", self.dir / ".last_run"):
+            code, log_text = self.run_cli("--stop-after", "2")
+            self.assertEqual(code, 0)
+            self.assertIn("Stopped early after 2 of 4", log_text)
+            for h in list(logging.getLogger().handlers):  # a second run in the same test: start a fresh log
+                logging.getLogger().removeHandler(h)
+                h.close()
+            with mock.patch("builtins.input", return_value="n") as asked:  # Saskatchewan was skipped: asked again
+                code = check_suppliers.main(["--resume", "last", "--log-dir", str(self.dir / "logs2"), "--workers", "1"])
+            asked.assert_called_once()
+        self.assertEqual(code, 0)
+        ws = openpyxl.load_workbook(self.dir / "suppliers_tax_check.xlsx")["Sheet"]
+        headers = [c.value for c in ws[1]]
+        self.assertTrue(all(r[headers.index("Overall")] for r in ws.iter_rows(min_row=2, values_only=True)))
+        resumed = (self.dir / "logs2").glob("tax_check_*.log").__next__().read_text(encoding="utf-8")
+        # Of the 2 before the stop, the one whose lookup failed (Flaky Co) is checked again.
+        self.assertIn("1 suppliers already done, 1 with errors", resumed)
+        self.assertIn("'no_browser': True", resumed)  # the stopped run's options, reused
         self.assertIn("Stopped early after 1 of 4", log_text)
 
     def test_check_columns_is_offline_and_explains_mapping(self):
