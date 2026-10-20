@@ -226,6 +226,12 @@ def duration(hours):
     return (f"{minutes} minute" + ("s" if minutes > 1 else "")) if hours < 1 else f"{hours:.1f} hours"
 
 
+def span(hours):
+    """'2.5 hours-3.5 hours' style range, or one value when both ends round the same."""
+    low, high = duration(hours), duration(hours * 1.4)
+    return low if low == high else f"{low} to {high}"
+
+
 def check_workbook(rep, path):
     rep.step("5. Workbook")
     from openpyxl.utils import get_column_letter
@@ -290,7 +296,7 @@ def check_workbook(rep, path):
     # 3.0 s per supplier includes the extra name forms tried; +1.5 s for the quick registration-date check.
     hours = max(len(to_lookup) * 4.5 / 3, mb_rows * 6) / 3600
     rep.result(INFO, "Full run estimate", f"about {len(to_lookup)} GST/HST lookups + {mb_rows} Manitoba lookups, "
-                                         f"roughly {duration(hours)}-{duration(hours * 1.4)} with 3 parallel lookups and quick registration dates "
+                                         f"roughly {span(hours)} with 3 parallel lookups and quick registration dates "
                                          "(the defaults; GST/HST only with no dates is about 40% faster)")
 
     # Can results be written next to the workbook?
