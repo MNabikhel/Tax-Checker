@@ -40,6 +40,9 @@ from taxcheck.progress import ProgressReport, load_resume
 from taxcheck.qst import QstChecker
 from taxcheck.result import NAME_NOT_MATCHED, NOT_CHECKED, REGISTERED, Result
 from taxcheck.sk_pst import SkPstAssistant
+from taxcheck.tailoring import FILE_NAME as TAILORING_FILE
+from taxcheck.tailoring import TailoringError
+from taxcheck.tailoring import apply as apply_tailoring
 from taxcheck.workbook import InputError, SupplierSheet, header_hints, parse_date
 
 log = logging.getLogger("check_suppliers")
@@ -620,6 +623,8 @@ def run(args, log_path):
     notes.insert(0, "GST/HST registration dates: " + {"none": "not looked up.", "end": "checked whether each supplier "
                     "is still registered today, with the cancellation date if not.", "full": "start and cancellation "
                     "dates looked up."}[args.gst_dates or "end"])
+    if getattr(args, "tailoring", ""):
+        notes.insert(0, args.tailoring + ".")
     notes.insert(0, "Taxes checked in this run: " + ", ".join(TAX_LABELS[k] for k in TAX_LABELS
                                                              if args.taxes is None or k in args.taxes) + ".")
     if offline:
@@ -740,6 +745,11 @@ def main(argv=None):
 
     log_path = setup_logging(args.log_dir or default_log_dir(args.workbook), args.verbose)
     log.info("Log file: %s", log_path)
+    try:
+        args.tailoring = apply_tailoring(HERE / TAILORING_FILE)
+    except TailoringError as e:
+        log.error("%s", e)
+        return 1
     try:
         args.taxes = parse_taxes(args.taxes) if isinstance(args.taxes, str) else args.taxes
     except ValueError as e:

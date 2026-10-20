@@ -32,6 +32,11 @@ folder and run (use the newest file in the logs folder next to the workbook):
    "Run Tax Check.bat" --resume "<...>\logs\progress_<date>_<time>.csv"
 Suppliers already finished are kept; ones with errors are tried again.
 
+OFFLINE CHECK (2 minutes, no lookups)
+-------------------------------------
+"Offline Check.bat" reads your file and checks every number's format, with no lookups. Useful after the
+tailoring settings change (tailoring.xlsx in this folder).
+
 PROFILE WORKBOOK (to help tailor the tool)
 ------------------------------------------
 "Profile Workbook.bat" asks for your supplier file and saves logs\profile_<date>.txt next to it: counts and

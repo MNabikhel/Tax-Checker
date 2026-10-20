@@ -88,16 +88,43 @@ def simplified_counts(rows, located):
             "each): " + (", ".join(f"{k}: {n}" for k, n in found.most_common()) or "none"))
 
 
+def no_header_found(path, sheet_name):
+    """The profile when no header row is recognised: the most header-like row as written (the first row with
+    text and no digits in any cell), every other row as shapes only, so column settings can be written without
+    any supplier name or number appearing."""
+    import openpyxl
+
+    from taxcheck.workbook import COLUMNS
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    ws = wb[sheet_name] if sheet_name else wb.worksheets[0]
+    rows = [[c for c in row] for row in ws.iter_rows(max_row=8, values_only=True)]
+    header = next((i for i, row in enumerate(rows) if any(c not in (None, "") for c in row)
+                   and not any(re.search(r"\d", str(c)) for c in row if c is not None)), None)
+    lines = [f"Workbook profile, {dt.date.today()}: {Path(path).name}, sheet '{ws.title}'",
+             "", "NO HEADER ROW RECOGNISED: the tool needs a supplier-name column plus one other known column.",
+             "", "First rows (the likely header row as written; other rows as shapes: 9 = digit, A = letter):"]
+    for i, row in enumerate(rows):
+        cells = [("" if c in (None, "") else str(c).strip()[:40] if i == header else shape(c, 20)) for c in row]
+        lines.append(f"  row {i + 1}{' (header?)' if i == header else ''}: " + " | ".join(cells))
+    lines += ["", "Add the header names to the tailoring settings (tailoring.xlsx: 'column' / field / header).",
+              "Fields: " + ", ".join(COLUMNS)]
+    return lines
+
+
 def profile(path, sheet_name=None, with_lists=False):
     sys.path.insert(0, str(HERE))
     from taxcheck.checks import DryRun, RowChecker, clean_vendor_name, core_name
     from taxcheck.gst import cra_today
     from taxcheck.numbers import normalize_tax_id, tax_id_problem
-    from taxcheck.workbook import SupplierSheet, parse_date
+    from taxcheck.workbook import InputError, SupplierSheet, parse_date
 
-    sheet = SupplierSheet(path, sheet_name)
     lines = []
     out = lines.append
+    try:
+        sheet = SupplierSheet(path, sheet_name)
+    except InputError:
+        return no_header_found(path, sheet_name)
     rows = list(sheet.rows())
     out(f"Workbook profile, {dt.date.today()}: {Path(path).name}, sheet '{sheet.ws.title}', header on row "
         f"{sheet.header_row}, {len(rows)} data rows")
@@ -263,11 +290,21 @@ def main(argv=None):
     import logging
 
     logging.disable(logging.INFO)  # the routing pass logs every row; the profile is the output here
+    from taxcheck.tailoring import FILE_NAME, TailoringError
+    from taxcheck.tailoring import apply as apply_tailoring
+
+    try:
+        applied = apply_tailoring(HERE / FILE_NAME)
+    except TailoringError as e:
+        print(f"Problem in the tailoring file: {e}")
+        return 1
     if not args.offline:
         from taxcheck.certs import use_system_certificates
 
         use_system_certificates()
     lines = profile(path, args.sheet, with_lists=not args.offline)
+    if applied:
+        lines.insert(1, applied)
     text = "\n".join(lines)
     print(text)
     out = default_log_dir(path) / f"profile_{dt.datetime.now():%Y%m%d_%H%M%S}.txt"

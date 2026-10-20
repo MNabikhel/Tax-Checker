@@ -4,7 +4,7 @@ This repo checks Canadian suppliers' sales-tax registrations (GST/HST, QST, BC P
 Saskatchewan PST) against official government lookup services and writes the results into a copy of the
 supplier workbook.
 
-**Tailoring the tool to the user's data? Read `TAILORING.md` first** (tax background, one row end to end, the
+**Tailoring the tool to the user's data? Read `TAILORING.md` first (with Microsoft 365 Copilot Cowork: `COWORK.md`)** (tax background, one row end to end, the
 user's dataset, a step-by-step playbook driven by `Profile Workbook.bat`). Then **read `HANDOFF.md` before changing anything** (start with section 0, "Current state and what's next"). It
 explains the architecture, how each government site behaves, what has been verified, and how to adapt the
 tool to a new dataset. Status: verified end to end and ready for the user's full run (19,911 suppliers).

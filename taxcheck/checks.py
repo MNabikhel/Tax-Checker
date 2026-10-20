@@ -52,12 +52,30 @@ _DNU = re.compile(
 )
 
 
+# Set from tailoring.json (taxcheck/tailoring.py): text to remove from vendor names, and extra do-not-use markers.
+EXTRA_NAME_MARKERS = []
+EXTRA_DNU_MARKERS = []
+
+
 def clean_vendor_name(name):
     """(name without do-not-use markers, True if a marker was removed)."""
-    if _blank(name) or not _DNU.search(str(name)):
-        return name, False  # no marker: the name is used exactly as given
+    if _blank(name):
+        return name, False
+    extra_dnu = False
+    if EXTRA_NAME_MARKERS or EXTRA_DNU_MARKERS:
+        text = str(name)
+        for rx in EXTRA_NAME_MARKERS:
+            text = rx.sub(" ", text)
+        for rx in EXTRA_DNU_MARKERS:
+            text, n = rx.subn(" ", text)
+            extra_dnu = extra_dnu or n > 0
+        text = re.sub(r"\s{2,}", " ", text).strip(" -,:;*")
+        if text != str(name).strip():
+            name = text or name
+    if not _DNU.search(str(name)):
+        return name, extra_dnu  # no built-in marker: the name is used as given (minus tailoring-file text)
     cleaned = re.sub(r"\s{2,}", " ", _DNU.sub(" ", str(name))).strip(" -,:;*")
-    return (cleaned or str(name).strip()), bool(cleaned)
+    return (cleaned or str(name).strip()), bool(cleaned) or extra_dnu
 
 
 def _blank(v):

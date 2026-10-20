@@ -1,0 +1,12 @@
+{
+  "notes": "Example only. Copy to tailoring.json (same folder) and keep just the entries your export needs. Every key is optional; see taxcheck/tailoring.py and TAILORING.md section 5.",
+  "columns": {
+    "gst": ["Vendor Tax No"],
+    "trade_name": ["Doing Business As Name"]
+  },
+  "provinces": {"QC": ["Qc"]},
+  "canada_values": ["CA - Canada"],
+  "date_formats_first": ["%m/%d/%Y"],
+  "remove_from_names": ["- INACTIVE"],
+  "do_not_use_markers": ["DO NOT PAY"]
+}

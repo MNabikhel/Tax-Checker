@@ -76,10 +76,22 @@ def _key(s):
     return re.sub(r"[^a-z0-9#]", "", str(s or "").lower())
 
 
-_ALIASES = {_key(a): col for col, names in COLUMNS.items() for a in names}
-# Position of each spelling in its field's list: COLUMNS lists the specific spellings first ("postal code"
-# before "zip"), so when two columns fit one field the more specific header wins.
-_ALIAS_RANK = {_key(a): i for names in COLUMNS.values() for i, a in enumerate(names)}
+_ALIASES, _ALIAS_RANK = {}, {}
+
+
+def rebuild_aliases():
+    """Header spelling -> field, and each spelling's position in its field's list: COLUMNS lists the specific
+    spellings first ("postal code" before "zip"), so when two columns fit one field the more specific header wins.
+    Rebuilt when a tailoring file adds spellings (taxcheck/tailoring.py)."""
+    _ALIASES.clear()
+    _ALIAS_RANK.clear()
+    for col, names in COLUMNS.items():
+        for i, a in enumerate(names):
+            _ALIASES.setdefault(_key(a), col)
+            _ALIAS_RANK.setdefault(_key(a), i)
+
+
+rebuild_aliases()
 TAX_FIELDS = {"gst", "bn", "qst", "pst", "bc_pst", "sk_pst", "mb_rst"}
 
 
@@ -140,19 +152,23 @@ def normalize_province(value):
     return ""
 
 
+# Order matters for ambiguous dates: 09/10/2026 is read day-first (9 October), as in Canadian usage. A tailoring
+# file can put other formats first (e.g. month-first "%m/%d/%Y" for an export that writes dates that way).
+DATE_FORMATS = [
+    "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y%m%d",
+    "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
+    "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y", "%d %B %Y",
+    "%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%b %d %Y",
+]
+
+
 def parse_date(value):
     if isinstance(value, dt.datetime):
         return value.date()
     if isinstance(value, dt.date):
         return value
     s = str(value or "").strip()
-    # Order matters for ambiguous dates: 09/10/2026 is read day-first (9 October), as in Canadian usage.
-    for fmt in (
-        "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y%m%d",
-        "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
-        "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y", "%d %B %Y",
-        "%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%b %d %Y",
-    ):
+    for fmt in DATE_FORMATS:
         try:
             return dt.datetime.strptime(s, fmt).date()
         except ValueError:

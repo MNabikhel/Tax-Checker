@@ -7,7 +7,7 @@ choose). This guide explains, end to end, what the tool does and why, what is kn
 step-by-step way to tailor and verify. `HANDOFF.md` is the engineering reference (every site's quirks, code map,
 change log); this file is the "how to think about it and what to do" guide. Read this first, then HANDOFF §0.
 
-Last updated 2026-10-20. Tests: 225 offline, 21 live (`TAXCHECK_LIVE=1`).
+Last updated 2026-10-20. Tests: 231 offline, 21 live (`TAXCHECK_LIVE=1`).
 
 ---
 
@@ -164,8 +164,12 @@ kinds and range; shared numbers; **online sellers** whose names are on CRA's sim
 the list is downloaded once, `--offline` skips it); and the offline routing per tax. Also ask for
 `python check_suppliers.py <file> --check-columns` output if a column looks unmapped.
 
-**Step 2. Act on what the profile shows.** Use this table; each fix needs a test with made-up rows in the same
-shape (step 3).
+**Step 2. Act on what the profile shows.** Use this table. **Column spellings, province/country spellings,
+date formats and name markings go in the tailoring settings file, not the code**: `tailoring.xlsx` (one row per
+setting; template `examples/tailoring_template.xlsx`) or `tailoring.json` (example `tailoring.example.json`) in the
+tool folder, read at start-up by `taxcheck/tailoring.py`; the summary sheet and the profile say what was applied,
+and a mistake stops the run with a message. An agent that can't run code (Copilot Cowork) uses only this; see
+`COWORK.md`. Code changes need a test with made-up rows in the same shape (step 3).
 
 | The profile shows | Meaning | Change |
 |---|---|---|

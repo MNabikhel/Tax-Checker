@@ -46,6 +46,19 @@ class Profile(unittest.TestCase):
         self.assertIn("4 Canadian, 1 foreign", text)
         self.assertIn("GST COLUMN, foreign rows", text)
 
+    def test_unrecognised_headers_are_listed_without_supplier_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "other.xlsx"
+            wb = openpyxl.Workbook()
+            wb.active.append(["Vendor #", "Supplier Legal Name", "Prov/St", "Vendor Tax No"])
+            wb.active.append(["V1", "KESTREL WIDGETS", "Man", "123456782RT0001"])
+            wb.save(path)
+            text = "\n".join(profile_workbook.profile(str(path)))
+        self.assertIn("NO HEADER ROW RECOGNISED", text)
+        self.assertIn("Supplier Legal Name | Prov/St | Vendor Tax No", text)  # the header row as written
+        for secret in ("KESTREL", "123456782", "Man |"):
+            self.assertNotIn(secret, text)
+
     def test_free_text_in_province_or_country_is_masked(self):
         self.assertEqual(profile_workbook.safe_value("Ont."), "Ont.")
         self.assertEqual(profile_workbook.safe_value("123 Main Street Suite 4"), "999 AAAA AAAAAA AAAA...")

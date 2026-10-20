@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 246: 225 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 252: 231 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -226,6 +226,8 @@ the log only).
 | `taxcheck/bc_pst.py` | eTaxBC form automation | `BcPstChecker` |
 | `taxcheck/mb_rst.py` | TAXcess form automation, one distinctive word per name (sheet, trade name, CRA's name) | `MbRstChecker`, `name_variants`, `parse_results` |
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA; one failed search affects only that supplier | `SkPstAssistant`, `classify`, `search_terms` |
+| `taxcheck/tailoring.py`, `tailoring.example.json`, `examples/tailoring_template.xlsx` | Tailoring without code: extra column/province/country spellings, date formats first, name markings, from `tailoring.json` or `tailoring.xlsx` in the tool folder | `apply`, `reset`, `TailoringError` |
+| `Offline Check.bat` | `--offline` run on a chosen workbook (format and check digit only) | |
 | `profile_workbook.py`, `Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
 | `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection (pause and retry every 2 min; give up after 30 min; shared by workers) | `new_session`, `Throttle`, `SiteHealth` |
@@ -515,6 +517,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (Copilot Cowork as the tailoring agent)**: the user will tailor with Microsoft 365 Copilot Cowork,
+  which works with OneDrive files but doesn't run code or use GitHub. Added `taxcheck/tailoring.py`: column,
+  province and Canada spellings, date formats (tried first) and name markings from `tailoring.json` or
+  `tailoring.xlsx` in the tool folder (validated; mistakes stop the run with a message; applied settings are noted
+  on the summary sheet and in the profile). `COWORK.md` (who does what, the loop, change requests, starter
+  prompt), `Offline Check.bat`, the Excel template, and `.gitignore` rules that keep supplier files out of git.
 
 - **2026-10-20 (second full verification before handoff)**: fresh clone of `main` → venv → all tests and
   `check_setup.py` READY; a made-up 3,150-row export with every known messy pattern through profile,
