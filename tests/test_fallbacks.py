@@ -102,3 +102,20 @@ class BrowserFallback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrowserCloseNeverRaises(unittest.TestCase):
+    """Found in a stress test: Ctrl+C also stopped the browser's driver; closing it then raised, and the results
+    workbook wasn't saved."""
+
+    def test_close_after_the_driver_died(self):
+        from taxcheck.browser import Browser
+
+        class Dead:
+            def close(self):
+                raise RuntimeError("Browser.close: Connection closed while reading from the driver")
+
+        b = Browser()
+        b._browser = Dead()
+        b.close()  # must not raise
+        self.assertIsNone(b._browser)

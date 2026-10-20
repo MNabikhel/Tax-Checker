@@ -90,7 +90,7 @@ def simplified_counts(rows, located):
 
 def profile(path, sheet_name=None, with_lists=False):
     sys.path.insert(0, str(HERE))
-    from taxcheck.checks import DryRun, RowChecker
+    from taxcheck.checks import DryRun, RowChecker, clean_vendor_name, core_name
     from taxcheck.gst import cra_today
     from taxcheck.numbers import normalize_tax_id, tax_id_problem
     from taxcheck.workbook import SupplierSheet, parse_date
@@ -214,7 +214,7 @@ def profile(path, sheet_name=None, with_lists=False):
         for _, v in rows:
             digits = re.sub(r"\D", "", str(v.get("gst") or ""))[:9]
             if len(digits) == 9 and not blank(v.get("name")):
-                by_number.setdefault(digits, set()).add(re.sub(r"[^a-z0-9]", "", str(v["name"]).lower()))
+                by_number.setdefault(digits, set()).add(core_name(clean_vendor_name(str(v["name"]))[0]))
         shared = sum(1 for s in by_number.values() if len(s) > 1)
         counts = Counter(re.sub(r"\D", "", str(v.get("gst") or ""))[:9] for _, v in rows)
         repeated = sum(n - 1 for k, n in counts.items() if len(k) == 9 and n > 1)

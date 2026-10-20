@@ -61,14 +61,28 @@ class PossibleNumber(unittest.TestCase):
         {"Company_Name": "PRAIRIE WIDGET MODELS LTD", "Status_State": "Active"},  # no number
     ]}
 
+    def test_no_lead_unless_every_match_is_on_the_page(self):
+        from taxcheck.cbr import complete
+
+        self.assertTrue(complete({"count": 2, "docs": self.NAME_SEARCH["docs"]}))
+        self.assertFalse(complete({"count": 250, "docs": self.NAME_SEARCH["docs"]}))  # more pages: can't be sure
+        self.assertTrue(complete({"count": 1, "docs": [{"hierarchy": "parent"}, {"hierarchy": "child"}]}))
+
+    def test_switch_turns_the_search_off(self):
+        res, gst = self.checker([("123456782", "PRAIRIE WIDGET MODELS INC.")], "registered", search=False)
+        self.assertNotIn("possible_number", res.facts)
+        self.assertEqual(gst.asked, [])
+
     def test_only_exactly_the_vendors_name(self):
         from taxcheck.cbr import numbers_by_name
 
         self.assertEqual(numbers_by_name(self.NAME_SEARCH, "Prairie Widget Models Ltd."),
                          [("123456782", "PRAIRIE WIDGET MODELS INC.")])
-        self.assertEqual(numbers_by_name(self.NAME_SEARCH, "PRAIRIE WIDGET MODELS LP"), [])
+        self.assertEqual(numbers_by_name(self.NAME_SEARCH, "PRAIRIE WIDGET MODELS LP"), [])  # LP vs INC
+        self.assertEqual(numbers_by_name(self.NAME_SEARCH, "PRAIRIE WIDGET MODELS"),  # no legal form: either kind
+                         [("123456782", "PRAIRIE WIDGET MODELS INC.")])
 
-    def checker(self, found, cra_answer):
+    def checker(self, found, cra_answer, search=True):
         import datetime as dt
 
         from taxcheck.checks import RowChecker
@@ -92,6 +106,7 @@ class PossibleNumber(unittest.TestCase):
 
         gst = Gst()
         rc = RowChecker(gst, None, available={"name", "gst", "province"})
+        rc.number_search = search
         return rc.check({"name": "PRAIRIE WIDGET MODELS INC", "gst": None, "province": "MB"}, dt.date(2026, 9, 1))["gst"], gst
 
     def test_lead_when_cra_confirms(self):

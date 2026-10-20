@@ -29,7 +29,7 @@ class FakeQst:
     def __init__(self, *a, **k):
         pass
 
-    def check(self, number, suffix_assumed=False):
+    def check(self, number, suffix_assumed=False, judge=None):
         return Result(REGISTERED, "fake RQ")
 
 

@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 241: 220 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 246: 225 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -426,7 +426,8 @@ loaded; rows come from DataTables' data if it has taken over the table (it shows
    (`_key`): lowercase, then remove everything except letters, digits and `#`, then require an **exact**
    match with an alias treated the same way. So `GST #` → `gst#` and `GST No` → `gstno` are different
    keys, and `Supplier Legal Name` won't match `legal name`. If two columns match the same field, the
-   **leftmost** wins. The header row needs a name column plus at least one other recognized column.
+   the one with data in its first 200 rows wins, then the more specific spelling (earlier in the
+   field's `COLUMNS` list, e.g. "Postal Code" before "Zip"), then the leftmost (logged). The header row needs a name column plus at least one other recognized column.
    Don't add very generic words that could match unrelated columns ("date" is already generic; watch for
    "Date Added"). The suggestions from `--check-columns` are hints; confirm what the column holds.
    Identifier columns ("Vendor ID", "Supplier Code") never get a suggestion, and headers mentioning a
@@ -514,6 +515,23 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (second full verification before handoff)**: fresh clone of `main` → venv → all tests and
+  `check_setup.py` READY; a made-up 3,150-row export with every known messy pattern through profile,
+  `--check-columns`, `--offline` (13 s), a live 80-lookup run (0 errors; CRA connection resets retried) and Ctrl+C +
+  `--resume` (same answers on all 195 rows both runs checked). Fixed: (1) **Ctrl+C lost the results workbook**
+  when the browser had started (the driver also gets the interrupt; `Browser.close` raised and skipped the save);
+  (2) when two columns fit one field the leftmost won, so an empty "Zip" beat "Postal Code": now data, then the
+  more specific header, then leftmost. An independent review found and these were fixed: (3) QST without a TQ
+  suffix now reads each account against the payment date before trying the next (a TQ0001 cancelled after the
+  payment date was being replaced by a later account) and stops at the first account Revenu Québec doesn't know;
+  (4) "SPOTIFY" = "SPOTIFY AB" drops only foreign legal forms, not regions or "International" (sister companies);
+  (5) partnership vs corporation only blocks a match when both names state their form ("ACME" vs "ACME LP" is
+  fine); (6) the shared-number note uses `core_name` (no flag for "ACME" vs "ACME INC.") and ignores
+  invalid/placeholder numbers; (7) the possible-number lead asks for 100 results and gives no lead unless every
+  match is on the page; `--no-number-search` turns it off. Kept on purpose: a simplified registrant whose sheet
+  name is CRA's listed name and whose number the number-only check confirms is upgraded to REGISTERED, as for the
+  federal and BC registries' names (the earlier note that it "can't be upgraded" overstated it).
 
 - **2026-10-20 (cold read of TAILORING.md by a fresh agent)**: fixed two bugs it found: `--resume` didn't search
   the Saskatchewan rows left over by the 100-a-day limit (they're MANUAL, and resume only redid ERROR rows; now it

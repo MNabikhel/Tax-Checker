@@ -470,6 +470,7 @@ def run(args, log_path):
                 sk=sk,
                 available=sheet.cols, taxes=args.taxes, gst_dates=args.gst_dates,
             )
+            checker.number_search = not getattr(args, "no_number_search", False)
         def row_date(r, values):
             date = None if args.as_of_today else parse_date(values.get("date"))
             if values.get("date") and not date and not args.as_of_today:
@@ -517,6 +518,7 @@ def run(args, log_path):
                                        gst_dates=args.gst_dates))
             free = queue.SimpleQueue()
             for c in pool:
+                c.number_search = checker.number_search
                 free.put(c)
 
             def work(r, values, date):
@@ -684,6 +686,9 @@ def main(argv=None):
     ap.add_argument("--no-browser", action="store_true", help="skip BC and Manitoba lookups, which need a headless browser")
     ap.add_argument("--sk-assist", action="store_true",
                     help="check Saskatchewan PST: opens a browser window where you tick its CAPTCHA once")
+    ap.add_argument("--no-number-search", action="store_true",
+                    help="don't search Canada's Business Registries by name for a possible GST/HST number when a "
+                         "Canadian supplier has none (saves a search per such supplier)")
     ap.add_argument("--no-name-lookup", action="store_true",
                     help="don't look up official names (federal registry ~110 MB download, Canada's Business Registries, "
                          "OrgBook BC) for GST/HST name mismatches")

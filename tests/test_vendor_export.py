@@ -65,7 +65,7 @@ class FakeQst:
     def __init__(self, *a, **k):
         self.calls = []
 
-    def check(self, number, suffix_assumed=False):
+    def check(self, number, suffix_assumed=False, judge=None):
         self.calls.append(number)
         return Result(REGISTERED, "fake RQ")
 

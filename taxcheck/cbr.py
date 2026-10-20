@@ -44,19 +44,26 @@ _PARTNERSHIP = re.compile(r"\b(?:l\.?\s?l?\.?\s?p\.?|limited\s+partnership|partn
                           re.I)
 
 
+def complete(payload):
+    """Whether a search's results are all on this page. `count` is the number of matching businesses; `docs`
+    lists them, each registration in another province as a "child" of its home one."""
+    payload = payload or {}
+    parents = [d for d in payload.get("docs", []) if d.get("hierarchy") != "child"]
+    return int(payload.get("count") or 0) <= len(parents)
+
+
 def numbers_by_name(payload, name):
     """(business number, registered name) for the registrations in a CBR name search whose name is `name` apart
     from case, punctuation, "&"/"and" and legal suffix, and that are the same kind of entity (a partnership
     "ACME LP" isn't the corporation "ACME INC."). Distinct numbers only."""
-    from .checks import core_name
+    from .checks import core_name, different_entity_kinds
 
-    want, partnership = core_name(name), bool(_PARTNERSHIP.search(str(name or "")))
+    want = core_name(name)
     found = {}
     for doc in (payload or {}).get("docs", []):
         bn9 = re.sub(r"\D", "", str(doc.get("BN") or ""))[:9]
         registered = str(doc.get("Company_Name") or "").strip()
-        if (len(bn9) == 9 and registered and core_name(registered) == want
-                and bool(_PARTNERSHIP.search(registered)) == partnership):
+        if len(bn9) == 9 and registered and core_name(registered) == want and not different_entity_kinds(name, registered):
             found.setdefault(bn9, registered)
     return list(found.items())
 
@@ -71,10 +78,13 @@ class BusinessRegistries:
         self._cache = {} if cache is None else cache  # shareable between parallel workers
         self.error = None
 
+    PAGE = 100  # results per search ("pagesize"; the site's default page is about 25)
+
     def _search(self, query):
         self.throttle.wait()
         r = self.session.get(SEARCH, params={"fq": "keyword:{%s}" % query, "lang": "en", "queryaction": "fieldquery",
-                                             "sortfield": "score", "sortorder": "desc"}, timeout=30)
+                                             "sortfield": "score", "sortorder": "desc", "pagesize": self.PAGE},
+                             timeout=30)
         r.raise_for_status()
         return r.json()
 
@@ -88,7 +98,9 @@ class BusinessRegistries:
         if key in self._cache:
             return self._cache[key]
         try:
-            found = numbers_by_name(self._search(query), name)
+            payload = self._search(query)
+            # "Exactly one business under this name" is only known when every match is on the page.
+            found = numbers_by_name(payload, name) if complete(payload) else []
             self.health.record(True)
         except Exception as e:
             self.health.record(False, str(e))

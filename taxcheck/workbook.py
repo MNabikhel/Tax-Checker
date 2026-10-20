@@ -77,6 +77,9 @@ def _key(s):
 
 
 _ALIASES = {_key(a): col for col, names in COLUMNS.items() for a in names}
+# Position of each spelling in its field's list: COLUMNS lists the specific spellings first ("postal code"
+# before "zip"), so when two columns fit one field the more specific header wins.
+_ALIAS_RANK = {_key(a): i for names in COLUMNS.values() for i, a in enumerate(names)}
 TAX_FIELDS = {"gst", "bn", "qst", "pst", "bc_pst", "sk_pst", "mb_rst"}
 
 
@@ -241,14 +244,31 @@ class SupplierSheet:
         for col, c in self.cols.items():
             log.debug("  column %-10s <- '%s' (column %s)", col, self.ws.cell(self.header_row, c).value, get_column_letter(c))
 
+    def _has_data(self, header_row, c, sample=200):
+        last = min(self.values_ws.max_row, header_row + sample)
+        return any(self.values_ws.cell(r, c).value not in (None, "") for r in range(header_row + 1, last + 1))
+
     def _find_header(self):
         for r in range(1, min(self.values_ws.max_row, 15) + 1):
-            cols = {}
+            found = {}
             for c in range(1, self.values_ws.max_column + 1):
-                col = _ALIASES.get(_key(self.values_ws.cell(r, c).value))
-                if col and col not in cols:
-                    cols[col] = c
-            if "name" in cols and len(cols) >= 2:
+                key = _key(self.values_ws.cell(r, c).value)
+                col = _ALIASES.get(key)
+                if col:
+                    found.setdefault(col, []).append((_ALIAS_RANK[key], c))
+            if "name" in found and len(found) >= 2:
+                cols = {}
+                for col, options in found.items():
+                    if len(options) == 1:
+                        cols[col] = options[0][1]
+                        continue
+                    # Several columns fit (e.g. "Zip" and "Postal Code"): one with data beats an empty one, then
+                    # the more specific spelling, then the leftmost.
+                    best = min(options, key=lambda o: (not self._has_data(r, o[1]), o[0], o[1]))
+                    cols[col] = best[1]
+                    log.info("Columns %s all fit '%s'; using %s", ", ".join(
+                        repr(self.values_ws.cell(r, c).value) for _, c in options), col,
+                        repr(self.values_ws.cell(r, best[1]).value))
                 return r, cols
         seen = [
             str(v).strip()
@@ -276,7 +296,7 @@ class SupplierSheet:
             hint = suggest_field(header)
             known = _ALIASES.get(_key(header))
             if known:
-                note = f"also matches '{known}', but column {get_column_letter(self.cols[known])} is used (leftmost wins)"
+                note = f"also matches '{known}', but column {get_column_letter(self.cols[known])} is used (a column with data, then the more specific header, then the leftmost)"
             elif hint:
                 note = f"not recognized; closest alias '{hint[0]}' ({hint[1]}). If it's that field, add '{header}' to COLUMNS['{hint[1]}']"
             else:
@@ -491,23 +511,29 @@ class SupplierSheet:
     def _cross_row_notes(self, results):
         """Findings that need the whole sheet. Returns ({row: [notes]} for GST/HST numbers that differently named
         vendors share, {rows whose name is probably cut off}, the vendor master's apparent name length limit)."""
-        from .checks import clean_vendor_name
-        from .report import _key as name_key
+        from .checks import clean_vendor_name, core_name
 
         names = {r: str(self._cell_value(r, "name") or "").strip() for r in results}
         by_number = defaultdict(list)
         for r, by_tax in results.items():
             gst = by_tax.get("gst")
-            number = re.sub(r"\D", "", str(gst.facts.get("number_checked") or "") if gst is not None else "")[:9]
-            if len(number) == 9 and names[r] and gst.status != NOT_APPLICABLE:
+            # Only numbers CRA knows: an invalid or placeholder number shared by many rows isn't a finding.
+            if gst is None or gst.status not in (REGISTERED, NAME_NOT_MATCHED, NOT_REGISTERED):
+                continue
+            number = re.sub(r"\D", "", str(gst.facts.get("number_checked") or ""))[:9]
+            if len(number) == 9 and names[r]:
                 by_number[number].append(r)
         shared = defaultdict(list)
         for rows in by_number.values():
-            keys = {r: name_key(clean_vendor_name(names[r])[0]) for r in rows}
+            # The same vendor spelt two ways ("ACME" / "ACME INC.", "Café Ltée" / "Cafe Ltee") isn't flagged.
+            keys = {r: core_name(clean_vendor_name(names[r])[0]) or names[r].lower() for r in rows}
             if len(set(keys.values())) < 2:
-                continue  # the same vendor listed twice (spelling apart): nothing to flag
+                continue
+            first_of = {}  # one example row per distinct name, so long groups stay quick
             for r in rows:
-                others = [o for o in rows if keys[o] != keys[r]]
+                first_of.setdefault(keys[r], r)
+            for r in rows:
+                others = [o for k, o in first_of.items() if k != keys[r]]
                 text = []
                 for o in others[:3]:
                     gst = results[o]["gst"]

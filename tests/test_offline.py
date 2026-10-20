@@ -134,7 +134,7 @@ class Routing(unittest.TestCase):
         calls = []
 
         class FakeQst:
-            def check(self, number, suffix_assumed=False):
+            def check(self, number, suffix_assumed=False, judge=None):
                 calls.append((number, suffix_assumed))
                 return Result(REGISTERED, "")
 
@@ -144,27 +144,42 @@ class Routing(unittest.TestCase):
         self.assertEqual(calls, [("1019288451TQ0001", True), ("1019288451TQ0004", False)])
 
     def test_qst_without_suffix_finds_the_active_account(self):
-        # Seen live: TQ0001 cancelled in 2007, TQ0004 active. With no suffix on file, the other accounts are tried.
+        # Seen live: TQ0001 cancelled in 2007, TQ0004 active. With no suffix on file, the other accounts are tried,
+        # each read against the payment date.
+        import datetime as dt
+
         from taxcheck.qst import QstChecker
         from taxcheck.report import provincial_issue
 
-        answers = {"1019288451TQ0001": Result(NOT_REGISTERED, "Revenu Québec: registration cancelled since 2007-09-02."),
-                   "1019288451TQ0004": Result(REGISTERED, "Revenu Québec: registration valid since 2017-08-01.", "ACME")}
+        def rq(status, name="ACME", **facts):
+            return Result(status, "Revenu Québec: ...", name, facts=facts)
+
+        answers = {"1019288451TQ0001": rq(NOT_REGISTERED, registration_end="2007-09-02"),
+                   "1019288451TQ0002": rq(NOT_REGISTERED, registration_end="2010-01-01"),
+                   "1019288451TQ0003": rq(NOT_REGISTERED, registration_end="2012-01-01"),
+                   "1019288451TQ0004": rq(REGISTERED, registered_since="2017-08-01", registration_end="Active")}
         q = QstChecker(delay=0)
         asked = []
         q._check = lambda n: asked.append(n) or answers.get(n, Result(NOT_REGISTERED, "none")).copy()
-        res = q.check("1019288451TQ0001", suffix_assumed=True)
+        on = lambda day: (lambda r: RowChecker._qst_on_date(r, day))
+        res = q.check("1019288451TQ0001", suffix_assumed=True, judge=on(dt.date(2026, 9, 1)))
         self.assertEqual(res.status, REGISTERED)
         self.assertEqual(res.facts["number_checked"], "1019288451TQ0004")
         self.assertEqual(asked[-1], "1019288451TQ0004")  # stops at the active one
         self.assertEqual(provincial_issue("qst", res)[0], "Registered under another QST account")
+        # Found in review: registered on the payment date under TQ0001 (cancelled later) stays that account.
+        asked.clear()
+        res = q.check("1019288451TQ0001", suffix_assumed=True, judge=on(dt.date(2005, 1, 1)))
+        self.assertEqual(res.status, REGISTERED)
+        self.assertEqual(asked, ["1019288451TQ0001"])
         # With the full number on file, only that account counts.
         self.assertEqual(q.check("1019288451TQ0001").status, NOT_REGISTERED)
-        # No active account at all: still not registered, after trying TQ0002..TQ0010.
+        # No other account: Revenu Québec has none under TQ0005, so asking stops there.
         answers.pop("1019288451TQ0004")
         asked.clear()
-        self.assertEqual(q.check("1019288451TQ0001", suffix_assumed=True).status, NOT_REGISTERED)
-        self.assertEqual(len(asked), 10)
+        self.assertEqual(q.check("1019288451TQ0001", suffix_assumed=True, judge=on(dt.date(2026, 9, 1))).status,
+                         NOT_REGISTERED)
+        self.assertEqual(asked, ["1019288451TQ0001", "1019288451TQ0002", "1019288451TQ0003", "1019288451TQ0004"])
 
     def test_duplicate_numbers_looked_up_once(self):
         self.checker.check({"name": "A", "gst": "108161779RT0001"}, TODAY)

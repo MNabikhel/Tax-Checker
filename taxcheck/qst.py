@@ -73,22 +73,24 @@ class QstChecker:
 
     OTHER_ACCOUNTS = 9  # TQ0002..TQ0010 are tried when the suffix was missing and TQ0001 isn't active
 
-    def check(self, number, suffix_assumed=False):
+    def check(self, number, suffix_assumed=False, judge=None):
         """Validate a TQ number. `suffix_assumed` means the sheet had no TQ suffix and TQ0001 was filled in.
+        `judge` reads a result against the payment date (RowChecker._qst_on_date); default: as of today.
 
         A business can have several QST accounts and the first is often closed (seen live: TQ0001 cancelled in
-        2007, TQ0004 active). So with no suffix given and TQ0001 not active, the next accounts are tried; an
-        active one means the business is registered, and the row says which number to put on file."""
-        result = self._check(number)
+        2007, TQ0004 active). So with no suffix given and TQ0001 not registered *on the payment date*, the next
+        accounts are tried, in order, until one is registered on that date or Revenu Québec has no such account."""
+        judge = judge or (lambda r: r)
+        result = judge(self._check(number))
         if suffix_assumed and result.status not in (REGISTERED, INVALID, ERROR):
             for n in range(2, 2 + self.OTHER_ACCOUNTS):
                 other = f"{number[:10]}TQ{n:04d}"
-                found = self._check(other)
-                if found.status == ERROR:
-                    break
+                found = judge(self._check(other))
+                if found.status in (ERROR, INVALID) or (found.status == NOT_REGISTERED and not found.registered_name):
+                    break  # no such account (accounts are numbered in order), or the site failed: stop asking
                 if found.status == REGISTERED:
-                    found.detail = (f"No TQ suffix was given. {number} isn't active ({result.detail.rstrip('.')}), "
-                                    f"but {other} is: add {other} to the vendor record. {found.detail}")
+                    found.detail = (f"No TQ suffix was given. {number} wasn't registered then ({result.detail.rstrip('.')}), "
+                                    f"but {other} was: add {other} to the vendor record. {found.detail}")
                     found.facts["number_checked"] = other
                     return found
         if suffix_assumed and result.status == REGISTERED:

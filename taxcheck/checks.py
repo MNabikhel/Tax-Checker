@@ -209,10 +209,35 @@ _ENDS_WITH_SUFFIX = re.compile(r"\b(?:inc|incorporated|ltd|limited|corp|corporat
                                r"limitee|limitée)\.?$", re.I)
 
 
-def _is_partnership(name):
+_CORPORATE_END = re.compile(r"\b(?:inc|incorporated|ltd|limited|corp|corporation|ulc|llc|ltee|ltée|limitee|limitée)"
+                            r"\.?\s*$", re.I)
+
+
+def entity_kind(name):
+    """'partnership' (LP, LLP, S.E.N.C.), 'corporation' (ends in Inc/Ltd/Corp...), or None when the name says
+    neither (vendor masters often leave the legal form off)."""
     from .cbr import _PARTNERSHIP
 
-    return bool(_PARTNERSHIP.search(str(name or "")))
+    if _PARTNERSHIP.search(str(name or "")):
+        return "partnership"
+    return "corporation" if _CORPORATE_END.search(str(name or "").strip()) else None
+
+
+def different_entity_kinds(a, b):
+    """True when one name is a partnership and the other a corporation ("ACME LP" vs "ACME INC."): different
+    legal entities even when the names agree. A name with no legal form ("ACME") is compatible with either."""
+    ka, kb = entity_kind(a), entity_kind(b)
+    return bool(ka and kb and ka != kb)
+
+
+def foreign_form_name(name):
+    """core_name with trailing foreign legal forms dropped too ("SPOTIFY AB" -> "spotify"). Only legal forms:
+    not regions or words like "International", which name sister companies ("X INTERNATIONAL LTD" isn't "X")."""
+    text = str(name or "").lower().replace(".", "").replace("é", "e").replace("&", " and ").replace("+", " and ")
+    words = re.findall(r"[a-z0-9]+", text)
+    while words and words[-1] in (_LEGAL_SUFFIXES | _FOREIGN_FORMS) - {"com"}:
+        words.pop()
+    return "".join(w for w in words if w not in _LEGAL_SUFFIXES)
 
 
 def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
@@ -230,12 +255,12 @@ def same_business_name(sheet_names, official, raw_name="", truncated_at=34):
             mine = core_name(n)
             if not mine:
                 continue
-            if _is_partnership(n) != _is_partnership(half):
+            if different_entity_kinds(n, half):
                 continue  # "ACME LP" (a partnership) isn't "ACME INC." (a corporation), though core names agree
             if mine == off:
                 return True
-            if len(mine) >= MIN_LIST_NAME and loose_name(n) == loose_name(half) == mine:
-                return True  # a foreign legal form or region the vendor master leaves out: "SPOTIFY" / "SPOTIFY AB"
+            if len(mine) >= MIN_LIST_NAME and foreign_form_name(n) == foreign_form_name(half) == mine:
+                return True  # a foreign legal form the vendor master leaves out: "SPOTIFY" / "SPOTIFY AB"
             if off.startswith(mine) and off[len(mine):].isdigit() and len(off) - len(mine) == 4:
                 return True  # "(2011)" successor-company year
             # The ERP's name field holds 40 characters: a name that (nearly) filled it was probably cut off. Only a
@@ -333,6 +358,7 @@ class RowChecker:
         self.bc = bc  # None means BC lookups are skipped (no browser)
         self.mb = mb  # None means Manitoba lookups are skipped (no browser)
         self.sk = sk  # None means Saskatchewan is left for a manual check (no --sk-assist)
+        self.number_search = True  # --no-number-search: no "possible GST/HST number" lead for suppliers with none
         # The same number often appears on several rows; look it up once. Parallel workers share one dict.
         self._cache = {} if cache is None else cache
         # defer_browser: worker threads can't use the (single-threaded) browser, so BC/SK/MB checks are returned
@@ -645,6 +671,8 @@ class RowChecker:
         name (Canada's Business Registries, by name) that CRA confirms is registered for GST/HST under that name on
         the date. Noted on `res` as a lead for a person to confirm with the supplier; the status stays NO NUMBER.
         Measured on suppliers whose number was known: 5 of 9 found, none wrong (2026-10-16)."""
+        if not self.number_search:
+            return
         sources = [s for s in getattr(self.gst, "name_sources", []) if hasattr(s, "numbers_for_name")]
         if not sources or not hasattr(self.gst, "registry_lookup"):
             return
@@ -845,7 +873,8 @@ class RowChecker:
     def _qst(self, value, names, date):
         kind, number = parse_qst(value)
         if kind == "TQ":
-            return self._qst_on_date(self.qst.check(number, suffix_assumed="TQ" not in str(value).upper()), date)
+            return self.qst.check(number, suffix_assumed="TQ" not in str(value).upper(),
+                                  judge=lambda res: self._qst_on_date(res, date))
         if kind == "NR":
             return self.qst.check_nr(number)
         # 9-digit QST numbers belong to listed financial institutions; the CRA administers their QST.

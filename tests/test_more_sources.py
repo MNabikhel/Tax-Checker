@@ -241,7 +241,7 @@ class NameSources(unittest.TestCase):
                 return Result(REGISTERED, "")
 
         class Qst:
-            def check(self, number, suffix_assumed=False):
+            def check(self, number, suffix_assumed=False, judge=None):
                 return Result(REGISTERED, "", "AVIENT CANADA ULC (trade name: SPARTECH PLASTIQUES)")
 
         RowChecker(Gst(), Qst()).check({"name": "Avient", "gst": "857305932", "qst": "1019288451TQ0004"}, TODAY)

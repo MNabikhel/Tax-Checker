@@ -44,7 +44,10 @@ def _release_driver():
     _driver_users -= 1
     if _driver_users <= 0:
         if _driver is not None:
-            _driver.stop()
+            try:
+                _driver.stop()
+            except Exception as e:  # already gone (e.g. Ctrl+C also stopped the driver process)
+                log.debug("Playwright driver stop: %s", e)
         _driver, _driver_users = None, 0
 
 
@@ -65,8 +68,13 @@ class Browser:
         self.close()
 
     def close(self):
+        """Never raises: on Ctrl+C the browser's driver process gets the interrupt too and may be gone already,
+        and a failure here used to skip saving the results workbook (seen in a stress test)."""
         if self._browser:
-            self._browser.close()
+            try:
+                self._browser.close()
+            except Exception as e:
+                log.debug("Browser close: %s", e)
             self._browser = None
         if self._pw:
             self._pw = None

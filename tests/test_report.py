@@ -177,6 +177,22 @@ class CrossRowNotes(unittest.TestCase):
         self.assertIsNone(table[4]["Other Issues"])  # the same vendor twice, spelt differently: not flagged
         self.assertTrue(any(r[1] == "Same GST/HST number as another vendor" and r[2] == 2 for r in summary))
 
+    def test_same_vendor_spelt_differently_or_invalid_numbers_arent_flagged(self):
+        from taxcheck.result import INVALID
+
+        table, _ = self.write(
+            [[1, "ACME", "123456782RT0001", "AB"], [2, "ACME INC.", "123456782RT0001", "AB"],
+             [3, "Café Ltée", "857305932RT0001", "QC"], [4, "CAFE LTEE", "857305932RT0001", "QC"],
+             [5, "FIRST CO", "111111111", "AB"], [6, "SECOND CO", "111111111", "AB"]],
+            {2: {"gst": Result(REGISTERED, "ok", facts={"number_checked": "123456782RT0001"})},
+             3: {"gst": Result(REGISTERED, "ok", facts={"number_checked": "123456782RT0001"})},
+             4: {"gst": Result(REGISTERED, "ok", facts={"number_checked": "857305932RT0001"})},
+             5: {"gst": Result(REGISTERED, "ok", facts={"number_checked": "857305932RT0001"})},
+             6: {"gst": Result(INVALID, "check digit", facts={"number_checked": "111111111"})},
+             7: {"gst": Result(INVALID, "check digit", facts={"number_checked": "111111111"})}})
+        for r in range(2, 8):
+            self.assertFalse(table[r]["Other Issues"], r)
+
     def test_name_at_the_vendor_masters_length_limit(self):
         long_names = ["ANCHOR CONSTRUCTION INDUSTRIAL PRODUCT", "NORTHERN PRAIRIE MECHANICAL CONTRACTOR",
                       "WESTERN INDUSTRIAL SUPPLY AND SERVICES"]

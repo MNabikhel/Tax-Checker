@@ -203,5 +203,33 @@ class ScientificNotation(unittest.TestCase):
                 (parse_qst if bad.startswith("1.0") else parse_gst)(bad)
 
 
+
+class SeveralColumnsFitOneField(unittest.TestCase):
+    """Found in a stress test: an empty "Zip" column left of "Postal Code" was used, so no postal codes."""
+
+    def sheet(self, headers, row):
+        import tempfile
+        from pathlib import Path
+
+        import openpyxl
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "v.xlsx"
+        wb = openpyxl.Workbook()
+        wb.active.append(headers)
+        wb.active.append(row)
+        wb.save(path)
+        return SupplierSheet(path)
+
+    def test_specific_header_and_data_win(self):
+        s = self.sheet(["Company Name", "Zip", "Postal Code", "Tax ID"], ["ACME LTD", None, "T5J 0N3", "123456782RT0001"])
+        self.assertEqual(s.cols["postal"], 3)
+        s = self.sheet(["Company Name", "Zip", "Postal Code"], ["ACME LTD", "T5J 0N3", None])
+        self.assertEqual(s.cols["postal"], 2)  # the only one with data
+        s = self.sheet(["Company Name", "Tax ID", "GST Number"], ["ACME LTD", "12-3456789", "123456782RT0001"])
+        self.assertEqual(s.cols["gst"], 3)  # "GST Number" is more specific than "Tax ID"
+
+
 if __name__ == "__main__":
     unittest.main()
