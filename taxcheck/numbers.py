@@ -117,7 +117,7 @@ def normalize_tax_id(value):
 
     Returns (kind, number, note):
       kind "gst"   -> number is "<bn9>" or "<bn9>RT<ref>" ready for parse_gst; note explains any clean-up
-      kind "qst"   -> the Tax ID is really a Québec QST number (1234567890TQ0001)
+      kind "qst"   -> the Tax ID is really a Québec QST number (1234567890TQ0001, or a non-resident's NR00130061)
       kind "zero"  -> a placeholder such as 000000000RT0001 (passes the check digit, but isn't a real number)
       kind "raw"   -> couldn't be tidied; number is the original value so parse_gst reports why it's invalid
 
@@ -129,6 +129,8 @@ def normalize_tax_id(value):
     raw = str(value or "").strip()
     s = _compact_tax_id(raw)
     if re.fullmatch(r"\d{10}(TQ\d{4})?", s) and "TQ" in s:
+        return "qst", s, ""
+    if re.fullmatch(r"NR\d{8}", s):  # a non-resident's QST number (specified system)
         return "qst", s, ""
     if re.fullmatch(r"0{6,}(?:[A-Z]{2}\d*)?", s):  # 000000000RT0001, 00000000RT00001...
         return "zero", raw, ""

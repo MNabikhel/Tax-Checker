@@ -277,6 +277,48 @@ class FakeBrowser:
         yield Page()
 
 
+class ForeignSuppliersQst(unittest.TestCase):
+    """NR (specified system) QST numbers are only issued to non-residents, so foreign suppliers' QST is checked."""
+
+    class Qst:
+        def __init__(self):
+            self.asked = []
+
+        def check_nr(self, number):
+            self.asked.append(number)
+            return Result(REGISTERED, "Listed by Revenu Québec as registered under the specified (NR) system.", "X")
+
+        def check(self, number, suffix_assumed=False, judge=None):
+            self.asked.append(number)
+            return Result(REGISTERED, "Revenu Québec: registration valid.", "X")
+
+    class Gst:
+        def check(self, *a, **k):
+            raise AssertionError("no GST/HST lookup for a foreign supplier without a Canadian number")
+
+    def check(self, row, available=("name", "gst", "qst", "country")):
+        qst = self.Qst()
+        rc = RowChecker(self.Gst(), qst, available=set(available))
+        rc._on_simplified_list = lambda number: False
+        rc._digital_economy = lambda *a, **k: None
+        return rc.check(row, dt.date(2026, 9, 15)), qst.asked
+
+    def test_nr_number_in_the_qst_column(self):
+        out, asked = self.check({"name": "EXAMPLESTREAM B.V.", "country": "NL", "qst": "NR 0013 0061", "gst": None})
+        self.assertEqual(asked, ["NR00130061"])
+        self.assertEqual(out["qst"].status, REGISTERED)
+        self.assertEqual(out["gst"].status, "NOT APPLICABLE")
+
+    def test_qst_number_in_the_tax_id_column(self):
+        out, asked = self.check({"name": "EXAMPLESTREAM B.V.", "country": "NL", "gst": "NR00130061", "qst": None})
+        self.assertEqual(asked, ["NR00130061"])
+        self.assertEqual(out["qst"].status, REGISTERED)
+
+    def test_no_qst_number_no_lookup(self):
+        out, asked = self.check({"name": "ACME US WIDGETS LLC", "country": "US", "gst": "12-3456789", "qst": None})
+        self.assertEqual((asked, sorted(out)), ([], ["gst"]))
+
+
 class QuebecNrLayouts(unittest.TestCase):
     def test_table_in_any_column_order(self):
         from taxcheck.qst import parse_nr_list

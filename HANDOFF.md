@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 263: 242 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 266: 245 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -518,6 +518,11 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (QST for foreign suppliers)**: building the user's test kit showed foreign suppliers' QST was never
+  checked (the foreign branch of `_check_row` returned GST/HST only), so the NR-list path, whose numbers only
+  non-residents get, was practically unreachable; and an NR number in the Tax ID column wasn't recognised as QST
+  (`normalize_tax_id` knew only TQ). Both fixed; Overall for such a row: GST/HST NOT APPLICABLE + QST REGISTERED = OK.
 
 - **2026-10-20 (final walkthrough, as the user will run it)**: from the zip: setup, tests, `check_setup` READY;
   a 29-row export of public businesses in the user's layout through Profile → `tailoring.xlsx` from the template →

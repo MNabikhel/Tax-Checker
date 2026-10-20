@@ -111,6 +111,7 @@ class TaxIdNormalization(unittest.TestCase):
         self.assertEqual(normalize_tax_id("000000000RT0001")[0], "zero")
         self.assertEqual(normalize_tax_id("00000000RT00001")[0], "zero")
         self.assertEqual(normalize_tax_id("1019288451TQ0004")[:2], ("qst", "1019288451TQ0004"))
+        self.assertEqual(normalize_tax_id("NR 0013 0061")[:2], ("qst", "NR00130061"))  # a non-resident's QST number
         self.assertEqual(normalize_tax_id("1234567RT0001")[0], "raw")   # 7 digits: left for parse_gst to reject
         self.assertEqual(normalize_tax_id("12 345 678 901")[0], "raw")  # Australian ABN
 

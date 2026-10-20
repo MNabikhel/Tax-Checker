@@ -602,6 +602,12 @@ class RowChecker:
                "gst_value": gst_value, "qst_value": qst_value,
                "province_used": f"{prov} (from postal code)" if prov and how else prov}
         if foreign:
+            # A QST number is checked for foreign suppliers too: non-residents selling into Québec register for
+            # QST, often under the specified (NR) system, which only non-residents use.
+            extra = {}
+            if not _blank(qst_value) and self._on("qst"):
+                extra["qst"] = self._guard(self._qst, qst_value, names, date)
+                log.debug("  qst: %s | %s", extra["qst"].status, extra["qst"].detail)
             # Foreign suppliers only get a Canadian check when they gave an explicit GST/HST (RT) number:
             # a bare 9-digit Tax ID is usually a US EIN, which can pass the CRA check digit by chance.
             # Explicit: 9 digits followed by a program code (123456789RT0001, ...RC0001), or the old R123456789.
@@ -622,12 +628,12 @@ class RowChecker:
                 else:
                     res = self._name_check(res, name, dnu)
                 log.debug("  gst: %s | %s", res.status, res.detail)
-                return {"gst": res}, ctx
+                return {"gst": res, **extra}, ctx
             res = self._name_check(self._confirm_official(self._guard(self._gst, gst_value, gst_names, date), gst_names,
                                                           raw_name), name, dnu)
             res.detail = f"Non-Canadian supplier ({where}) with a Canadian GST/HST number. " + (gst_note + " " if gst_note else "") + res.detail
             log.debug("  gst: %s | %s | %s", res.status, res.detail, res.registered_name)
-            return {"gst": res}, ctx
+            return {"gst": res, **extra}, ctx
         row = dict(row, qst=qst_value)
         pst = row.get("pst")
         bc_pst = row.get("bc_pst") if not _blank(row.get("bc_pst")) else (pst if prov == "BC" else None)
