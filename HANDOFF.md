@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 271: 250 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 275: 254 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -31,7 +31,7 @@ What the next agent will most likely be asked to do, in order:
    QST numbers ("QST Number"), Manitoba RST numbers ("RST Number"), BC PST numbers. Today the user's file has
    only a Tax ID column, so QST/BC PST are checked only when such a number is in it, and Manitoba is searched
    with the business number (only finds RST accounts tied to it, §7).
-4. **Still unverified on a real page** (§2): Revenu Québec's NR list parser (blocked from the cloud).
+4. **Verified on the user's PC** (§2): the NR list parser (2,231 registrants) and Saskatchewan (one fix).
 
 Things deliberately *not* done (asked or researched, and rejected): guessing legal names (only forms of the
 vendor's own name and registry names CRA then accepts); filtering by payment amount; bypassing the
@@ -112,28 +112,19 @@ Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need th
   one CAPTCHA; results page layout captured, §7).
 - Whether the vendor master can export QST / RST / BC PST numbers (see §0, item 3).
 
-**Unverified parts.** Two parts couldn't be verified from the cloud environment this was built in. Each has a live test
-that settles it in one command on a normal Canadian connection. Run them first and record the result
-in the change log (§12).
-
-```
-TAXCHECK_LIVE=1 python -m unittest tests.test_live -v                        # item 1 (plus everything else)
-TAXCHECK_LIVE=1 TAXCHECK_SK_ASSIST=1 python -m unittest tests.test_live.LiveSaskatchewanAssisted -v   # item 2
-```
-(Windows PowerShell: `$env:TAXCHECK_LIVE=1; $env:TAXCHECK_SK_ASSIST=1; python -m unittest ...`)
-
-1. **Québec NR list** (`test_nr_list_loads_and_checks`). Revenu Québec's website refused the build
-   environment with HTTP 403 (plain download, headless browser, archive sites and a separate fetch
-   service all blocked), so the parser has never seen the real page. It reads the documented layout
-   (a table: trade name, legal name, number like `NR 0013 0061`) in any column order and falls back to
-   list/paragraph layouts. The test skips only if every source answers with an HTTP error; if the page
-   loads but no NR numbers are found it **fails**, meaning `qst.parse_nr_list` needs updating: save the
-   page from a browser and add it as a fixture.
-2. **Saskatchewan: done (2026-10-16).** `Saskatchewan Probe.bat` on the user's PC captured the real results
-   page (table `#pstLookUp`, Type code `PSTVEND`; see §7), `classify()` was fitted to it and the captured rows
-   are a test (`tests/test_sk_assisted.py`, `RealResultsPage`). Still unseen: the Type code for a registered
-   consumer (read as "CONS"/"consumer") and the daily-limit message (read loosely by `SEARCH_LIMIT`). If a run
-   shows something unexpected, the `.html` saved next to the log is the page to fit `classify()` to.
+**Verified on the user's PC (Run Test.bat, 2026-10-20; Windows 11, Edge 155, Python 3.14, corporate network).**
+Every result matched the cloud runs row for row (GST/HST, QST, BC PST, Manitoba, online sellers), and:
+1. **Québec NR list: done.** Downloaded on the user's network (HTTP 200) and parsed: 2,231 registrants; a made-up
+   NR number correctly "not on the list". The cloud is still refused (403), so the live test skips there.
+2. **Saskatchewan: done**, one fix. One CAPTCHA, two searches by themselves; the resume reused both answers (no
+   second CAPTCHA). But a real "3 companies found, all PSTVEND" page was read as no rows (the page's DataTables
+   reported none in Edge while the table showed them) and came out NOT CONFIRMED. Fixed: rows are read both ways
+   (DataTables and the page), re-read briefly, then from the HTML; still unreadable = ERROR (retried on resume),
+   never cached (`unreadable`, `rows_from_html`). Still unseen: the Type code for a registered consumer
+   ("CONS"/"consumer") and the daily-limit message (`SEARCH_LIMIT`); the `.html` saved next to the log is the page
+   to fit `classify()` to if a run shows something unexpected.
+3. **CRA simplified list**: plain download stalls on the user's network; the browser path (page as sent) loaded
+   all 1,781.
 
 ## 3. Setup on a new PC
 
@@ -519,6 +510,9 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (user's Run Test.bat results)**: see §2 "Verified on the user's PC". Fixed the Saskatchewan rows
+  read as none (above); setup check's run estimate now in minutes for small files.
 
 - **2026-10-20 (review of the one-click test)**: an independent review found that step 4 (`--resume last`) could
   resume the user's own run if step 3 failed before noting the test run, and that closing the window mid-test

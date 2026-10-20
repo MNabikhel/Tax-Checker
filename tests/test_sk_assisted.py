@@ -60,7 +60,15 @@ def results_page(term):
     table = ('<table id="pstLookUp" class="table dataTable table-bordered"><caption>Search Results</caption>'
              '<thead><tr><th scope="col">Business Name</th><th scope="col">Type</th></tr></thead><tbody>'
              + "".join(f"<tr><td>{html.escape(n)}</td><td>{k}</td></tr>" for n, k in rows) + "</tbody></table>")
+    if FakeRegistry.datatables_empty:
+        table += DATATABLES_EMPTY
     return search_page(term, ("", found + table))
+
+
+# Seen on the user's PC (Edge, 2026-10-20): the page's DataTables reported no rows while the table showed three.
+DATATABLES_EMPTY = """<script>window.jQuery = function (t) { return { DataTable: () => ({ rows: () => ({ data: () =>
+({ toArray: () => [] }) }) }) }; };
+window.jQuery.fn = { dataTable: { isDataTable: () => true } };</script>"""
 
 
 ERROR_PAGE = """<html><body><h1>Technical Issue!</h1><p>We are having technical difficulties and are unable to
@@ -69,6 +77,7 @@ complete this action. Please try again later.</p></body></html>"""
 
 class FakeRegistry(http.server.BaseHTTPRequestHandler):
     every_search = False  # True: the CAPTCHA is needed again after each search
+    datatables_empty = False  # True: the page's table add-on reports no rows (the rows are in the page)
     expire_after = None  # the session ends after this many searches (once)
     broken = set()  # search terms the registry answers with an error page
     slow = {}  # search term -> seconds before it answers
@@ -152,6 +161,7 @@ def browser_or_skip(test):
 class AssistedFlow(unittest.TestCase):
     def setUp(self):
         FakeRegistry.every_search, FakeRegistry.searches, FakeRegistry.terms_shown = False, [], 0
+        FakeRegistry.datatables_empty = False
         FakeRegistry.accepted, FakeRegistry.broken, FakeRegistry.slow, FakeRegistry.expire_after = set(), set(), {}, None
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeRegistry)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -208,6 +218,13 @@ class AssistedFlow(unittest.TestCase):
         finally:
             other.close()
         self.assertEqual(sk.check(["NORTHERN SUPPLY"]).status, REGISTERED)  # still works after the other closed
+
+    def test_rows_read_from_the_page_when_the_table_add_on_reports_none(self):
+        FakeRegistry.datatables_empty = True  # what the user's PC showed for FEDERATED CO-OPERATIVES
+        sk = sk_pst.SkPstAssistant(self.browser, wait_minutes=0.5)
+        res = sk.check(["PRAIRIE HARDWARE LTD"])
+        self.assertEqual(res.status, REGISTERED, res.detail)
+        self.assertIn("vendor's licence", res.detail)
 
     def test_a_resume_within_a_day_reuses_answers_without_the_browser(self):
         answers = self.tmp / "saskatchewan_answers.json"
@@ -369,6 +386,43 @@ class AssistedFlow(unittest.TestCase):
                                                  "NORTHERN SUPPLY", "ZZQX IMAGINARY WIDGETS"])
         out = [checker.check(r, dt.date(2026, 9, 1))["sk_pst"].status for r in rows]
         self.assertEqual(out, [REGISTERED, ERROR, REGISTERED, NOT_CONFIRMED])
+
+
+class UnreadableResults(unittest.TestCase):
+    """The page says it found businesses but no rows were read: an ERROR to retry, never a cached answer."""
+
+    PAGE = ('<form id="pstSearchForm"><input id="pstSearch" value="WIDGET"></form> A total of 2 companies were found.'
+            '<table id="pstLookUp" class="table dataTable"><thead><tr><th>Business Name</th><th>Type</th></tr></thead>'
+            '<tbody>\n<tr>\n<td>PRAIRIE   WIDGET LIMITED</td>\n<td>PSTVEND</td>\n</tr>'
+            '<tr><td>PRAIRIE WIDGET &amp; CO</td><td>CONS</td></tr></tbody></table>')
+
+    def test_rows_from_the_html(self):
+        self.assertEqual(sk_pst.rows_from_html(self.PAGE), [["PRAIRIE WIDGET LIMITED", "PSTVEND"],
+                                                            ["PRAIRIE WIDGET & CO", "CONS"]])
+        self.assertEqual(sk_pst.found_count("A total of 2 companies were found."), 2)
+        self.assertEqual(sk_pst.found_count("Only 1 company found."), 1)
+        self.assertEqual(sk_pst.found_count("No results found, please try a different search."), 0)
+
+    def test_found_but_unread_is_an_error_not_an_answer(self):
+        status, detail, _ = sk_pst.classify([], "A total of 3 companies were found.", ["PRAIRIE WIDGET LTD"])
+        self.assertEqual(status, ERROR)
+        self.assertIn("couldn't be read", detail)
+        status, _, _ = sk_pst.classify([], "No results found, please try a different search.", ["PRAIRIE WIDGET LTD"])
+        self.assertEqual(status, NOT_CONFIRMED)
+
+    def test_unreadable_answers_are_never_cached_or_reused(self):
+        import json
+        import tempfile
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            answers = Path(tmp) / "a.json"
+            answers.write_text(json.dumps({"PRAIRIE WIDGET": {"at": time.time(), "rows": [],
+                                                              "text": "A total of 3 companies were found."}}))
+            sk = sk_pst.SkPstAssistant(None, answers_file=answers)  # an answer cached by the earlier version
+            self.assertFalse(sk.answered(["PRAIRIE WIDGET LTD"]))
+            sk._save_answer("OTHER WIDGET", [], "A total of 1 companies were found.")
+            self.assertNotIn("OTHER WIDGET", sk._answers)
 
 
 class RealResultsPage(unittest.TestCase):

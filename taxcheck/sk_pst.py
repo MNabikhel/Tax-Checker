@@ -35,6 +35,29 @@ SEARCH_LIMIT = re.compile(r"(?:search|daily)\s+limit|limit\s+(?:has\s+been\s+)?(
 DAILY_LIMIT = 100  # "the number of searches in a 24-hour period is restricted to 100" (the registry's own page)
 NO_RESULTS = re.compile(r"no (records|results|matches|businesses)|not found|could not find|0 results", re.I)
 TOO_MANY = re.compile(r"more than \d+ companies", re.I)  # "The search resulted in more than 25 companies. ..."
+FOUND = re.compile(r"total of\s+(\d+)\s+compan|only\s+(1|one)\s+company\s+found", re.I)
+
+
+def found_count(page_text):
+    """How many results the page says it found ("A total of 3 companies were found." / "Only 1 company found.")."""
+    m = FOUND.search(page_text or "")
+    return 0 if not m else (int(m.group(1)) if m.group(1) else 1)
+
+
+def unreadable(rows, page_text):
+    """The page says it found businesses, but no result rows could be read."""
+    return found_count(page_text) > 0 and not any(any(c for c in r) for r in rows or [])
+
+
+def rows_from_html(html):
+    """Result rows straight from the page's HTML (#pstLookUp's tbody), for when the table can't be read live."""
+    m = re.search(r'<table[^>]*id="pstLookUp".*?<tbody[^>]*>(.*?)</tbody>', html or "", re.S | re.I)
+    if not m:
+        return []
+    cell = lambda c: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", c)).replace("&amp;", "&").strip()
+    rows = [[cell(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S | re.I)]
+            for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", m.group(1), re.S | re.I)]
+    return [r for r in rows if any(r)]
 LOAD_TIMEOUT_S = 60
 
 
@@ -130,6 +153,8 @@ def classify(rows, page_text, names):
     if other:
         return NOT_CONFIRMED, ("No result is exactly the supplier's name; similar names in the registry: "
                                + "; ".join(other)), ""
+    if unreadable(rows, page_text):  # results shown but not read: a failure to retry, not an answer
+        return ERROR, f"The registry found {found_count(page_text)} result(s), but they couldn't be read.", ""
     return NOT_CONFIRMED, "Couldn't read the registry's answer.", ""
 
 
@@ -196,7 +221,8 @@ class SkPstAssistant:
         try:
             data = json.loads(self.answers_file.read_text(encoding="utf-8")) if self.answers_file else {}
             now = time.time()
-            return {t: a for t, a in data.items() if now - float(a["at"]) < self.ANSWER_AGE}
+            return {t: a for t, a in data.items()
+                    if now - float(a["at"]) < self.ANSWER_AGE and not unreadable(a["rows"], a["text"])}
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             return {}
 
@@ -206,7 +232,7 @@ class SkPstAssistant:
         return bool(terms) and all(t in self._answers for t in terms)
 
     def _save_answer(self, term, rows, text):
-        if not self.answers_file:
+        if not self.answers_file or unreadable(rows, text):
             return
         self._answers[term] = {"at": time.time(), "rows": rows, "text": text[:50000]}
         try:
@@ -299,12 +325,20 @@ class SkPstAssistant:
         const clean = s => s.replace(/\\s+/g, ' ').trim();
         const table = document.querySelector('#pstLookUp');
         const $ = window.jQuery;
-        if (table && $ && $.fn && $.fn.dataTable && $.fn.dataTable.isDataTable(table)) {
-            const cell = h => { const d = document.createElement('div'); d.innerHTML = String(h); return clean(d.textContent); };
-            return $(table).DataTable().rows().data().toArray().map(r => Array.from(r).map(cell));
-        }
+        // Both ways, keeping whichever has more rows: DataTables holds every page of a paged table, but on the
+        // user's PC (Edge) it once reported no rows while the page showed three.
+        let fromTable = [];
+        try {
+            if (table && $ && $.fn && $.fn.dataTable && $.fn.dataTable.isDataTable(table)) {
+                const cell = h => { const d = document.createElement('div'); d.innerHTML = String(h); return clean(d.textContent); };
+                fromTable = $(table).DataTable().rows().data().toArray()
+                    .map(r => (Array.isArray(r) ? r : Object.values(r || {})).map(cell)).filter(r => r.some(c => c));
+            }
+        } catch (e) { fromTable = []; }
         const trs = table ? table.querySelectorAll('tbody tr') : document.querySelectorAll('table tr');
-        return [...trs].map(tr => [...tr.querySelectorAll('td')].map(c => clean(c.textContent))).filter(r => r.length);
+        const fromPage = [...trs].map(tr => [...tr.querySelectorAll('td')].map(c => clean(c.textContent)))
+            .filter(r => r.some(c => c));
+        return fromTable.length >= fromPage.length ? fromTable : fromPage;
     }"""
 
     _NEW_PAGE_FOR = """term => {
@@ -358,6 +392,14 @@ class SkPstAssistant:
         page.wait_for_load_state("domcontentloaded")
         rows = page.evaluate(self._READ_ROWS)
         text = page.inner_text("body")
+        for _ in range(3):  # the page says it found results but none were read yet: give it a moment
+            if not unreadable(rows, text):
+                break
+            page.wait_for_timeout(1000)
+            rows, text = page.evaluate(self._READ_ROWS), page.inner_text("body")
+        if unreadable(rows, text):
+            rows = rows_from_html(page.content())
+            log.info("Saskatchewan: results for %r read from the page's HTML (%d rows)", term, len(rows))
         log.debug("SK registry search %r -> rows %s | page text: %s", term, rows, re.sub(r"\s+", " ", text)[:2000])
         return rows, text
 
