@@ -7,7 +7,7 @@ choose). This guide explains, end to end, what the tool does and why, what is kn
 step-by-step way to tailor and verify. `HANDOFF.md` is the engineering reference (every site's quirks, code map,
 change log); this file is the "how to think about it and what to do" guide. Read this first, then HANDOFF §0.
 
-Last updated 2026-10-20 (commit after `dbbb6fe`). Tests: 217 offline, 21 live (`TAXCHECK_LIVE=1`).
+Last updated 2026-10-20. Tests: 220 offline, 21 live (`TAXCHECK_LIVE=1`).
 
 ---
 
@@ -68,7 +68,7 @@ Example (made up): a row in the ERP export
    Values are cleaned (`clean_value`: Excel floats such as `857305932.0` back to whole numbers; scientific notation is flagged later as an invalid number).
 2. **Clean the name** (`checks.clean_vendor_name`, `vendor_name_candidates`). "(DNU)" is removed (the row is
    marked do-not-use and still checked); "O/A PW SUPPLY" makes "PRAIRIE WIDGET" the legal part and "PW SUPPLY" a
-   trade name. Candidates, most likely first: as given, legal part, tidied, suffix variants (Ltd↔Limited),
+   trade name. Candidates, most likely first: as given, legal part (tidied: padded vendor numbers, "REMIT", "*" dropped), suffix variants (Ltd↔Limited),
    numbered-company forms ("1234567 AB" → "1234567 ALBERTA LTD."), then trade names. Max 8.
 3. **Route** (`RowChecker._check_row`). Country "CA" (or blank with a Canadian postal code) → Canadian. Province
    from `State`, or from the postal code's first letter when blank ("R" → MB). Foreign vendors get only the
@@ -88,11 +88,19 @@ Example (made up): a row in the ERP export
    "SPOTIFY AB"; never "ACME LP" vs "ACME INC.", different entities). Registration dates (`gst_dates.py`):
    Quick mode finds the cancellation day if it's no longer registered today.
 6. **Digital economy** (`RowChecker._digital_economy`): for a foreign vendor with no usable Canadian number (or
-   a Canadian one with none): exact name match against the simplified list's legal and trade names (case,
+   a Canadian one whose number is missing or invalid): exact name match against the simplified list's legal and trade names (case,
    punctuation, legal endings incl. foreign ones like Pty/AB/GmbH ignored; 5+ letters); else, foreign vendors
    only, a *probable* match (region, ".com" or a word like "Technologies" left out; exactly one listed business)
    flagged "check it's the same business". CRA must confirm the listed number under the listed name. Measured on
    CRA's list with realistic spellings: 50 of 56 found; on 694,224 unrelated company names: 11 probable hits.
+   **Two paths, by what's in the Tax ID:** (a) an explicit Canadian number (`...RT9999`, `...RT0001`, or a bare
+   9 digits that are on the list) goes through step 5: the list is found by business number, CRA is asked with
+   the sheet's names and the listed names; if CRA accepts none, the number-only check decides (the list alone is
+   never taken as CRA's confirmation). (b) No usable Canadian number (EIN, blank): the name match above.
+   **Outcome either way:** Overall **REVIEW**, issue "Simplified (digital economy) registrant" with the action
+   "give them our GST/HST number so they stop charging it" (their GST/HST isn't ITC-eligible). Dates come from
+   CRA's list only (the registry answers per business number and can show an older ordinary account's dates).
+   A wrong or 9-digit-only Tax ID gets the full `RT9999` number in "GST/HST Tax ID Problem".
 7. **No number at all** (`RowChecker._possible_number`): a Canadian vendor with no GST/HST number gets a lead
    when Canada's Business Registries has exactly one BN under exactly that name (same kind of entity) and CRA
    confirms it. Status stays NO NUMBER.
@@ -140,10 +148,15 @@ profile report (§5, step 1). Don't assume the trial's 64 rows are representativ
 ## 5. Tailoring playbook
 
 **Step 1. Get the shape of the data.** Ask the user to double-click **`Profile Workbook.bat`** (or
-`python profile_workbook.py <file>`) and send the text file it saves in `logs/profile_<date>.txt`. It contains
-only counts and patterns (digits as `9`, letters as `A`): column mapping, Tax ID shapes and what the tool reads
-them as, Tax ID problems by kind, country and province spellings, postal shapes, name-marker counts and the name
-length limit, date kinds and range, shared numbers, and the offline routing per tax. Also ask for
+`python profile_workbook.py <file>`) and send the text file it saves in the `logs` folder **next to the
+workbook** (in the user's case inside OneDrive), named `profile_<date>.txt`. Ask them to glance at the
+COUNTRY and PROVINCE sections first: values are printed as written unless they look like free text. It contains
+only counts and patterns (digits as `9`, letters as `A`): column mapping; Canadian vs foreign row counts (the
+tool's own `RowChecker.locate`); Tax ID shapes separately for Canadian and foreign rows, and for Canadian rows
+what the tool reads them as and the Tax ID problems by kind; country and province spellings (and foreign rows
+whose State is a Canadian code); postal shapes; name-marker counts and the name length limit; repeats; date
+kinds and range; shared numbers; **online sellers** whose names are on CRA's simplified list (exact / probable;
+the list is downloaded once, `--offline` skips it); and the offline routing per tax. Also ask for
 `python check_suppliers.py <file> --check-columns` output if a column looks unmapped.
 
 **Step 2. Act on what the profile shows.** Use this table; each fix needs a test with made-up rows in the same
@@ -161,19 +174,24 @@ shape (step 3).
 | Longest name = N with many at N | field limit N | automatic (cross-row note); `same_business_name(truncated_at=...)` uses 34+ |
 | Dates "unreadable text" | date format | add the format to `parse_date` (day-first is the Canadian default) |
 | Many `gst NOT APPLICABLE` from foreign rows with Canadian-looking numbers | foreign vendors with GST numbers | explicit RT numbers are already checked; a bare 9-digit EIN is not sent (can pass the check digit by chance) unless it is on CRA's simplified list |
-| `sk_pst WOULD CHECK` above ~100 | Saskatchewan daily limit | expected: the run marks the rest MANUAL with the reopening time; `--resume` next day |
+| `sk_pst WOULD CHECK` above ~100 | Saskatchewan daily limit | expected: the run marks the rest MANUAL with the reopening time; `--resume <progress csv>` the next day searches them (resume re-checks ERROR rows and Saskatchewan rows whose search couldn't run) |
+| ONLINE SELLERS count high, or many foreign rows NOT APPLICABLE you expected to be online sellers | vendor-master spellings the matcher misses | measure first (as in HANDOFF §12, 2026-10-20) with made-up spellings; extend `_FOREIGN_FORMS`/`_REGIONS`/`_DESCRIPTORS` in `checks.py`; re-check the false-match rate on unrelated names before shipping |
 
 **Step 3. Test every change** with made-up rows that copy the *shape* from the profile (never real values).
 Patterns to follow: `tests/test_vendor_export.py` (the export layout end to end with stand-in checkers),
 `tests/test_vendor_names.py` (name markers), `tests/test_offline.py` (number formats and routing),
-`tests/test_profile.py` (profile output). Run `python -m unittest discover tests` (about a minute; browser
+`tests/test_profile.py` (profile output; extend it if you change what the profile prints, and keep its
+"nothing identifying leaks" assertion). Run `python -m unittest discover tests` (about a minute; browser
 tests need Playwright's Chromium or Edge, else they skip).
 
 **Step 4. Verify on the user's PC, in this order** (each step is a `.bat` or one command for the user):
 1. `Test Setup.bat` → READY.
 2. `python check_suppliers.py <file> --offline` (2 minutes, no lookups): counts of INVALID / NO NUMBER /
    NOT APPLICABLE; anything surprising goes back to step 2.
-3. `Run Trial (25 suppliers).bat`: 25 online lookups; ask for the log and the Tax Check Summary sheet.
+3. `Run Trial (25 suppliers).bat`: the first rows of the file up to 25 that need an online lookup; ask for the
+   log and the Tax Check Summary sheet. **Pass:** no ERROR rows (or only ones the log explains, e.g. a site in
+   maintenance); no MANUAL CHECK on Manitoba/BC; every Canadian row has a GST/HST status other than NOT
+   APPLICABLE; the counts look plausible to the user (NO NUMBER / NOT REGISTERED rows they can recognise).
 4. Full run (`Run Tax Check.bat`), overnight; `--resume <progress csv>` after any stop.
 
 **Step 5. Read results like this.** Start with the summary sheet's notes (sources that failed, cut-offs) and

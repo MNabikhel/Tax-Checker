@@ -169,3 +169,32 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResumeSaskatchewan(unittest.TestCase):
+    """--resume checks again Saskatchewan rows whose searches couldn't run (the daily limit...), as the run says."""
+
+    def test_rows_left_for_a_manual_check_by_the_searches_are_redone(self):
+        import csv
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from taxcheck.progress import load_resume
+
+        rows = {
+            2: {"gst": ["REGISTERED", "ok", ""], "sk_pst": ["REGISTERED", "vendor's licence", ""]},
+            3: {"gst": ["REGISTERED", "ok", ""], "sk_pst": ["MANUAL CHECK", "Saskatchewan's registry allows 100 "
+                                                             "searches per 24 hours and they're used up.", ""]},
+            4: {"gst": ["REGISTERED", "ok", ""], "sk_pst": ["MANUAL CHECK", "needs at least 4 letters of the "
+                                                             "business name", ""]},
+            5: {"gst": ["ERROR", "down", ""]},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "progress.csv"
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.DictWriter(f, fieldnames=["sheet_row", "results_json"])
+                w.writeheader()
+                for r, data in rows.items():
+                    w.writerow({"sheet_row": r, "results_json": json.dumps(data)})
+            self.assertEqual(sorted(load_resume(path)), [2, 4])  # 3 (limit) and 5 (error) are checked again

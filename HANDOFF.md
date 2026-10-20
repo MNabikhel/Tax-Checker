@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 238: 217 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 241: 220 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -104,6 +104,9 @@ Alberta, the territories and the HST provinces (ON, NB, NS, PE, NL) only need th
    dates are checked; the cut-off is in the summary sheet and the log. The tax lead chooses the cut-off.
 
 **Still open for the user:**
+- Simplified (digital economy) registrants are REVIEW (GST/HST they charge isn't ITC-eligible: give them our
+  number); "probable" name matches are REVIEW with "check it's the same business". If the tax lead wants them
+  in a separate sheet or as OK, that's a `report.py` / `workbook.py` change.
 - Saskatchewan in assisted mode (someone ticks a CAPTCHA once at the start): asked in the launcher's menu
   when Saskatchewan is chosen; Enter = yes. Verified on the real site (probe, 2026-10-16: three searches on
   one CAPTCHA; results page layout captured, §7).
@@ -312,8 +315,12 @@ These were all learned by testing; don't "simplify" them away.
 - **Digital-economy registrants with no number on file** (`checks._digital_economy`): vendors with no usable
   Canadian number (foreign vendors; Canadian rows with none or an invalid one) are compared with every legal
   and trade name on the simplified list using `core_name` (case, punctuation, "&"/"and", legal suffixes
-  ignored; whole name only, at least 6 characters: partial matches gave many false positives in a manual
-  pass). A match is reported only when CRA confirms the listed number under the listed legal name on the date.
+  ignored, also foreign legal forms like Pty/AB/GmbH; whole name only, at least 5 characters). For foreign
+  vendors only, a "probable" tier (`loose_name`: trailing region, ".com" or descriptor words dropped, descriptors
+  from the listed name only) when exactly one listed business fits. Partial-word matching gave many false
+  positives in an earlier manual pass; the tiers were measured on CRA's list (TAILORING §3 step 6). A match is
+  reported only when CRA confirms the listed number under the listed legal name on the date. A number that is on
+  the list but whose names CRA all rejects is decided by the number-only check, not taken as confirmed.
 
 **Official-name sources for GST/HST.** When the sheet's names don't match, `GstChecker._candidates`
 tries, in order: CRA's simplified list names; names other checks returned for the same row (Revenu
@@ -507,6 +514,15 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (cold read of TAILORING.md by a fresh agent)**: fixed two bugs it found: `--resume` didn't search
+  the Saskatchewan rows left over by the 100-a-day limit (they're MANUAL, and resume only redid ERROR rows; now it
+  also redoes Saskatchewan rows whose search couldn't run, not "name too short"); and a business number on CRA's
+  simplified list whose names CRA all rejected was recorded as CRA-accepted (`cra_answer: registered`), so
+  `_confirm_official` could upgrade it to REGISTERED. It now goes through the number-only check. The profile now
+  splits Canadian and foreign Tax IDs, counts online sellers on CRA's list, repeats, foreign rows with Canadian
+  State codes, and masks free-text country/province values. Docs: two simplified paths and their outcome, trial
+  pass criteria, profile location, an open decision on simplified registrants' Overall.
 
 - **2026-10-20 (simplified GST/HST; tailoring guide)**: Researched CRA's simplified regime (RT9999 numbers since
   July 2023; no ITCs on GST/HST these sellers charge) and measured the matching on CRA's real list (2,366 entries)

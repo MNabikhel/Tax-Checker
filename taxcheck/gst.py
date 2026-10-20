@@ -371,10 +371,17 @@ class GstChecker:
                 return Result(NOT_REGISTERED, f"Simplified GST/HST registration only starts {listed['registered']}.", listed["legal_name"],
                               facts={"cra_answer": "not_registered_on_date", "official_name": listed["legal_name"],
                                      "name_source": "CRA's simplified registrant list"})
-            detail = self._other_name_detail(listed["legal_name"], "CRA's simplified registrant list", sheet_tried, date)
-            return Result(NAME_NOT_MATCHED, f"{detail} {note}", listed["legal_name"],
-                          facts={"accepted_name": listed["legal_name"], "official_name": listed["legal_name"],
-                                 "name_source": "CRA's simplified registrant list", "cra_answer": "registered"})
+            # On CRA's list, but CRA accepted none of the names, the listed legal name included: don't treat the
+            # list as CRA's confirmation. Decide from the number (as for any unmatched name), and show the listed
+            # name as the official one for this number.
+            res = self._number_only(bn9, date, tried, extra_names)
+            if res.status == NAME_NOT_MATCHED:
+                res.registered_name = listed["legal_name"]
+                res.facts.update(official_name=listed["legal_name"], official_source="CRA's simplified registrant list",
+                                 official_name_tied_to_number=True)
+                res.detail += f" CRA's simplified registrant list has this number as '{listed['legal_name']}'."
+            res.detail = " ".join(filter(None, [res.detail, note]))
+            return res
 
         return self._number_only(bn9, date, tried, extra_names)
 

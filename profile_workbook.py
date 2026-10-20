@@ -6,7 +6,9 @@ Prints (and saves in logs/profile_<date>.txt next to the workbook) counts and pa
 the tool found, how Tax IDs, countries, provinces, postal codes and dates are written, which vendor-master
 markings appear in names ("(DNU)", "O/A", "*", brackets, cut-off names), and what the tool would do with each
 row offline. No supplier name or number is printed: digits show as 9 and letters as A ("999999999AA9999").
-Country and province values are printed as written (they're codes like "CA" or "Ont."), truncated.
+Country and province values are printed as written (codes like "CA" or "Ont."); a value with digits or more
+than 3 words or 20 characters is shown as its shape. Unless --offline, CRA's public list of simplified
+(digital economy) registrants is downloaded once to count vendor names on it (no registry lookups).
 
 The report is meant to be shared with whoever tailors the tool (see TAILORING.md).
 """
@@ -25,6 +27,15 @@ def shape(value, limit=24):
     """'123456789 RT0001' -> '999999999 AA9999'; long values are cut."""
     s = re.sub(r"[A-Za-z]", "A", re.sub(r"\d", "9", str(value).strip()))
     return s if len(s) <= limit else s[:limit] + "..."
+
+
+def safe_value(value):
+    """A country/province value as written, unless it looks like free text (digits, or long): then its shape."""
+    from taxcheck.workbook import normalize_country, normalize_province
+
+    v = str(value).strip()
+    known = normalize_province(v) or normalize_country(v) == "CA"
+    return v if known or (len(v) <= 20 and not re.search(r"\d", v) and len(v.split()) <= 3) else shape(v, 20)
 
 
 def top(counter, n=25):
@@ -49,7 +60,35 @@ NAME_PATTERNS = [
 ]
 
 
-def profile(path, sheet_name=None):
+def simplified_counts(rows, located):
+    """How many vendors' names match CRA's list of simplified (digital economy) GST/HST registrants.
+
+    Downloads CRA's public list once (cached a week in the tool's cache folder); no CRA registry lookups, so
+    these are name matches only (a real run then has CRA confirm each one)."""
+    from taxcheck.checks import _card_style_names, _simplified_by_name, clean_vendor_name, vendor_name_candidates
+    from taxcheck.gst import SimplifiedList
+    from taxcheck.http import new_session
+
+    sl = SimplifiedList(new_session(), cache_dir=HERE / "cache")
+    sl._load()
+    if not sl._rows:
+        return f"ONLINE SELLERS: CRA's simplified registrant list couldn't be loaded ({sl.error}); not counted"
+    found = Counter()
+    for r, v in rows:
+        if not v.get("name"):
+            continue
+        names = _card_style_names(vendor_name_candidates(clean_vendor_name(v["name"])[0]))
+        foreign = located[r][2]
+        if _simplified_by_name(sl, names):
+            found["foreign, exact name" if foreign else "Canadian, exact name"] += 1
+        elif foreign and _simplified_by_name(sl, names, probable=True):
+            found["foreign, probable name"] += 1
+    total = sum(len(e) for e in sl._rows.values())
+    return (f"ONLINE SELLERS (names on CRA's simplified GST/HST list of {total} entries; a run has CRA confirm "
+            "each): " + (", ".join(f"{k}: {n}" for k, n in found.most_common()) or "none"))
+
+
+def profile(path, sheet_name=None, with_lists=False):
     sys.path.insert(0, str(HERE))
     from taxcheck.checks import DryRun, RowChecker
     from taxcheck.gst import cra_today
@@ -79,15 +118,30 @@ def profile(path, sheet_name=None):
     def blank(v):
         return v is None or str(v).strip() == ""
 
+    located = {r: RowChecker.locate(v) for r, v in rows}
+    foreign_rows = sum(1 for loc in located.values() if loc[2])
+    out("")
+    out(f"CANADIAN / FOREIGN (as the tool decides from Country, State and Postal Code): {len(rows) - foreign_rows} "
+        f"Canadian, {foreign_rows} foreign")
+    ca_states = Counter(str(v.get("province")).strip().upper() for r, v in rows if located[r][2]
+                        and RowChecker.locate({"province": v.get("province")})[1])
+    if ca_states:
+        out(f"  Foreign rows whose State is a Canadian province code: {sum(ca_states.values())} "
+            f"({', '.join(f'{k}: {n}' for k, n in ca_states.most_common(5))}): check the Country column on those")
+
     for name in ("gst", "qst", "pst", "bc_pst", "mb_rst", "sk_pst", "bn"):
-        if name in sheet.cols:
-            values = field(name)
+        if name not in sheet.cols:
+            continue
+        for group, wanted in (("Canadian rows", False), ("foreign rows", True)):
+            values = [v.get(name) for r, v in rows if located[r][2] == wanted]
+            if not values:
+                continue
             out("")
-            out(f"{name.upper()} COLUMN: {sum(blank(v) for v in values)} blank of {len(values)}")
+            out(f"{name.upper()} COLUMN, {group}: {sum(blank(v) for v in values)} blank of {len(values)}")
             out("  Shapes (9 = digit, A = letter), most common first:")
-            for k, n in top(Counter(shape(v) for v in values if not blank(v))):
+            for k, n in top(Counter(shape(v) for v in values if not blank(v)), 15 if wanted else 25):
                 out(f"    {n:>7}  {k}")
-            if name == "gst":
+            if name == "gst" and not wanted:  # foreign Tax IDs are mostly EINs: no Canadian parsing for them
                 kinds, problems = Counter(), Counter()
                 for v in values:
                     if blank(v):
@@ -109,7 +163,7 @@ def profile(path, sheet_name=None):
         if name in sheet.cols:
             out("")
             out(f"{label} values as written (top 40):")
-            for k, n in top(Counter(str(v).strip()[:20] if not blank(v) else "(blank)" for v in field(name)), 40):
+            for k, n in top(Counter(safe_value(v) if not blank(v) else "(blank)" for v in field(name)), 40):
                 out(f"    {n:>7}  {k}")
     if "postal" in sheet.cols:
         out("")
@@ -119,7 +173,8 @@ def profile(path, sheet_name=None):
 
     names = [str(v).strip() for v in field("name") if not blank(v)]
     out("")
-    out(f"NAMES: {len(names)} filled, {len(set(n.upper() for n in names))} distinct (ignoring case)")
+    out(f"NAMES: {len(names)} filled, {len(set(n.upper() for n in names))} distinct (ignoring case), "
+        f"{len(names) - len(set(n.upper() for n in names))} repeats")
     lengths = Counter(len(n) for n in names)
     if lengths:
         longest = max(lengths)
@@ -161,8 +216,15 @@ def profile(path, sheet_name=None):
             if len(digits) == 9 and not blank(v.get("name")):
                 by_number.setdefault(digits, set()).add(re.sub(r"[^a-z0-9]", "", str(v["name"]).lower()))
         shared = sum(1 for s in by_number.values() if len(s) > 1)
+        counts = Counter(re.sub(r"\D", "", str(v.get("gst") or ""))[:9] for _, v in rows)
+        repeated = sum(n - 1 for k, n in counts.items() if len(k) == 9 and n > 1)
         out("")
-        out(f"SHARED NUMBERS: {shared} business numbers appear on vendors with different names")
+        out(f"SHARED NUMBERS: {shared} business numbers appear on vendors with different names; {repeated} rows "
+            "repeat a number already on another row (looked up once)")
+
+    if with_lists:
+        out("")
+        out(simplified_counts(rows, located))
 
     # What the tool would do with each row, offline (same routing as a real run).
     dry = DryRun()
@@ -177,7 +239,8 @@ def profile(path, sheet_name=None):
         for tax, res in result.items():
             routes[f"{tax:7} {res.status}"] += 1
     out("")
-    out("WHAT THE TOOL WOULD DO (offline routing; WOULD CHECK = looked up online in a real run):")
+    out("WHAT THE TOOL WOULD DO (offline routing; WOULD CHECK = looked up online in a real run; online sellers on")
+    out("CRA's simplified list show here as gst NOT APPLICABLE: a real run finds them by name, see ONLINE SELLERS):")
     for k, n in sorted(routes.items()):
         out(f"    {n:>7}  {k}")
     return lines
@@ -187,6 +250,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("workbook", nargs="?")
     ap.add_argument("--sheet")
+    ap.add_argument("--offline", action="store_true", help="don't download CRA's simplified registrant list "
+                                                           "(skips the online-seller count)")
     args = ap.parse_args(argv)
     sys.path.insert(0, str(HERE))
     from check_suppliers import choose_workbook, default_log_dir
@@ -198,7 +263,11 @@ def main(argv=None):
     import logging
 
     logging.disable(logging.INFO)  # the routing pass logs every row; the profile is the output here
-    lines = profile(path, args.sheet)
+    if not args.offline:
+        from taxcheck.certs import use_system_certificates
+
+        use_system_certificates()
+    lines = profile(path, args.sheet, with_lists=not args.offline)
     text = "\n".join(lines)
     print(text)
     out = default_log_dir(path) / f"profile_{dt.datetime.now():%Y%m%d_%H%M%S}.txt"

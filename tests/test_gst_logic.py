@@ -75,6 +75,24 @@ class GstLogic(unittest.TestCase):
         self.assertIn("input tax credits", res.detail)
         self.assertEqual(checker({"Airalo": "registered"}, listed).check("751950577", ["Airalo"], TODAY).status, REGISTERED)
 
+    def test_on_the_list_but_cra_accepts_no_name_is_not_a_cra_confirmation(self):
+        # Found in a cold read: the list used to stand in for CRA's acceptance, which let the row be upgraded to
+        # REGISTERED. Now the number decides, as for any unmatched name (1980 check: "not registered" = account).
+        from taxcheck.gst import BEFORE_GST
+
+        listed = {"legal_name": "BRIGHTLY PTY LTD", "trade_name": "", "number": "111111118RT9999",
+                  "registered": dt.date(2023, 7, 1), "deregistered": None}
+        g = checker({}, listed)
+        g.registry_lookup = lambda bn9, name, date: "not_registered" if date == BEFORE_GST else "no_match"
+        res = g.check("111111118", ["SOMETHING ELSE"], TODAY)
+        self.assertEqual(res.status, NAME_NOT_MATCHED)
+        self.assertEqual(res.facts["cra_answer"], "registered_number_only")
+        self.assertNotIn("accepted_name", res.facts)
+        self.assertEqual(res.registered_name, "BRIGHTLY PTY LTD")
+        self.assertIn("input tax credits", res.detail)
+        g.registry_lookup = lambda bn9, name, date: "no_match"  # no account at all
+        self.assertEqual(g.check("111111118", ["SOMETHING ELSE"], TODAY).status, NOT_REGISTERED)
+
     def test_simplified_deregistered(self):
         listed = {"legal_name": "OLD LTD", "trade_name": "", "number": "751950577RT9999",
                   "registered": dt.date(2020, 1, 1), "deregistered": dt.date(2021, 1, 1)}

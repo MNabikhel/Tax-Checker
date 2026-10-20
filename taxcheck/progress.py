@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from .result import ERROR, Result
+from .result import ERROR, MANUAL, Result
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +119,10 @@ class ProgressReport:
 def load_resume(path):
     """Results from an earlier run's progress file: {sheet_row: {tax: Result}}.
 
-    Rows that had an ERROR are left out, so a resumed run retries them.
+    Rows that had an ERROR are left out, so a resumed run retries them. So are Saskatchewan rows left for a
+    manual check because the searches couldn't run (the 100-a-day limit, nobody ticked the CAPTCHA, the window
+    was closed, no --sk-assist): "re-run with --resume" is what the run tells the user. A name too short to
+    search stays as it was (searching again can't help).
     """
     path = Path(path)
     done, retried = {}, 0
@@ -131,10 +134,13 @@ def load_resume(path):
             except (KeyError, ValueError, TypeError):
                 continue
             results = {k: Result(*v) for k, v in data.items()}
-            if any(r.status == ERROR for r in results.values()):
+            sk = results.get("sk_pst")
+            sk_not_searched = (sk is not None and sk.status == MANUAL and "at least 4 letters" not in sk.detail)
+            if sk_not_searched or any(r.status == ERROR for r in results.values()):
                 retried += 1
                 done.pop(row, None)
                 continue
             done[row] = results
-    log.info("Resuming from %s: %d suppliers already done, %d with errors will be retried", path, len(done), retried)
+    log.info("Resuming from %s: %d suppliers already done, %d with errors or Saskatchewan searches still to do will "
+             "be checked again", path, len(done), retried)
     return done

@@ -43,6 +43,13 @@ class Profile(unittest.TestCase):
         self.assertIn("SHARED NUMBERS: 1", text)
         self.assertIn("gst     WOULD CHECK", text)
         self.assertIn("gst     NOT APPLICABLE", text)  # the US vendor
+        self.assertIn("4 Canadian, 1 foreign", text)
+        self.assertIn("GST COLUMN, foreign rows", text)
+
+    def test_free_text_in_province_or_country_is_masked(self):
+        self.assertEqual(profile_workbook.safe_value("Ont."), "Ont.")
+        self.assertEqual(profile_workbook.safe_value("123 Main Street Suite 4"), "999 AAAA AAAAAA AAAA...")
+        self.assertEqual(profile_workbook.safe_value("Newfoundland and Labrador"), "Newfoundland and Labrador")
 
 
 if __name__ == "__main__":
