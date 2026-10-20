@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 267: 246 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 269: 248 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -519,6 +519,12 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (simplified list read half-built)**: a fresh-folder test run found every online seller NOT
+  APPLICABLE: the setup check read CRA's simplified-list page from the browser's live view while its scripts were
+  still paging the table (7 of 1,781 numbers) and cached it for a week. Now the browser path uses the page as sent
+  (`resp.text()`), and a list under `SimplifiedList.MIN_NUMBERS` (500) is neither used nor cached; an old bad
+  cache is ignored. If no complete list loads, the summary sheet says so.
 
 - **2026-10-20 (one-click test)**: `Run Test.bat` / `run_test.py` (see the code map) and `--stop-after N` (raises
   KeyboardInterrupt in the main loop after N suppliers, exactly the Ctrl+C path). The user runs it first and

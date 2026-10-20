@@ -77,6 +77,9 @@ class SimplifiedList:
     """
 
     CACHE_AGE = 7 * 24 * 3600
+    # CRA's list had 1,781 business numbers in October 2026 and only grows. Far fewer means a page read before
+    # it finished building its table (seen: 7, from a browser's half-built view), so it's not used or cached.
+    MIN_NUMBERS = 500
 
     def __init__(self, session, browser=None, cache_dir=None):
         self.session = session
@@ -102,7 +105,9 @@ class SimplifiedList:
                 resp = page.goto(SIMPLIFIED_LIST, wait_until="domcontentloaded", timeout=60000)
                 log.debug("Browser load of the CRA simplified list -> HTTP %s", resp and resp.status)
                 if resp is None or resp.status < 400:
-                    yield "browser", page.content()
+                    # The page as CRA sent it: page.content() is the browser's live view, which the page's
+                    # scripts may still be rearranging (paging the table).
+                    yield "browser", resp.text() if resp is not None else page.content()
 
     def _load(self):
         self._rows = {}
@@ -110,6 +115,11 @@ class SimplifiedList:
         try:
             for source, page in self._sources():
                 rows = self.parse(page)
+                if 0 < len(rows) < self.MIN_NUMBERS:
+                    log.info("CRA simplified list from %s has only %d business numbers (incomplete page); trying "
+                             "the next source", source, len(rows))
+                    errors.append(f"{source}: only {len(rows)} business numbers (incomplete page)")
+                    continue
                 if rows:
                     self._rows = rows
                     log.info("Loaded CRA simplified GST/HST list from %s: %d business numbers", source, len(rows))

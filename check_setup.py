@@ -195,15 +195,16 @@ def check_browser(rep, log_dir):
                     code = resp.status if resp else "?"
                     shot = log_dir / f"setup_{label.split()[0].lower()}.png"
                     page.screenshot(path=str(shot))
-                    html = page.content() if "canada.ca" in label else ""
+                    # The page as sent, not the live view (its scripts may still be paging the table).
+                    html = (resp.text() if resp is not None else page.content()) if "canada.ca" in label else ""
                 secs = time.monotonic() - t0
                 ok = resp is None or resp.status < 400
                 extra = ""
                 if html:
                     n = len(SimplifiedList.parse(html))
-                    ok = ok and n > 0
-                    extra = f", {n} registrants listed"
-                    if n:  # save it where the full run looks first, so the run doesn't have to fetch it again
+                    ok = ok and n >= SimplifiedList.MIN_NUMBERS
+                    extra = f", {n} registrants listed" + ("" if ok else " (incomplete: not saved)")
+                    if ok:  # save it where the full run looks first, so the run doesn't have to fetch it again
                         cache = HERE / "cache"
                         cache.mkdir(exist_ok=True)
                         (cache / "cra_simplified_list.html").write_text(html, encoding="utf-8")
