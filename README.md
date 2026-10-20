@@ -139,6 +139,9 @@ and all taxes (registration dates off); expect roughly 3x that one at a time. Fo
   per supplier, time left, and status counts so far.
 - **Checkpoint saves** of the results workbook every 2,000 suppliers, marked "IN PROGRESS" on the summary sheet.
 
+**`Run Test.bat`** tests everything in one click on built-in public test data (`run_test.py`): setup check,
+profile, a full run stopped on purpose part way, the resume, and one zip of every log and result to send back.
+
 If the run stops (Ctrl+C, PC restart, network drop), double-click **`Resume Last Run.bat`** (`--resume last`):
 it continues the latest full run with the same workbook and answers (asking again only about Saskatchewan, if
 it was skipped). Or name a progress file: `--resume logs\progress_<date>_<time>.csv`. Finished suppliers are

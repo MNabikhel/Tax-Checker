@@ -40,6 +40,25 @@ def run(args, record):
     return code
 
 
+def every_row_checked(workbook):
+    """After the resume, every supplier in the test file should have a result."""
+    import openpyxl
+
+    results = workbook.with_name(f"{workbook.stem}_tax_check.xlsx")
+    try:
+        ws = openpyxl.load_workbook(results, read_only=True).worksheets[0]
+        rows = list(ws.iter_rows(values_only=True))
+        overall = rows[0].index("Overall")
+    except Exception as e:
+        return f"RESULT: couldn't read {results.name} ({type(e).__name__}: {e})"
+    suppliers = [r for r in rows[1:] if r and r[0]]
+    missing = [i for i, r in enumerate(rows[1:], 2) if r and r[0] and not r[overall]]
+    errors = sum(1 for r in suppliers if any(v == "ERROR" for v in r))
+    if missing:
+        return f"RESULT: {len(missing)} of {len(suppliers)} suppliers have no result (rows {missing[:10]})"
+    return f"RESULT: all {len(suppliers)} suppliers checked; {errors} with an ERROR status"
+
+
 def main():
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     folder = HERE / "test_run" / stamp
@@ -57,11 +76,12 @@ def main():
         run(["check_setup.py", str(workbook)], record)
         step("Step 2 of 4: workbook profile")
         run(["profile_workbook.py", str(workbook)], record)
-        step(f"Step 3 of 4: full run, stopped after {STOP_AFTER} suppliers as if Ctrl+C was pressed")
+        step(f"Step 3 of 4: full run, stopped on purpose after {STOP_AFTER} suppliers (as if Ctrl+C was pressed), "
+             "to test resuming")
         print(">>> Watch for the Saskatchewan window: tick the boxes and click Next. <<<", flush=True)
         run(["check_suppliers.py", str(workbook), "--sk-assist", "--gst-dates", "end", "--stop-after", str(STOP_AFTER)],
             record)
-        step("Step 4 of 4: resuming the stopped run (as Resume Last Run.bat does)")
+        step("Step 4 of 4: resuming the stopped run (as Resume Last Run.bat does): checks every remaining supplier")
         run(["check_suppliers.py", "--resume", "last"], record)
     finally:
         for path in (HERE / ".last_run", HERE / ".last_workbook"):  # the user's own notes, as they were
@@ -70,6 +90,7 @@ def main():
             elif path.exists():
                 path.unlink()
 
+    record.append(every_row_checked(workbook))
     (folder / "test_run_steps.txt").write_text("\n".join(record) + "\n", encoding="utf-8")
     out = HERE / f"TaxCheck_Test_Results_{stamp}.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:

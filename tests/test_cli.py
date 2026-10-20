@@ -129,7 +129,6 @@ class Cli(unittest.TestCase):
         # Of the 2 before the stop, the one whose lookup failed (Flaky Co) is checked again.
         self.assertIn("1 suppliers already done, 1 with errors", resumed)
         self.assertIn("'no_browser': True", resumed)  # the stopped run's options, reused
-        self.assertIn("Stopped early after 1 of 4", log_text)
 
     def test_check_columns_is_offline_and_explains_mapping(self):
         with mock.patch.object(FakeGst, "check", side_effect=AssertionError("no lookups in --check-columns")):

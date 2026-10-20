@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 266: 245 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 267: 246 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -228,6 +228,7 @@ the log only).
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA; one failed search affects only that supplier | `SkPstAssistant`, `classify`, `search_terms` |
 | `taxcheck/tailoring.py`, `tailoring.example.json`, `examples/tailoring_template.xlsx` | Tailoring without code: extra column/province/country spellings, date formats first, name markings, from `tailoring.json` or `tailoring.xlsx` in the tool folder | `apply`, `reset`, `TailoringError` |
 | `Offline Check.bat` | `--offline` run on a chosen workbook (format and check digit only) | |
+| `Run Test.bat`, `run_test.py`, `examples/Test_Suppliers.xlsx` | One-click test on public test data: setup check, profile, full run stopped by `--stop-after` (the Ctrl+C path), `--resume last`, an every-row check, one results zip; restores the user's `.last_run` | `main`, `every_row_checked` |
 | `Resume Last Run.bat` | `--resume last`: continues the latest full run (workbook, progress file and menu answers noted in `.last_run` in the tool folder by `remember_run`; trials and offline runs aren't noted) | `check_suppliers.resume_last_run` |
 | `profile_workbook.py`, `Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
 | `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
@@ -518,6 +519,10 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-20 (one-click test)**: `Run Test.bat` / `run_test.py` (see the code map) and `--stop-after N` (raises
+  KeyboardInterrupt in the main loop after N suppliers, exactly the Ctrl+C path). The user runs it first and
+  sends `TaxCheck_Test_Results_<date>.zip`; it holds only test data.
 
 - **2026-10-20 (QST for foreign suppliers)**: building the user's test kit showed foreign suppliers' QST was never
   checked (the foreign branch of `_check_row` returned GST/HST only), so the NR-list path, whose numbers only

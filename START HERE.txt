@@ -1,6 +1,14 @@
 TAX-CHECKER: HOW TO RUN IT
 ==========================
 
+TEST RUN (one click, no vendor data, about 10 minutes)
+------------------------------------------------------
+Double-click "Run Test.bat". It sets up the tool, checks every government site, and runs a built-in
+file of public test businesses: a full run that stops on purpose part way (to test resuming), then
+the resume, which checks every remaining supplier. Your only job: when the Saskatchewan window
+opens, tick "I agree" and "I'm not a robot" and click Next. At the end File Explorer opens on
+TaxCheck_Test_Results_<date>.zip in this folder: send that file. It holds only test data.
+
 THE REAL RUN (what you do each time)
 ------------------------------------
 1. If you keep the tool in a synced cloud folder, copy the project folder to a local folder
