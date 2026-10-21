@@ -25,6 +25,15 @@ class Candidates(unittest.TestCase):
         self.assertEqual(vendor_name_candidates(None), [])
         self.assertLessEqual(len(vendor_name_candidates("9999910 ALBERTA LTD O/A RIVERBEND PUMPING (CALGARY) - REMIT")), 6)
 
+    def test_quebec_numbered_companies(self):
+        # Seen on the user's run: CRA accepted "9165-8559 QUEBEC INC." for a vendor kept as "9165-8559 QC INC".
+        # (Made-up numbers here.)
+        names = vendor_name_candidates("9999-0001 QC INC O/A LES NETTOYAGES EXEMPLE")
+        self.assertIn("9999-0001 QUÉBEC INC", names)
+        self.assertLess(names.index("9999-0001 QUÉBEC INC"), names.index("LES NETTOYAGES EXEMPLE"))
+        self.assertIn("9999-0002 QUEBEC INC", vendor_name_candidates("9999 0002 Quebec Inc. (Exemple)"))  # hyphen form
+        self.assertEqual(vendor_name_candidates("1234 5678 LTD"), ["1234 5678 LTD", "1234 5678 LIMITED"])  # no province
+
     def test_more_vendor_master_shorthand(self):
         from taxcheck.checks import clean_vendor_name
 

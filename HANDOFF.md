@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 297: 276 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 298: 277 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -511,6 +511,10 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (Québec numbered companies)**: from the user's v3 rows: "9165-8559 QC INC" wasn't expanded (the
+  numbered-company pattern needed an unbroken number); CRA accepts "9165-8559 QUEBEC INC." for it. `_NUMBERED_SHORT`
+  now takes Québec's "NNNN-NNNN" / "NNNN NNNN" forms (written with a hyphen) and spells the province out.
 
 - **2026-10-21 (whose number it is)**: for a number not registered on the payment date or today, the run now looks
   up whose business number it is (the registries by number: `GstChecker._official_name`) for "Registry Name" and

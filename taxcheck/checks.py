@@ -119,8 +119,9 @@ _PROVINCE_SHORT = {
 }
 # A numbered company at the start of the name, in short or full form, with or without its suffix, whatever follows:
 # "9999907 AB O/A ...", "9999906 ALBERTA PRAIRIE PAINTING", "9999908 ON LTD".
+# The number: 5-10 digits, or Québec's "9165-8559" / "9165 8559" (registered as "9165-8559 QUÉBEC INC.").
 _NUMBERED_SHORT = re.compile(
-    r"^(\d{5,10})\s+(nf and labrador|nfld|alta|alb|ont|sask|man|pei|que|nwt|ab|on|bc|sk|mb|ns|nb|nl|nf|pe|qc|nt|yt|"
+    r"^(\d{5,10}|\d{4}[-\s]\d{4})\s+(nf and labrador|nfld|alta|alb|ont|sask|man|pei|que|nwt|ab|on|bc|sk|mb|ns|nb|nl|nf|pe|qc|nt|yt|"
     rf"{_PROVINCE_WORDS})\b\.?(?:\s+(ltd|limited|inc|incorporated|corp|corporation)\b\.?)?", re.I)
 # Legal suffix followed by more words: "ACME SUPPLY INC-EDM", "QUICK DELIVERY LTD. - SK JOB",
 # "9999905 ALBERTA LTD. WINDOW MAGIC". The part up to the suffix is the legal name. ("Co"/"Company" left out:
@@ -208,6 +209,7 @@ def vendor_name_candidates(name):
             short = None
         if short:
             number, prov, suffix = short.group(1), _PROVINCE_SHORT.get(short.group(2).lower(), short.group(2).upper()), short.group(3)
+            number = re.sub(r"^(\d{4})\s(\d{4})$", r"\1-\2", number)  # Québec numbers are written with a hyphen
             base = f"{number} {prov}"
             if suffix:
                 full = f"{base} {suffix.upper()}"
