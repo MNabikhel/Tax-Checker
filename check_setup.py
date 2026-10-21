@@ -329,7 +329,16 @@ def check_lookups(rep, samples, site_ok, browser_ok, log_dir):
     browser = Browser(debug_dir=log_dir) if browser_ok else None
     gst = GstChecker(delay=1.5, cache_dir=HERE / "cache")  # no official-name sources: no 110 MB download here
     gst.simplified.browser = browser
+    # A run waits for the CRA registry when it's down (up to hours); this check reports it and finishes instead.
+    gst.health.give_up_after = 0
     try:
+        try:
+            gst.registry_lookup("857305932", "Amazon.com.ca ULC", today)
+        except Exception as e:
+            rep.result(FAIL, "CRA GST/HST registry", f"isn't answering right now ({(gst.health.last_error or str(e))[:160]})",
+                       "CRA's site is down (not your PC). A run started now waits for it, retrying every 2 minutes, "
+                       "and carries on when it's back; or run this setup test again later.")
+            return
         t0 = time.monotonic()
         res = gst.check("857305932", ["Amazon.com.ca ULC"], today)
         good = res.status == "REGISTERED"
