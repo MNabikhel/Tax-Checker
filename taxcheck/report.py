@@ -191,6 +191,9 @@ def provincial_issue(key, res):
             if "window was closed" in low or "wasn't completed in time" in low or "asked for the captcha again" in low:
                 return ("Manual check needed (Saskatchewan searches stopped)", "Double-click \"Resume Last Run.bat\" and tick "
                         "the CAPTCHA, or search the name on Saskatchewan's PST registry.", SEV_MANUAL)
+            if "didn't answer this search" in low:
+                return ("Manual check needed (registry didn't answer)", "Search the name by hand on Saskatchewan's PST "
+                        "registry.", SEV_MANUAL)
             if "couldn't open a browser" in low:
                 return ("Manual check needed (browser didn't open)", "Run \"Test Setup.bat\", then double-click "
                         "\"Resume Last Run.bat\" and answer Y to the Saskatchewan question, or search the name on "

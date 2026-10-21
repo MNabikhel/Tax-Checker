@@ -157,23 +157,28 @@ def resume_last_run(args):
     return ""
 
 
-def saskatchewan_batch_summary(results, sk):
-    """One line for the screen and the summary sheet: how far the Saskatchewan batches have got."""
+def saskatchewan_batch_summary(results, sk, total, stopped_early=False):
+    """One line for the screen and the summary sheet: how far the Saskatchewan batches have got. `total` is the
+    number of Saskatchewan suppliers; a supplier with no result yet (the batch stopped) is still to search."""
     from taxcheck.result import ERROR, MANUAL
 
     sk_results = [r["sk_pst"] for r in results.values() if "sk_pst" in r]
-    waiting = [r for r in sk_results if r.status in (MANUAL, ERROR) and "at least 4 letters" not in r.detail]
-    done = len(sk_results) - len(waiting)
-    if not waiting:
-        return (f"SASKATCHEWAN BATCH: all {done} Saskatchewan suppliers have an answer. To add them to the full run's "
-                "results workbook, double-click \"Resume Last Run.bat\" (no CAPTCHA needed).")
+    by_hand = sum(1 for r in sk_results if r.status == MANUAL and ("at least 4 letters" in r.detail
+                                                                  or "didn't answer this search" in r.detail))
+    answered = sum(1 for r in sk_results if r.status not in (MANUAL, ERROR))
+    waiting = total - answered - by_hand
+    hand = f" {by_hand} need a search by hand (see their details)." if by_hand else ""
+    if not waiting and not stopped_early:
+        return (f"SASKATCHEWAN BATCH: all {total} Saskatchewan suppliers are done: {answered} have an answer.{hand} To "
+                "add them to the full run's results workbook, double-click \"Resume Last Run.bat\" (no CAPTCHA).")
     stopped = (sk.unavailable or "") if sk else ""
-    m = re.search(r"More searches are possible from [\d-]+ [\d:]+", stopped)
-    why = (f"Today's searches are used up. {m.group(0)}." if m
+    m = re.search(r"The next full batch is possible from [^)]*\)", stopped)
+    why = ("This batch was stopped before the end." if stopped_early and not stopped
+           else f"Today's searches are used up. {m.group(0)}." if m
            else f"The searches stopped: {stopped.split(' Search by hand')[0].rstrip('.')}." if stopped else "")
-    return (f"SASKATCHEWAN BATCH: {done} of {len(sk_results)} Saskatchewan suppliers have an answer; {len(waiting)} "
-            f"still to search. {why} Double-click \"Run Saskatchewan Batch.bat\" again for the next batch (answers "
-            "so far are kept 30 days and aren't searched again).").replace("  ", " ")
+    return (f"SASKATCHEWAN BATCH: {answered} of {total} Saskatchewan suppliers have an answer; {waiting} still to "
+            f"search.{hand} {why} Double-click \"Run Saskatchewan Batch.bat\" again for the next batch (answers so "
+            "far are kept 60 days and aren't searched again).").replace("  ", " ").replace("..", ".")
 
 
 def remember_workbook(path):
@@ -392,29 +397,30 @@ def prefetch_saskatchewan(checker, sk, rows):
         log.info("Saskatchewan: no Saskatchewan suppliers in this file, so the CAPTCHA window won't open.")
         return
     left = sk.searches_left()
-    if len(jobs) > left:
-        log.warning("Saskatchewan: %d suppliers to search, but the registry allows only %d searches per 24 hours "
-                    "(%d left now). Suppliers past the limit are marked for a manual check; double-click \"Run Saskatchewan "
-                    "Batch.bat\" on the following days to search the rest.", len(jobs), sk.daily_limit, left)
     answered = getattr(sk, "answered", lambda names: False)
     fresh = sum(1 for names, _ in jobs if not answered(names))
+    if len(jobs) > fresh:
+        log.info("Saskatchewan: %d suppliers answered from this tool's earlier searches (no CAPTCHA, no daily searches "
+                 "used for them).", len(jobs) - fresh)
+    if fresh > left:
+        log.warning("Saskatchewan: %d suppliers still to search, and %d of the registry's %d searches per 24 hours are "
+                    "left. The rest wait for the next batch: double-click \"Run Saskatchewan Batch.bat\" on the "
+                    "following days.", fresh, left, sk.daily_limit)
     if fresh and not left:
-        log.warning("Saskatchewan: today's %d searches are used up, so the window won't open; %d suppliers wait for "
-                    "the next batch. %s", sk.daily_limit, fresh, sk._limit_message())
+        log.warning("Saskatchewan: today's searches are used up, so the window won't open. %s",
+                    sk._limit_message().split(". ", 1)[1].split(" Double-click")[0])
     elif fresh:
-        log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
-                    "once and click Next. The searches then run by themselves, then the rest of the check.", fresh)
-    if fresh < len(jobs):
-        log.info("Saskatchewan: %d answers from this tool's searches in the last day are reused (no CAPTCHA, no daily "
-                 "searches used for them).", len(jobs) - fresh)
-    started = time.monotonic()
+        log.warning(">>> Saskatchewan: up to %d searches now. A browser window opens: tick 'I agree' and 'I'm not a "
+                    "robot' once and click Next. The searches then run by themselves.", min(fresh, left))
+    started, stopped = time.monotonic(), False
     for i, (names, had_number) in enumerate(jobs, 1):
+        # Every supplier is gone through even after the searches stop: saved answers still count.
         res = checker._guard(checker._sk_noted, names, had_number)
         log.info("[Saskatchewan %d/%d] %s: %s", i, len(jobs), next((n for n in names if n), ""), res.status)
-        if sk.unavailable:
-            log.warning("Saskatchewan: stopping the searches (%s); the remaining Saskatchewan suppliers are "
+        if sk.unavailable and not stopped:
+            stopped = True
+            log.warning("Saskatchewan: no more searches in this run (%s); suppliers without a saved answer are "
                         "marked for a manual check.", sk.unavailable)
-            break
     log.info("Saskatchewan searches done in %.0fs (CAPTCHA asked %d time(s)); continuing with the other checks.",
              time.monotonic() - started, sk.captchas)
 
@@ -679,8 +685,10 @@ def run(args, log_path):
                     raise KeyboardInterrupt  # --stop-after: exactly what Ctrl+C does (Run Test.bat tests resuming)
         except KeyboardInterrupt:
             # A long run stopped with Ctrl+C keeps what it has; --resume with the progress file finishes the rest.
-            log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s", len(results), len(rows),
-                        "" if args.limit or offline else " To continue later, double-click \"Resume Last Run.bat\".")
+            log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s", len(results),
+                        len(to_check) if args.sk_only else len(rows),
+                        "" if args.limit or offline else " To continue later, double-click \"%s\"."
+                        % ("Run Saskatchewan Batch.bat" if args.sk_only else "Resume Last Run.bat"))
             stopped_early = True
             if executor:
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -753,13 +761,14 @@ def run(args, log_path):
     if qst and qst.nr_error:
         notes.append(qst.nr_error)
     if args.sk_only:
-        notes.insert(0, saskatchewan_batch_summary(results, sk))
+        notes.insert(0, saskatchewan_batch_summary(results, sk, len(to_check), bool(stopped_early)))
         log.warning("%s", "=" * 70)
         log.warning("%s", notes[0])
         log.warning("%s", "=" * 70)
     if stopped_early:
-        notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked: "
-                        "double-click \"Resume Last Run.bat\" to check them.")
+        notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(to_check) if args.sk_only else len(rows)} suppliers "
+                        "were checked. Rows without results weren't checked: double-click "
+                        f"\"{'Run Saskatchewan Batch.bat' if args.sk_only else 'Resume Last Run.bat'}\" to check them.")
     ok_statuses = (REGISTERED, NAME_NOT_MATCHED) if args.trust_gst_number else (REGISTERED,)
     if args.trust_gst_number:
         notes.insert(0, "NUMBER-ONLY RESULTS (--accept-number-only): 'REGISTERED - NAME NOT MATCHED' counts as OK in the "
@@ -848,12 +857,18 @@ def main(argv=None):
     if args.sk_only:
         args.taxes, args.sk_assist, args.no_name_lookup, args.workers, args.gst_dates = {"sk_pst"}, True, True, 1, "none"
         args.ask, args.resume, args.limit = False, None, None
-        if not args.workbook:  # the full run's workbook, so the batch needs no questions
+        if not args.workbook:  # the full run's workbook and choices, so the batch needs no questions
             with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
-                last = json.loads(LAST_RUN.read_text(encoding="utf-8"))["workbook"]
-                if Path(last).exists():
-                    args.workbook = last
-                    print(f"Saskatchewan batch for {last} (the workbook of the last full run)")
+                last = json.loads(LAST_RUN.read_text(encoding="utf-8"))
+                if Path(last["workbook"]).exists():
+                    args.workbook = last["workbook"]
+                    for k in ("sheet", "date", "paid_since", "paid_within", "as_of_today"):  # the same suppliers
+                        if last.get(k) and not getattr(args, k, None):
+                            setattr(args, k, last[k])
+                    print(f"Saskatchewan batch for {args.workbook} (the workbook of the last full run)")
+                else:
+                    print(f"The last full run's workbook isn't where it was ({last['workbook']}): choose it in the "
+                          "window that opens.")
     if str(args.resume or "").lower() == "last":
         problem = resume_last_run(args)
         if problem:

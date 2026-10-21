@@ -332,8 +332,8 @@ class SaskatchewanBatches(unittest.TestCase):
                 return self.left
 
             def _limit_message(self):
-                return ("Saskatchewan's registry allows 2 searches per 24 hours and they're used up. More searches are "
-                        "possible from 2026-10-22 09:00. Double-click later.")
+                return ("Saskatchewan's registry allows 2 searches per 24 hours and they're used up. The next full "
+                        "batch is possible from 2026-10-22 09:00 (a few searches from 08:55). Double-click later.")
 
             def check(self, names):
                 if names[0] in self.saved:
@@ -383,15 +383,47 @@ class SaskatchewanBatches(unittest.TestCase):
         rows, note = self.batch()  # day 1: the workbook comes from the last full run, no questions
         self.assertEqual(self.searched, ["PRAIRIE WIDGETS LTD", "NORTHERN SUPPLY CO"])
         self.assertIn("2 of 3 Saskatchewan suppliers have an answer; 1 still to search", note)
-        self.assertIn("More searches are possible from 2026-10-22 09:00", note)
+        self.assertIn("The next full batch is possible from 2026-10-22 09:00", note)
         self.assertEqual(rows["REGINA PAINT INC"]["SK PST Status"], "MANUAL CHECK")
         self.assertFalse(rows["ACME LTD"].get("SK PST Status"))  # not a Saskatchewan supplier: untouched
         self.assertNotIn("GST/HST Status", rows["PRAIRIE WIDGETS LTD"])  # only Saskatchewan columns
 
         rows, note = self.batch()  # day 2: only what's left is searched
         self.assertEqual(self.searched, ["PRAIRIE WIDGETS LTD", "NORTHERN SUPPLY CO", "REGINA PAINT INC"])
-        self.assertIn("all 3 Saskatchewan suppliers have an answer", note)
+        self.assertIn("all 3 Saskatchewan suppliers are done: 3 have an answer", note)
         self.assertIn("Resume Last Run.bat", note)
         self.assertEqual({r["SK PST Status"] for n, r in rows.items() if n != "ACME LTD" and n != "GOOD CO"},
                          {"REGISTERED"})
         self.assertEqual((self.dir / ".last_run").read_text(), before)  # the full run's note is never replaced
+
+    def test_the_full_runs_paid_since_cut_off_carries_over(self):
+        import json
+
+        (self.dir / ".last_run").write_text(json.dumps({"workbook": str(self.src), "progress": "x",
+                                                        "paid_since": "2024-01-01"}))
+        seen = {}
+        with mock.patch.object(check_suppliers, "run", side_effect=lambda args, log_path: seen.update(vars(args))):
+            check_suppliers.main(["--sk-only", "--log-dir", str(self.dir / "logs"), "--cache-dir", str(self.dir)])
+        self.assertEqual((seen["paid_since"], seen["taxes"], seen["sk_assist"]), ("2024-01-01", {"sk_pst"}, True))
+
+
+class SaskatchewanBatchSummary(unittest.TestCase):
+    def test_never_all_done_after_a_stop(self):
+        sk = mock.Mock(unavailable=None)
+        line = check_suppliers.saskatchewan_batch_summary({}, sk, 946, stopped_early=True)
+        self.assertIn("0 of 946 Saskatchewan suppliers have an answer; 946 still to search", line)
+        self.assertIn("stopped before the end", line)
+        self.assertNotIn("Resume Last Run", line)
+
+    def test_counts_and_by_hand(self):
+        from taxcheck.result import ERROR, MANUAL, NOT_CONFIRMED
+
+        results = {2: {"sk_pst": Result(REGISTERED, "licence")}, 3: {"sk_pst": Result(NOT_CONFIRMED, "no business")},
+                   4: {"sk_pst": Result(MANUAL, "needs at least 4 letters of the business name")},
+                   5: {"sk_pst": Result(ERROR, "failed twice")},
+                   6: {"sk_pst": Result(MANUAL, "Saskatchewan's registry didn't answer this search in 2 batches")}}
+        line = check_suppliers.saskatchewan_batch_summary(results, mock.Mock(unavailable=None), 6)
+        self.assertIn("2 of 6 Saskatchewan suppliers have an answer; 2 still to search. 2 need a search by hand", line)
+        done = {2: results[2], 3: results[3], 4: results[4]}
+        self.assertIn("all 3 Saskatchewan suppliers are done: 2 have an answer. 1 need a search by hand",
+                      check_suppliers.saskatchewan_batch_summary(done, None, 3))

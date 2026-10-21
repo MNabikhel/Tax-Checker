@@ -428,6 +428,66 @@ class UnreadableResults(unittest.TestCase):
             self.assertNotIn("OTHER WIDGET", sk._answers)
 
 
+class SavedAnswers(unittest.TestCase):
+    """What the batches rely on: only real answers are kept, saved answers count after searching stops, and a
+    search the registry keeps failing is left for a search by hand instead of being retried every day."""
+
+    class NoBrowser:
+        debug_dir = None
+
+        def new_persistent_page(self):
+            raise AssertionError("no window should open")
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.file = Path(self._tmp.name) / "answers.json"
+
+    def test_the_registrys_limit_page_is_never_kept_as_an_answer(self):
+        import json
+        import time
+
+        limit = "Instruction Box The daily search limit has been reached. Please try again tomorrow."
+        sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+        sk._save_answer("PRAIRIE WIDGET", [], limit)
+        self.assertNotIn("PRAIRIE WIDGET", sk._answers)
+        self.file.write_text(json.dumps({"PRAIRIE WIDGET": {"at": time.time(), "rows": [], "text": limit}}))
+        again = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)  # saved by an earlier version
+        self.assertFalse(again.answered(["PRAIRIE WIDGET LTD"]))  # no crash, and searched again later
+
+    def test_saved_answers_still_count_once_searching_has_stopped(self):
+        sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+        sk._save_answer("PRAIRIE WIDGET", [["PRAIRIE WIDGET LTD", "PSTVEND"]], "A total of 1 companies were found.")
+        sk.unavailable = "the CAPTCHA wasn't completed in time. Search by hand at x"
+        self.assertEqual(sk.check(["PRAIRIE WIDGET LTD"]).status, REGISTERED)
+        self.assertEqual(sk.check(["NORTHERN WIDGET LTD"]).status, MANUAL)
+
+    def test_a_search_the_registry_keeps_failing_is_left_for_a_search_by_hand(self):
+        for _ in range(sk_pst.SkPstAssistant.MAX_FAILS):  # one failed batch each
+            sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+            sk._note_failure("PRAIRIE WIDGET")
+        sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+        self.assertTrue(sk.answered(["PRAIRIE WIDGET LTD"]))  # nothing to search: no window for it
+        res = sk.check(["PRAIRIE WIDGET LTD"])
+        self.assertEqual(res.status, MANUAL)
+        self.assertIn("didn't answer this search in 2 batches", res.detail)
+        from taxcheck.report import provincial_issue
+
+        self.assertEqual(provincial_issue("sk_pst", res)[0], "Manual check needed (registry didn't answer)")
+
+    def test_limit_message_gives_the_full_batch_time(self):
+        import time
+
+        sk = sk_pst.SkPstAssistant(self.NoBrowser())
+        now = time.time()
+        sk._searched_at = [now - 3600, now]
+        msg = sk._limit_message()
+        full = dt.datetime.fromtimestamp(now + 24 * 3600)
+        self.assertIn(f"The next full batch is possible from {full:%Y-%m-%d %H:%M}", msg)
+
+
 class RealResultsPage(unittest.TestCase):
     """What the real registry returned on 2026-10-16 (probe run), read the way the tool reads it."""
 

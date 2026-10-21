@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 280: 259 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 287: 266 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -512,8 +512,17 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-21 (review of the Saskatchewan batches)**: an independent review found, and these were fixed: the
+  registry's own limit page could be saved as an answer (it then stopped or crashed every batch for weeks): only
+  pages that are answers are kept (`_is_answer`), and old ones are ignored; after a stop or crash the batch summary
+  could say "all 0 done": it now counts against the number of Saskatchewan suppliers and never says "done" after
+  a stop; once searching stopped, suppliers with saved answers were marked MANUAL too: saved answers still count;
+  a search the registry fails twice (two batches) is left "for a search by hand" (`MAX_FAILS`) instead of retried
+  daily; the limit message gives the full-batch time (24 h after the last search); batches use the full run's
+  paid-since cut-off; answers kept 60 days; batch-specific messages after a stop.
+
 - **2026-10-21 (Saskatchewan in daily batches)**: `Run Saskatchewan Batch.bat` / `--sk-only` (see the code map).
-  Saskatchewan answers are kept 30 days (`SkPstAssistant.ANSWER_AGE`; was 1 day) so batches only search what's
+  Saskatchewan answers are kept 60 days (`SkPstAssistant.ANSWER_AGE`; was 1 day) so batches only search what's
   left and later runs reuse them; the remaining-searches check now happens before the window opens (no CAPTCHA
   when the day's limit is used up); daily-limit advice points to the batch file. Rehearsed end to end with the
   real Saskatchewan code and a stand-in registry (`TheWholeSaskatchewanPlan`): full run to the limit, a same-day

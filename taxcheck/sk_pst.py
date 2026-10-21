@@ -44,6 +44,14 @@ def found_count(page_text):
     return 0 if not m else (int(m.group(1)) if m.group(1) else 1)
 
 
+FAILED_KEY = "__failed_batches__"  # in the answers file: search term -> batches in which the registry didn't answer
+
+
+def _is_answer(rows, page_text):
+    """A results page worth keeping: not the registry's limit page, and its results could be read."""
+    return not SEARCH_LIMIT.search(page_text or "") and not unreadable(rows, page_text)
+
+
 def unreadable(rows, page_text):
     """The page says it found businesses, but no result rows could be read."""
     return found_count(page_text) > 0 and not any(any(c for c in r) for r in rows or [])
@@ -198,9 +206,10 @@ class SkPstAssistant:
     """
 
     REASK_MIN = 3
-    # Answers are kept 30 days: Saskatchewan's 100-a-day limit means a big list takes days of batches ("Run
+    # Answers are kept 60 days: Saskatchewan's 100-a-day limit means a big list takes days of batches ("Run
     # Saskatchewan Batch.bat"), and every later run reuses what's been searched (no CAPTCHA, no daily searches).
-    ANSWER_AGE = 30 * 24 * 3600
+    ANSWER_AGE = 60 * 24 * 3600  # covers 10-20 batch days with weekends and missed days
+    MAX_FAILS = 2  # a search the registry failed to answer in this many batches is left for a search by hand
 
     def __init__(self, browser, wait_minutes=5, counter_file=None, daily_limit=DAILY_LIMIT, answers_file=None):
         self.browser = browser  # must be headed (visible) so a person can complete the CAPTCHA
@@ -216,41 +225,64 @@ class SkPstAssistant:
         self._per_captcha = []  # searches answered after each earlier CAPTCHA
         # The registry's answer to each search term, kept a day between runs (see ANSWER_AGE).
         self.answers_file = Path(answers_file) if answers_file else None
-        self._answers = self._load_answers()
+        self._answers, self._failed = self._load_answers()
         self.reused_at = None  # when the answer just returned was searched, if it came from an earlier run
 
     def _load_answers(self):
+        """({search term: saved answer}, {search term: failed batches}). Answers that aren't answers (a limit page,
+        results that couldn't be read) are never used, even if an earlier version saved them."""
         try:
             data = json.loads(self.answers_file.read_text(encoding="utf-8")) if self.answers_file else {}
+            failed = {t: int(n) for t, n in (data.pop(FAILED_KEY, None) or {}).items()}
             now = time.time()
-            return {t: a for t, a in data.items()
-                    if now - float(a["at"]) < self.ANSWER_AGE and not unreadable(a["rows"], a["text"])}
+            answers = {t: a for t, a in data.items() if isinstance(a, dict) and now - float(a["at"]) < self.ANSWER_AGE
+                       and _is_answer(a["rows"], a["text"])}
+            return answers, failed
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
-            return {}
+            return {}, {}
+
+    def _save(self):
+        if not self.answers_file:
+            return
+        try:
+            self.answers_file.parent.mkdir(parents=True, exist_ok=True)
+            self.answers_file.write_text(json.dumps({**self._answers, FAILED_KEY: self._failed}, default=str),
+                                         encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            pass  # only saves searches in later batches
+
+    def gave_up(self, names):
+        """The registry failed to answer this supplier's first search in MAX_FAILS batches: search it by hand."""
+        terms = search_terms(*names)
+        return bool(terms) and self._failed.get(terms[0], 0) >= self.MAX_FAILS
 
     def answered(self, names):
         """True when this supplier's answer can be given from saved answers alone (no browser, no search): every
         term it would search is saved, or an earlier saved term already finds it registered."""
         terms = search_terms(*names)
-        if not terms:
-            return True  # name too short: nothing to search
-        for term in terms:
-            saved = self._answers.get(term)
-            if not saved:
-                return False
-            if classify(saved["rows"], saved["text"], names)[0] == REGISTERED:
-                return True
+        if not terms or self.gave_up(names):
+            return True  # name too short, or left for a search by hand: nothing to search
+        try:
+            for term in terms:
+                saved = self._answers.get(term)
+                if not saved:
+                    return False
+                if classify(saved["rows"], saved["text"], names)[0] == REGISTERED:
+                    return True
+        except Exception:
+            return False
         return True
 
     def _save_answer(self, term, rows, text):
-        if not self.answers_file or unreadable(rows, text):
+        if not self.answers_file or not _is_answer(rows, text):
             return
         self._answers[term] = {"at": time.time(), "rows": rows, "text": text[:50000]}
-        try:
-            self.answers_file.parent.mkdir(parents=True, exist_ok=True)
-            self.answers_file.write_text(json.dumps(self._answers, default=str), encoding="utf-8")
-        except (OSError, TypeError, ValueError):
-            pass  # only saves a CAPTCHA on a resume
+        self._failed.pop(term, None)
+        self._save()
+
+    def _note_failure(self, term):
+        self._failed[term] = self._failed.get(term, 0) + 1
+        self._save()
 
     def _search_box_visible(self):
         box = self.page.locator(SEARCH_BOX)
@@ -325,8 +357,12 @@ class SkPstAssistant:
                 log.debug("Couldn't save the Saskatchewan search count: %s", e)
 
     def _limit_message(self):
-        again = dt.datetime.fromtimestamp(min(self._searched_at) + 24 * 3600) if self._searched_at else None
-        when = f" More searches are possible from {again:%Y-%m-%d %H:%M}." if again else ""
+        # Searches free up one at a time, 24 hours after each was made: a few from 24 hours after the first, the
+        # whole day's worth from 24 hours after the last.
+        when = ""
+        if self._searched_at:
+            first, full = (dt.datetime.fromtimestamp(t + 24 * 3600) for t in (min(self._searched_at), max(self._searched_at)))
+            when = f" The next full batch is possible from {full:%Y-%m-%d %H:%M} (a few searches from {first:%H:%M})."
         return (f"Saskatchewan's registry allows {self.daily_limit} searches per 24 hours and they're used up.{when} "
                 f"Double-click \"Run Saskatchewan Batch.bat\" then for the next batch, or search by hand at {SK_REGISTRY}")
 
@@ -457,12 +493,16 @@ class SkPstAssistant:
         raise ResultsNotLoaded(problem)
 
     def check(self, names):
-        if self.unavailable:
-            return Result(MANUAL, self.unavailable)
         terms = search_terms(*names)
         if not terms:
             return Result(MANUAL, "Saskatchewan's registry needs at least 4 letters of the business name (apart from "
                                   f"Ltd/Inc); the vendor name is too short. Search by hand at {SK_REGISTRY}")
+        if self.gave_up(names):
+            return Result(MANUAL, f"Saskatchewan's registry didn't answer this search in {self.MAX_FAILS} batches; "
+                                  f"search the name by hand at {SK_REGISTRY}")
+        if self.unavailable and not self.answered(names):  # searching has stopped; saved answers still count
+            return Result(MANUAL, self.unavailable)
+        term = terms[0]
         try:
             last = None
             for term in terms:
@@ -482,8 +522,9 @@ class SkPstAssistant:
         except BrowserUnavailable as e:
             self.unavailable = f"Couldn't open a browser for the assisted check: {e} Search by hand at {SK_REGISTRY}"
         except Exception as e:
-            # Only this supplier: the next one is searched as usual.
-            log.warning("Saskatchewan search failed for %s: %s", terms[0], e, exc_info=not isinstance(e, ResultsNotLoaded))
+            # Only this supplier: the next one is searched as usual (and this one again in the next batch).
+            log.warning("Saskatchewan search failed for %s: %s", term, e, exc_info=not isinstance(e, ResultsNotLoaded))
+            self._note_failure(term)
             return Result(ERROR, f"Saskatchewan search failed twice ({str(e).splitlines()[0]}). Search by hand at "
                                  f"{SK_REGISTRY}{self._evidence(terms[0]) if self.page and not self.page.is_closed() else ''}")
         log.warning("Saskatchewan: %s", self.unavailable)

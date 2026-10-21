@@ -48,12 +48,14 @@ Nothing else changed in how rows are routed or judged, and no settings file is n
 vendor list still stands). Don't edit the `.py` files; if something needs code, write a change request (COWORK.md).
 
 3. **Saskatchewan in daily batches** (`Run Saskatchewan Batch.bat`, new). Saskatchewan's registry allows 100
-   searches a day and the list has 946 Saskatchewan suppliers. Answers are now kept 30 days, so each batch
+   searches a day and the list has 946 Saskatchewan suppliers. Answers are now kept 60 days, so each batch
    searches only suppliers without an answer, up to the day's limit, and later runs reuse them with no CAPTCHA.
    Each batch writes `<workbook>_saskatchewan.xlsx` (every Saskatchewan supplier's status so far; only
    Saskatchewan columns) and ends with a line like "SASKATCHEWAN BATCH: 212 of 946 Saskatchewan suppliers have
-   an answer; 734 still to search. Today's searches are used up. More searches are possible from 2026-10-22
-   19:05." It uses the last full run's workbook automatically and never changes the full run's results. Some
+   an answer; 734 still to search. Today's searches are used up. The next full batch is possible from
+   2026-10-22 19:05 (a few searches from 18:10)." Suppliers it can't search (name under 4 letters, or the registry failing
+   to answer in 2 batches) are counted as "need a search by hand". It uses the last full run's workbook (and its
+   paid-since cut-off, if any) automatically and never changes the full run's results. Some
    suppliers need two searches (full name, then a shorter form), so expect roughly 10-20 days of batches.
 
 ## 3. Tonight's run: what the user does
@@ -77,7 +79,8 @@ vendor list still stands). Don't edit the `.py` files; if something needs code, 
 Saskatchewan, the following days: once a day (any time after the time the last batch printed), double-click
 **`Run Saskatchewan Batch.bat`**, tick the CAPTCHA, and let it run (about 20 minutes). Repeat until it says
 "all ... Saskatchewan suppliers have an answer". Then double-click **`Resume Last Run.bat`** once: it copies the
-Saskatchewan answers into the v3 results workbook (no CAPTCHA, no searches). Keep using the same tool folder
+Saskatchewan answers into the v3 results workbook (no CAPTCHA, no searches; it re-checks those suppliers'
+other taxes too, so allow about half an hour). Keep using the same tool folder
 (the answers are saved in its `cache` folder), and don't start another full run with `Run Tax Check.bat` until
 the batches are done (the batch and the final resume follow the latest full run).
 

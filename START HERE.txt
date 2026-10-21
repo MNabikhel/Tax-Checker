@@ -47,7 +47,7 @@ Answer Y to Saskatchewan in the full run: it does the first ~100. Then, once a d
 an answer (the last full run's workbook, chosen automatically), up to the day's limit, and writes
 <workbook>_saskatchewan.xlsx. Its last line says how many are done, how many are left and when the next
 batch is possible. When it says all have an answer, double-click "Resume Last Run.bat" once to put them in
-the full run's results (no CAPTCHA). Answers are kept 30 days; always use the same Tax-Checker folder.
+the full run's results (no CAPTCHA). Answers are kept 60 days; always use the same Tax-Checker folder.
 
 OFFLINE CHECK (2 minutes, no lookups)
 -------------------------------------
