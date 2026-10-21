@@ -59,7 +59,9 @@ class App:
         self.results_name = self.results_folder = None
         self.stop_pressed_at = None
         self.saw_results = None  # when a stopped run said where it saved the results
-        self.close_when_done = False
+        self.close_when_done = self.closed = False
+        self.was_stopped = self.saving = False
+        self.last_output = 0.0
         self.step = logic.Step()
         self.eta, self.ready = "", None
 
@@ -152,6 +154,7 @@ class App:
 
     def open_options(self, action=None):
         """The full check's options, each explained. With an action (full check or trial), its Start button runs it."""
+        before = self.options()
         win = tk.Toplevel(self.root)
         win.title("Tax Checker: options" if not action else f"Tax Checker: {ACTION_NAMES[action]}")
         win.transient(self.root)
@@ -178,8 +181,8 @@ class App:
                 box.state(["disabled"])  # always checked (the other taxes' checks build on it)
         explain("GST/HST is always checked (CRA's registry, every Canadian supplier). QST: Québec suppliers and QST "
                 "numbers. BC PST, Manitoba RST and Saskatchewan PST: suppliers in those provinces, looked up on each "
-                "province's site. Untick a tax only if you don't need it: the check is a bit faster without it, and "
-                "its columns stay empty.")
+                "province's site. Untick a tax only if you don't need it: the check is a bit faster without it, and the "
+                "results have no columns for it.")
 
         head("2. Saskatchewan: now or later")
         ttk.Checkbutton(frame, variable=self.sk_now, command=self._options_changed,
@@ -194,7 +197,8 @@ class App:
         head("3. GST/HST registration dates")
         explain("Every choice answers the main question: was each supplier registered on its payment date? CRA's "
                 "registry shows no dates, so dates are found by asking it about particular days. The choices "
-                "differ in how much of that they do:", indent=12)
+                "differ in how much of that they do (online sellers on CRA's simplified list get no date search: "
+                "that list has no dates):", indent=12)
         for value, label, text in (
                 ("end", "Quick (recommended)",
                  "Also checks that each supplier is still registered TODAY, and when a registration was cancelled, "
@@ -202,7 +206,7 @@ class App:
                  "about 1 hour to a full check."),
                 ("full", "Full",
                  "Everything in Quick, plus the date each supplier's GST/HST registration STARTED (the "
-                 "\"Registration Start\" column). Many more questions to CRA: several hours more on a big list. "
+                 "\"GST/HST Registered Since\" column). Many more questions to CRA: several hours more on a big list. "
                  "Only if start dates are needed."),
                 ("none", "None (fastest)",
                  "The payment-date answer only: no check of whether registered suppliers are still registered "
@@ -234,12 +238,20 @@ class App:
             chosen["go"] = True
             win.destroy()
 
-        if action:
-            ttk.Button(buttons, text=f"Start: {ACTION_NAMES[action]}", style="Big.TButton", command=go).pack(side="left")
-            ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="left", padx=8)
-        else:
-            ttk.Button(buttons, text="OK", style="Big.TButton", command=go).pack(side="left")
-        win.bind("<Escape>", lambda _: win.destroy())
+        def cancel():  # back to the choices as they were
+            for k, v in self.tax_vars.items():
+                v.set(k in before["taxes"] or k == "gst")
+            self.sk_now.set(before["sk_now"])
+            self.gst_dates.set(before["gst_dates"])
+            self.paid_since.set(before["paid_since"])
+            self._options_changed()
+            win.destroy()
+
+        ttk.Button(buttons, text=f"Start: {ACTION_NAMES[action]}" if action else "OK", style="Big.TButton",
+                   command=go).pack(side="left")
+        ttk.Button(buttons, text="Cancel", command=cancel).pack(side="left", padx=8)
+        win.bind("<Escape>", lambda _: cancel())
+        win.protocol("WM_DELETE_WINDOW", cancel)
         win.grab_set()
         self.root.wait_window(win)
         self._show_options_summary()
@@ -347,6 +359,16 @@ class App:
             return messagebox.askyesno(
                 "Tax Checker", f"This continues the last full check, which was of:\n{last['workbook']}\n\n(not the "
                                "workbook chosen above). Go ahead?", parent=self.root)
+        if action == logic.FULL and last and not logic.same_file(last["workbook"], wb):
+            other = logic.next_step(self.tool_dir, last["workbook"], dict(self.settings, setup_ok={
+                "workbook": last["workbook"]}))
+            if (other.action in (logic.RESUME, logic.SK_BATCH, logic.FINISH) or other.ready_at) and \
+                    not messagebox.askyesno(
+                        "Tax Checker", f"The last full check, of\n{last['workbook']}\n\nisn't finished ({other.title}) "
+                                       "\n\nStarting a full check of this workbook means the window will follow the new "
+                                       "one, and that check's remaining steps can't be continued from here. Start "
+                                       "anyway?", parent=self.root):
+                return False
         if action == logic.FULL and last and logic.same_file(last["workbook"], wb) and self.step.action != logic.FULL:
             if not messagebox.askyesno(
                 "Tax Checker", "Start the full check again from the beginning?\n\nThe last check's results workbook "
@@ -360,9 +382,10 @@ class App:
     def start(self, action):
         if self.proc or not self._confirm(action):
             return
-        argv = logic.command(action, self.workbook.get(), self.options(), STOP_FILE)
-        STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STOP_FILE.unlink(missing_ok=True)
+        argv = logic.command(action, self.workbook.get(), self.options(), STOP_FILE, logic.last_run(self.tool_dir))
+        with contextlib.suppress(OSError):
+            STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
+            STOP_FILE.unlink(missing_ok=True)
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
         flags = subprocess.CREATE_NO_WINDOW if WINDOWS else 0
         self._clear_log()
@@ -376,6 +399,8 @@ class App:
             messagebox.showerror("Tax Checker", f"Couldn't start it: {e}", parent=self.root)
             return
         self.action, self.stop_pressed_at, self.saw_results = action, None, None
+        self.was_stopped = self.saving = False
+        self.last_output = time.monotonic()
         self.results_name = self.results_folder = None
         self.ready = None
         threading.Thread(target=self._read, args=(self.proc,), daemon=True).start()
@@ -388,25 +413,35 @@ class App:
         self._set_running(True)
 
     def _read(self, proc):
-        for raw in iter(proc.stdout.readline, b""):
-            self.lines.put(raw.decode("utf-8", errors="replace"))
-        proc.stdout.close()
-        self.lines.put(None)
+        with contextlib.suppress(OSError, ValueError):
+            for raw in iter(proc.stdout.readline, b""):
+                self.lines.put((proc, raw.decode("utf-8", errors="replace")))
+            proc.stdout.close()
+        self.lines.put((proc, None))
 
     def _poll(self):
         try:
             for _ in range(500):
-                line = self.lines.get_nowait()
+                proc, line = self.lines.get_nowait()
+                if proc is not self.proc:
+                    continue  # from a run already finished
                 if line is None:
                     self._finished()
                     break
-                self._append(line.rstrip("\n"))
+                self.last_output = time.monotonic()
+                self._append(line.rstrip("\r\n"))
                 self._event(logic.parse_line(line))
         except queue.Empty:
             pass
-        if self.proc and self.saw_results and time.monotonic() - self.saw_results > 30:
-            self._kill()  # a stopped run saved its results but a lookup is still waiting on a site: no need to wait
-        self.root.after(150, self._poll)
+        try:
+            if self.proc and self.saw_results and time.monotonic() - self.saw_results > 30:
+                self._kill()  # a stopped run saved its results but a lookup is still waiting on a site: no need to wait
+            if self.proc and self.proc.poll() is not None and time.monotonic() - self.last_output > 10:
+                self._finished()  # it ended, but a leftover child (e.g. the browser's driver) still holds its output
+        finally:
+            if self.closed:
+                return
+            self.root.after(150, self._poll)  # always: an error above must never stop the window following the run
 
     def _event(self, ev):
         if ev is None:
@@ -425,7 +460,8 @@ class App:
             self.progress_text.configure(text=f"Saskatchewan: {ev.done} of {ev.total} suppliers")
         elif ev.kind == "captcha":
             self._status(">>> " + ev.text, alert=True)
-            self._attention()
+            with contextlib.suppress(tk.TclError):
+                self.root.bell()  # (not brought to the front: that could hide the browser window it's about)
         elif ev.kind in ("captcha_done", "resumed"):
             self._status(ev.text or f"{ACTION_NAMES[self.action]}: running by itself.")
         elif ev.kind == "paused":
@@ -439,17 +475,24 @@ class App:
         elif ev.kind == "batch":
             self._status("Saskatchewan: " + ev.text)
         elif ev.kind == "stopped":
+            self.was_stopped = True
             self._status(ev.text + ". Saving the results so far...")
+        elif ev.kind == "saving":
+            self.saving = True
         elif ev.kind == "ready":
             self.ready = ev
 
     def _finished(self):
-        code = self.proc.wait() if self.proc else None
+        if not self.proc:
+            return
+        code = self.proc.wait()
         action, self.proc = self.action, None
         self.bar.stop()
-        STOP_FILE.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            STOP_FILE.unlink(missing_ok=True)
         ok = code == 0
-        if ok and not self.stop_pressed_at:
+        stopped = self.was_stopped or (self.stop_pressed_at and not ok)
+        if ok and not stopped:
             self.bar.configure(mode="determinate", maximum=1, value=1)
         else:
             self.bar.configure(mode="determinate")
@@ -457,21 +500,27 @@ class App:
             self.settings["setup_ok"] = {"workbook": self.workbook.get(), "at": dt.datetime.now().isoformat(timespec="minutes")}
             logic.save_settings(self.tool_dir, self.settings)
         text = (f"{ACTION_NAMES[action]}: stopped. The results so far are saved; click the button above to continue."
-                if self.stop_pressed_at else f"{ACTION_NAMES[action]}: finished." if ok
+                if stopped else f"{ACTION_NAMES[action]}: finished." if ok
                 else f"{ACTION_NAMES[action]}: ended with a problem (see the messages below and the logs folder).")
         if action == logic.SETUP and self.ready:
             text = f"Setup check: {self.ready.text}"
-        self._status(text, alert=not ok and not self.stop_pressed_at)
+        self._status(text, alert=not ok and not stopped)
         self._append(f"=== {text} ===")
+        if self.close_when_done:
+            self.closed = True
+            self.root.destroy()
+            return
         self.refresh()
         self._attention()
-        if self.close_when_done:
-            self.root.destroy()
 
     def stop(self):
         if not self.proc:
             return
         if self.action not in logic.CHECK_RUNS or (self.stop_pressed_at and time.monotonic() - self.stop_pressed_at > 5):
+            if self.saving:
+                messagebox.showinfo("Tax Checker", "It's saving the results workbook now (up to a minute or two on a "
+                                    "big list). It stops by itself right after.", parent=self.root)
+                return
             if self.action in logic.CHECK_RUNS and not messagebox.askyesno(
                     "Tax Checker", "Stop right away? What was checked is in the progress file, so \"Continue\" still "
                                    "picks up from there, but the results workbook may not be updated.",
@@ -479,8 +528,12 @@ class App:
                 return
             self._kill()
             return
-        STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STOP_FILE.write_text("stop", encoding="utf-8")
+        try:
+            STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
+            STOP_FILE.write_text("stop", encoding="utf-8")
+        except OSError as e:
+            messagebox.showerror("Tax Checker", f"Couldn't ask it to stop ({e}). Click Stop again to stop it right "
+                                 "away.", parent=self.root)
         self.stop_pressed_at = time.monotonic()
         self.stop_btn.configure(text="Stop now")
         self._status("Stopping after the current supplier and saving the results so far (can take a minute; if "
@@ -499,6 +552,7 @@ class App:
 
     def on_close(self):
         if not self.proc:
+            self.closed = True
             self.root.destroy()
             return
         if not messagebox.askyesno("Tax Checker", f"{ACTION_NAMES[self.action]} is still running. Stop it and close? "
@@ -568,11 +622,17 @@ def main():
             (HERE / "logs").mkdir(exist_ok=True)
             with open(HERE / "logs" / "window_errors.txt", "a", encoding="utf-8") as f:
                 f.write(f"--- {dt.datetime.now():%Y-%m-%d %H:%M:%S}\n{text}")
-        messagebox.showerror("Tax Checker", f"Something went wrong in the window: {val}\n\nDetails are in "
-                             f"{HERE / 'logs' / 'window_errors.txt'}", parent=root)
+        with contextlib.suppress(tk.TclError):
+            messagebox.showerror("Tax Checker", f"Something went wrong in the window: {val}\n\nDetails are in "
+                                 f"{HERE / 'logs' / 'window_errors.txt'}", parent=root)
 
     root.report_callback_exception = report
-    App(root)
+    try:
+        App(root)
+    except Exception:
+        report(*sys.exc_info())
+        root.destroy()
+        return
     root.mainloop()
 
 

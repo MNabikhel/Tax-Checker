@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 298: 277 offline
+**Last updated:** 2026-10-21 · **Branch:** `main` (current; all work is merged) · **Tests:** 324: 303 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -533,6 +533,17 @@ Inc. `774075766`.
   of `.bat` files. Tested: `tests/test_gui_logic.py`, stop-file and progress tests in `test_cli.py`, and the real
   window on a virtual display from a fresh copy (setup check, full check stopped with Stop, Continue to the end,
   the Saskatchewan banner, Open results).
+  An independent review then found, and these were fixed: a passed setup check crashed the window (timestamp
+  format); any error while following a run stopped the window following it (now always reschedules); closing
+  mid-run errored; "Stop now" could kill the run while saving the results workbook (the window now refuses then,
+  and `write_results` saves to `<name>.saving` and swaps it in, so a hard stop never leaves a half-written
+  workbook); the window could wait forever if a leftover browser driver held the output after the run ended; the
+  CAPTCHA alert raised the window over the browser it was about; `Tax Checker.bat` closed silently if the
+  installed environment broke (now checks it and reinstalls once); the setup step hid a run under way; starting a
+  full check of another workbook silently left the first one's Saskatchewan steps behind (now asks); Continue used
+  today's options instead of the run's (`--sk-later`: no Saskatchewan question, for the window); a full run with
+  no Saskatchewan suppliers left a stale pending entry; option texts corrected; Cancel in Options restores the
+  choices; no `--show-result` from the window (it has Open results).
 
 - **2026-10-21 (Québec numbered companies)**: from the user's v3 rows: "9165-8559 QC INC" wasn't expanded (the
   numbered-company pattern needed an unbroken number); CRA accepts "9165-8559 QUEBEC INC." for it. `_NUMBERED_SHORT`

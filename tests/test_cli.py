@@ -144,8 +144,8 @@ class Cli(unittest.TestCase):
             for h in list(logging.getLogger().handlers):
                 logging.getLogger().removeHandler(h)
                 h.close()
-            with mock.patch("builtins.input", side_effect=EOFError):  # no console in the window: no question
-                code = check_suppliers.main(["--resume", "last", "--stop-file", str(stop), "--log-dir",
+            with mock.patch("builtins.input", side_effect=AssertionError("no question from the window")):
+                code = check_suppliers.main(["--resume", "last", "--sk-later", "--stop-file", str(stop), "--log-dir",
                                              str(self.dir / "logs2"), "--workers", "1"])
         self.assertEqual(code, 0)
         ws = openpyxl.load_workbook(self.dir / "suppliers_tax_check.xlsx")["Sheet"]
@@ -164,6 +164,17 @@ class Cli(unittest.TestCase):
         entry = data[str(self.src.resolve())]
         self.assertEqual((entry["total"], entry["answered"], entry["waiting"], entry["in_results_waiting"]),
                          (1, 0, 1, 1))
+        for h in list(logging.getLogger().handlers):
+            logging.getLogger().removeHandler(h)
+            h.close()
+        # A later full run with no Saskatchewan supplier left: nothing pending any more.
+        wb = openpyxl.load_workbook(self.src)
+        wb.active.delete_rows(wb.active.max_row)
+        wb.save(self.src)
+        check_suppliers.main([str(self.src), "--log-dir", str(self.dir / "logs2"), "--no-browser", "--no-name-lookup",
+                              "--workers", "1", "--cache-dir", str(self.dir / "cache")])
+        data = json.loads((self.dir / "cache" / "saskatchewan_progress.json").read_text(encoding="utf-8"))
+        self.assertNotIn(str(self.src.resolve()), data)
 
     def test_keep_awake_is_harmless_off_windows(self):
         with mock.patch.object(check_suppliers.platform, "system", return_value="Linux"):

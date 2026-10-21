@@ -1,8 +1,10 @@
 """Reading the supplier workbook and writing results back into a copy of it."""
 
+import contextlib
 import csv
 import datetime as dt
 import logging
+import os
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -519,7 +521,17 @@ class SupplierSheet:
         self._write_summary(today, taxes, counts, issue_counts, issue_actions, overall_counts, name_counts,
                             run_notes, header_font, header_fill)
         self._write_action_list(action_rows, taxes, header_font, header_fill, wrap)
-        self.wb.save(out_path)
+        # Saved under a temporary name, then swapped in: a run stopped hard mid-save (it can take a minute on a big
+        # list) leaves the earlier results workbook as it was, never a half-written one.
+        out_path = Path(out_path)
+        tmp = out_path.with_name(out_path.name + ".saving")
+        try:
+            self.wb.save(tmp)
+            os.replace(tmp, out_path)  # PermissionError if the file is open in Excel (the caller saves elsewhere)
+        finally:
+            if tmp.exists():
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
 
     SHARED_NUMBER = "Same GST/HST number as another vendor"
     SHARED_ACTION = ("Check whether these vendor records are the same business (a duplicate, or a trade name) or whether "

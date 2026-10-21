@@ -1,6 +1,6 @@
 """Setup test: checks everything the tax check needs, in about 2 minutes, and writes a report.
 
-    "Check setup" in Tax Checker, or "advanced\Test Setup.bat"   (or: python check_setup.py [workbook.xlsx])
+    "Check setup" in Tax Checker, or "advanced\\Test Setup.bat"   (or: python check_setup.py [workbook.xlsx])
 
 Steps, each reported PASS / WARN / FAIL with a plain-English fix:
   1. Python and the installed packages

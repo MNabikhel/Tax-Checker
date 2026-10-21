@@ -174,20 +174,23 @@ SK_PROGRESS = "saskatchewan_progress.json"  # in the cache folder: how far each 
 def record_saskatchewan_progress(args, src, results, total, saved_elsewhere=0):
     """Note, per workbook, how many Saskatchewan suppliers have an answer (the window shows it and suggests the next
     batch). `in_results_waiting` is what the full run's results workbook still lacks (a batch doesn't change it)."""
-    if not total or args.limit or args.offline or TEST_RUN:
+    if args.limit or args.offline or TEST_RUN or (not total and args.sk_only):
         return
     path = Path(args.cache_dir) / SK_PROGRESS
     try:
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except (OSError, ValueError):
         data = {}
-    answered, by_hand, waiting = saskatchewan_counts(results, total, saved_elsewhere)
-    entry = data.get(str(Path(src).resolve()), {})
-    entry.update(total=total, answered=answered, by_hand=by_hand, waiting=waiting,
-                 updated=dt.datetime.now().isoformat(timespec="seconds"))
-    if not args.sk_only:
-        entry["in_results_waiting"] = waiting
-    data[str(Path(src).resolve())] = entry
+    if not total:  # a full run with no Saskatchewan suppliers (e.g. none paid since the cut-off): nothing pending
+        data.pop(str(Path(src).resolve()), None)
+    else:
+        answered, by_hand, waiting = saskatchewan_counts(results, total, saved_elsewhere)
+        entry = data.get(str(Path(src).resolve()), {})
+        entry.update(total=total, answered=answered, by_hand=by_hand, waiting=waiting,
+                     updated=dt.datetime.now().isoformat(timespec="seconds"))
+        if not args.sk_only:
+            entry["in_results_waiting"] = waiting
+        data[str(Path(src).resolve())] = entry
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
@@ -914,6 +917,8 @@ def main(argv=None):
                     help="Saskatchewan batch: check only Saskatchewan PST, for the Saskatchewan suppliers not answered "
                          "yet, up to the registry's daily limit (Run Saskatchewan Batch.bat); results in "
                          "<workbook>_saskatchewan.xlsx")
+    ap.add_argument("--sk-later", action="store_true",
+                    help="with --resume last: leave Saskatchewan for the daily batches without asking (the window)")
     ap.add_argument("--stop-file", help="stop (as if Ctrl+C was pressed) when this file appears (the window's Stop "
                                         "button)")
     ap.add_argument("--stop-after", type=int, help="stop after N suppliers as if Ctrl+C was pressed (Run Test.bat "
@@ -947,7 +952,7 @@ def main(argv=None):
         if problem:
             print(problem)
             return 1
-        if not args.sk_assist and (args.taxes is None or "sk_pst" in args.taxes):
+        if not args.sk_assist and not args.sk_later and (args.taxes is None or "sk_pst" in args.taxes):
             args.sk_assist = ask_saskatchewan()  # skipped last time: the one question worth asking again
     if args.date and not parse_date(args.date):
         ap.error("--date must look like 2026-09-30")

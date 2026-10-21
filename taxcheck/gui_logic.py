@@ -131,12 +131,14 @@ def next_step(tool_dir, workbook, settings=None, now=None):
         return Step(title="The chosen workbook isn't there any more.",
                     why=f"Choose it again (it was {workbook}).")
     setup = settings.get("setup_ok") or {}
-    if not same_file(setup.get("workbook"), workbook):
+    run = last_run(tool_dir)
+    this_run = run if run and same_file(run.get("workbook"), workbook) else None
+    if not this_run and not same_file(setup.get("workbook"), workbook):  # (a run under way is never held up)
         return Step(SETUP, "Check setup", "First: a quick check that everything works (about 2 minutes).",
                     "It checks the government sites, the browser and a few real lookups on this workbook, and creates "
                     "no results. Then the full check is the next step.")
-    run = last_run(tool_dir)
-    if not run or not same_file(run.get("workbook"), workbook):
+    run = this_run
+    if not run:
         return Step(FULL, "Start the full check", "Ready for the full check of this workbook.",
                     "First you'll see the options (what's checked and how, each explained), then click Start. It runs "
                     "by itself for a few hours and keeps the PC awake (leave it on and on the network).")
@@ -177,11 +179,12 @@ def next_step(tool_dir, workbook, settings=None, now=None):
                 "under More.")
 
 
-def command(action, workbook, options, stop_file=None):
-    """[script, options...] for an action (run with the tool's Python, in the tool folder)."""
+def command(action, workbook, options, stop_file=None, last=None):
+    """[script, options...] for an action (run with the tool's Python, in the tool folder). `last` is the last full
+    run's note (.last_run), for continuing it with its own choices."""
     opts = options_from({"options": options or {}})
     taxes = opts["taxes"]
-    run_opts = ["--show-result"]
+    run_opts = []  # (no --show-result: the window has "Open results", and Explorer popping up after each batch is noise)
     if stop_file and action in CHECK_RUNS:
         run_opts += ["--stop-file", str(stop_file)]
     if action == SETUP:
@@ -193,15 +196,16 @@ def command(action, workbook, options, stop_file=None):
     if action == SK_BATCH:
         return ["check_suppliers.py", "--sk-only", *run_opts]  # the last full run's workbook and cut-off
     if action in (RESUME, FINISH):
-        # Same workbook and answers as the stopped run. --sk-assist lets it use the saved Saskatchewan answers (the
-        # browser only opens if a search is still needed; finishing needs none). Without it, a run that skipped
-        # Saskatchewan isn't asked about it again (there's no console to answer in).
-        extra = ["--sk-assist"] if action == FINISH or (opts["sk_now"] and "sk_pst" in taxes) else []
+        # Same workbook and choices as the stopped run (its own Saskatchewan now-or-later, not today's Options).
+        # Finishing uses the saved Saskatchewan answers (--sk-assist; the browser opens only if a search is still
+        # needed, and none is). --sk-later: no question about it (there's no console to answer in).
+        extra = ["--sk-assist"] if action == FINISH or (last or {}).get("sk_assist") else ["--sk-later"]
         return ["check_suppliers.py", "--resume", "last", *extra, *run_opts]
     argv = ["check_suppliers.py", str(workbook)]
     if set(taxes) != set(TAX_KEYS):
         argv += ["--taxes", ",".join(TAX_ARGS[t] for t in taxes)]
     if action == OFFLINE:
+        argv += ["--paid-since", str(opts["paid_since"]).strip()] if opts.get("paid_since") else []
         return argv + ["--offline", *run_opts]
     if opts["sk_now"] and "sk_pst" in taxes:
         argv.append("--sk-assist")
@@ -276,6 +280,8 @@ def parse_line(line):
         return Event("folder", text=line.split("SAVED IN:", 1)[1].strip())
     if "SASKATCHEWAN BATCH:" in line:
         return Event("batch", text=line.split("SASKATCHEWAN BATCH:", 1)[1].strip())
+    if "Saving the results workbook" in line:
+        return Event("saving")
     if "Stopped early after" in line:
         return Event("stopped", text="Stopped early after" + line.split("Stopped early after", 1)[1].split(";")[0])
     m = _READY.search(line)

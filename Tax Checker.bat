@@ -3,7 +3,10 @@ rem Tax Checker: double-click this. The first time it installs what the tool nee
 rem window opens. Everything else (setup check, full check, Saskatchewan batches, results) is in the window.
 rem The older one-job .bat files are in the "advanced" folder and still work.
 cd /d "%~dp0"
-if exist ".venv\Scripts\pythonw.exe" if exist ".venv\.installed" goto open
+set REPAIRED=
+if exist ".venv\Scripts\pythonw.exe" if exist ".venv\.installed" goto check
+
+:install
 where python >nul 2>nul
 if errorlevel 1 (
     echo Python isn't installed or isn't on PATH. Install it from https://www.python.org/downloads/
@@ -12,7 +15,7 @@ if errorlevel 1 (
     exit /b 1
 )
 if not exist ".venv\Scripts\python.exe" (
-    echo First run in this folder: setting up the tool. This takes a few minutes; leave this window open...
+    echo Setting up the tool in this folder. This takes a few minutes; leave this window open...
     python -m venv .venv
     ".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check --upgrade pip
 )
@@ -46,11 +49,35 @@ if errorlevel 1 (
 )
 echo ok> ".venv\.installed"
 copy /y requirements.txt ".venv\.requirements" >nul
-:open
-rem requirements.txt changed since the install (a newer version of the tool unzipped over this one): install again.
+
+:check
+rem The installed environment still works (Python can be upgraded or removed under it)?
+".venv\Scripts\python.exe" -c "import tkinter, openpyxl, requests, playwright" >nul 2>nul
+if errorlevel 1 goto repair
+rem A newer version of the tool unzipped over this one may need new packages.
 fc /b requirements.txt ".venv\.requirements" >nul 2>nul
 if errorlevel 1 (
+    echo Updating the required packages...
     ".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check -r requirements.txt
-    if not errorlevel 1 copy /y requirements.txt ".venv\.requirements" >nul
+    if errorlevel 1 ".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check --use-feature=truststore -r requirements.txt
+    if errorlevel 1 (
+        echo The packages couldn't be updated ^(see above; often the network^). Double-click this again later.
+        pause
+        exit /b 1
+    )
+    copy /y requirements.txt ".venv\.requirements" >nul
 )
 start "" ".venv\Scripts\pythonw.exe" gui.py
+exit /b 0
+
+:repair
+if defined REPAIRED (
+    echo The tool's Python environment still doesn't work after reinstalling. Delete the .venv folder here
+    echo and double-click this again; if that fails, reinstall Python from https://www.python.org/downloads/
+    pause
+    exit /b 1
+)
+set REPAIRED=1
+echo The tool's Python environment needs repairing ^(Python was updated?^); reinstalling, a few minutes...
+rmdir /s /q ".venv"
+goto install

@@ -54,6 +54,7 @@ class NextStep(unittest.TestCase):
     def test_stopped_run_is_continued(self):
         self.last_run(finished=False)
         self.assertEqual(self.step().action, g.RESUME)
+        self.assertEqual(self.step({}).action, g.RESUME)  # even if the window never saw a setup check
 
     def test_saskatchewan_batch_when_searches_are_free(self):
         self.last_run()
@@ -142,10 +143,14 @@ class Commands(unittest.TestCase):
 
     def test_other_actions(self):
         self.assertEqual(g.command(g.SK_BATCH, self.WB, {}, "s")[:2], ["check_suppliers.py", "--sk-only"])
-        self.assertEqual(g.command(g.RESUME, self.WB, {})[:4], ["check_suppliers.py", "--resume", "last", "--sk-assist"])
+        # Continue: the stopped run's own Saskatchewan choice, never a console question.
+        self.assertEqual(g.command(g.RESUME, self.WB, {}, last={"sk_assist": True})[:4],
+                         ["check_suppliers.py", "--resume", "last", "--sk-assist"])
+        self.assertIn("--sk-later", g.command(g.RESUME, self.WB, {"sk_now": True}, last={"sk_assist": False}))
         # Finishing uses the saved answers (no search, so no CAPTCHA), even if Saskatchewan-now is unticked.
         self.assertIn("--sk-assist", g.command(g.FINISH, self.WB, {"sk_now": False}))
-        self.assertNotIn("--sk-assist", g.command(g.RESUME, self.WB, {"sk_now": False}))
+        self.assertNotIn("--show-result", g.command(g.FULL, self.WB, {}))
+        self.assertIn("--paid-since", g.command(g.OFFLINE, self.WB, {"paid_since": "2022-01-01"}))
         self.assertIn("--limit", g.command(g.TRIAL, self.WB, {}))
         offline = g.command(g.OFFLINE, self.WB, {})
         self.assertIn("--offline", offline)
@@ -207,6 +212,8 @@ class Output(unittest.TestCase):
         self.assertEqual(g.parse_line("  READY: GST/HST lookups work.").done, 1)
         ev = g.parse_line("  NOT READY: 2 problem(s) to fix:")
         self.assertEqual((ev.kind, ev.done), ("ready", 0))
+        self.assertEqual(g.parse_line("Saving the results workbook (Ctrl+C is ignored until it's saved)...").kind,
+                         "saving")
         self.assertIsNone(g.parse_line("Checking: GST/HST, QST"))
 
 
