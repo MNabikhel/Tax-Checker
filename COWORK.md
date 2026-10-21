@@ -1,5 +1,8 @@
 # Tailoring with Microsoft 365 Copilot Cowork
 
+> **Latest (2026-10-21):** read [`COWORK_V3_RERUN.md`](COWORK_V3_RERUN.md) first: what the v1/v2 comparison
+> found, what changed in the tool, tonight's re-run and what to check after it.
+
 This is the start page when the tailoring agent is **Copilot Cowork** (Microsoft 365) rather than a coding
 agent. Cowork works with files in OneDrive/SharePoint (reading documents, reading and editing Excel files) and
 runs in the company's Microsoft 365. It doesn't run programs on the user's PC and doesn't use GitHub. So the

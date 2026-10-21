@@ -5,7 +5,7 @@ BC PST, Manitoba RST, Saskatchewan PST) against government sites and writes the 
 supplier workbook. It is built, verified end to end, and ready; your job is to **tailor it to the user's
 vendor-master export** and support their full run.
 
-**Microsoft 365 Copilot Cowork (no code execution)? Start with `COWORK.md`.**
+**Microsoft 365 Copilot Cowork (no code execution)? Start with `COWORK_V3_RERUN.md`, then `COWORK.md`.**
 
 1. Read `TAILORING.md` (the playbook: tax background, one row end to end, what's known about the user's file,
    what to change for what you see). Then `HANDOFF.md` §0 and the parts it points you to.
