@@ -176,6 +176,10 @@ def provincial_issue(key, res):
                         "record (the number on file has no TQ suffix, and TQ0001 isn't active).", SEV_NAME)
             return ("Registered (TQ0001 assumed)", "Get the full QST number (with its TQ suffix) from the supplier.",
                     SEV_NAME)
+        if key == "sk_pst" and "registered consumer only" in low:
+            return ("Registered consumer only (no vendor's licence)", "This supplier isn't licensed to collect "
+                    "Saskatchewan PST. If its invoices charge PST, ask for its vendor's licence number; otherwise no "
+                    "action.", SEV_NAME)
         return "Registered", "", SEV_OK
     if st == ERROR:
         return "Lookup failed", "Double-click \"Resume Last Run.bat\" later (the site may have been busy or in maintenance).", SEV_ERROR
@@ -230,6 +234,10 @@ def provincial_issue(key, res):
             return ("PST number doesn't match business number", "Confirm the BC PST number and GST/HST number with "
                     "the supplier.", SEV_NOT_FOUND)
         if key == "sk_pst":
+            if "which this tool doesn't know" in low:
+                return ("Found with an unfamiliar registry type", "The registry lists exactly this name with the type in "
+                        "the details: check what it means (only a vendor's licence lets the supplier collect SK PST).",
+                        SEV_NOT_FOUND)
             if "similar names" in low:
                 return ("Only similar names in Saskatchewan registry", "Check whether one of the similar names in the "
                         "details is this supplier (if so, update the vendor name); if the supplier charges SK PST, ask "

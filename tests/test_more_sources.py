@@ -83,7 +83,7 @@ class Saskatchewan(unittest.TestCase):
     def test_registered_consumer(self):
         status, detail, _ = classify([["PRAIRIE CO LTD", "Registered Consumer"]], "", ["Prairie Co"])
         self.assertEqual(status, REGISTERED)
-        self.assertIn("can't be used for tax-exempt purchases", detail)
+        self.assertIn("isn't licensed to collect PST", detail)
 
     def test_other_names_only(self):
         status, detail, _ = classify([["OTHER BUSINESS INC", "Vendor's Licence"]], "", ["Prairie Co"])

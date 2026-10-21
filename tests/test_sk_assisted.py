@@ -540,6 +540,34 @@ class RealResultsPage(unittest.TestCase):
         self.assertIn("vendor's licence", detail)
         self.assertEqual(row, "FEDERATED CO-OPERATIVES LTD | PSTVEND")
 
+    def test_registered_consumer_code(self):
+        # The real registry's code for a registered consumer is PSTCON (seen on the user's run, 2026-10-21); the tool
+        # expected "CONS" and called these NOT CONFIRMED.
+        status, detail, row = sk_pst.classify([["PRAIRIE SAFETY & TRAINING LTD", "PSTCON"]], "Only 1 company found.",
+                                              ["PRAIRIE SAFETY & TRAINING LTD."])
+        self.assertEqual(status, REGISTERED)
+        self.assertIn("registered consumer only", detail)
+        self.assertEqual(row, "PRAIRIE SAFETY & TRAINING LTD | PSTCON")
+        from taxcheck.report import provincial_issue
+
+        issue, action, _ = provincial_issue("sk_pst", Result(status, detail, row))
+        self.assertEqual(issue, "Registered consumer only (no vendor's licence)")
+        self.assertIn("isn't licensed to collect Saskatchewan PST", action)
+        both = [["NORTH DELIVERY LTD", "PSTCON"], ["NORTH DELIVERY LTD", "PSTVEND"]]  # a licence beats consumer
+        self.assertIn("vendor's licence", sk_pst.classify(both, "A total of 2 companies were found.",
+                                                          ["North Delivery Ltd"])[1])
+
+    def test_an_unfamiliar_type_is_passed_on_as_found(self):
+        status, detail, row = sk_pst.classify([["PRAIRIE WIDGETS LTD", "PSTXYZ"]], "Only 1 company found.",
+                                              ["Prairie Widgets Ltd"])
+        self.assertEqual(status, NOT_CONFIRMED)  # not guessed to be a licence
+        self.assertIn("type 'PSTXYZ'", detail)
+        self.assertEqual(row, "PRAIRIE WIDGETS LTD | PSTXYZ")  # shown in "SK PST Name on Record"
+        from taxcheck.report import provincial_issue
+
+        self.assertEqual(provincial_issue("sk_pst", Result(status, detail, row))[0],
+                         "Found with an unfamiliar registry type")
+
     def test_similar_name_only(self):
         status, detail, _ = sk_pst.classify([["SASKATCHEWAN TELECOMMUNICATIONS HOLDING CORPORATION", "PSTVEND"]],
                                             "Only 1 company found.", ["Saskatchewan Telecommunications"])

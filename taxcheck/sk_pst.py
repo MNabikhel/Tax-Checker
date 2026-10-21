@@ -115,12 +115,13 @@ def _core(text):
 
 
 def _licence(row):
-    """What a result row's Type says: 'vendor', 'consumer' or None. The registry shows codes ("PSTVEND")."""
+    """What a result row's Type says: 'vendor', 'consumer' or None. The registry shows codes: "PSTVEND" (vendor's
+    licence) and "PSTCON" (registered consumer; seen on the user's run, 2026-10-21)."""
     kind = " ".join(row[1:]).upper() if len(row) > 1 else ""
     words = " ".join(row).lower()
     if "VEND" in kind or "vendor" in words:
         return "vendor"
-    if "CONS" in kind or "consumer" in words:
+    if re.search(r"CON(?:S|SUMER)?\b", kind) or "consumer" in words:
         return "consumer"
     return None
 
@@ -144,13 +145,18 @@ def classify(rows, page_text, names):
     if "consumer" in kinds:
         return (
             REGISTERED,
-            "Saskatchewan PST registry: holds a registered consumer number (it buys taxable goods for its own "
-            "use; this number can't be used for tax-exempt purchases for resale).",
+            "Saskatchewan PST registry: registered consumer only (PSTCON), not a vendor's licence: it pays PST on "
+            "its own purchases but isn't licensed to collect PST from customers.",
             text(kinds["consumer"]),
         )
     if matching:
-        return NOT_CONFIRMED, ("Found the name but couldn't read its licence type: "
-                               + "; ".join(text(r) for r in matching[:3])), ""
+        # Whatever the registry shows is passed on: a type this tool doesn't know is reported as it appears,
+        # for a person to check, rather than guessed at.
+        types = sorted({" ".join(r[1:]).strip() or "(blank)" for r in matching})
+        return NOT_CONFIRMED, (f"Found under exactly this name with type {', '.join(repr(t) for t in types)}, which this "
+                               "tool doesn't know (known: PSTVEND = vendor's licence, PSTCON = registered consumer): "
+                               "check what it means. Registry rows: " + "; ".join(text(r) for r in matching[:3])), \
+            text(matching[0])
     if SEARCH_LIMIT.search(page_text):
         raise DailyLimitReached("Saskatchewan's registry says its daily search limit has been reached")
     if TOO_MANY.search(page_text):

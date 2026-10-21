@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 292: 271 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 294: 273 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -120,8 +120,8 @@ Every result matched the cloud runs row for row (GST/HST, QST, BC PST, Manitoba,
    second CAPTCHA). But a real "3 companies found, all PSTVEND" page was read as no rows (the page's DataTables
    reported none in Edge while the table showed them) and came out NOT CONFIRMED. Fixed: rows are read both ways
    (DataTables and the page), re-read briefly, then from the HTML; still unreadable = ERROR (retried on resume),
-   never cached (`unreadable`, `rows_from_html`). Still unseen: the Type code for a registered consumer
-   ("CONS"/"consumer") and the daily-limit message (`SEARCH_LIMIT`); the `.html` saved next to the log is the page
+   never cached (`unreadable`, `rows_from_html`). Seen since: PSTCON = registered consumer (2026-10-21).
+   Still unseen: the daily-limit message (`SEARCH_LIMIT`); the `.html` saved next to the log is the page
    to fit `classify()` to if a run shows something unexpected.
 3. **CRA simplified list**: plain download stalls on the user's network; the browser path (page as sent) loaded
    all 1,781.
@@ -511,6 +511,14 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (Saskatchewan consumer code)**: the user's run showed the real registry's code for a registered
+  consumer is **PSTCON**; `_licence` expected "CONS", so 6 of the first 15 searches (registered consumers) came out
+  NOT CONFIRMED. Fixed, and worded: "Registered consumer only (no vendor's licence)": it pays PST on its own
+  purchases but isn't licensed to collect it. An exact-name match with any other type is now passed on as found
+  ("Found with an unfamiliar registry type", the type in the details and Name on Record) instead of guessed.
+  Replaying the user's 15 searches: 14 registered (8 PSTVEND, 6 PSTCON), 1 not found, all as on the registry.
+  Saved answers are re-judged, so nothing is searched again.
 
 - **2026-10-21 (second review of the Saskatchewan batches)**: a supplier is left for a search by hand when any of
   its search terms failed in `MAX_FAILS` batches (was: the first term only); a failure counts only if the search
