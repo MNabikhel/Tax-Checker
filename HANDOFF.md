@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 294: 273 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 296: 275 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -511,6 +511,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (CRA registry outage overnight)**: from about 1:25 am Mountain the CRA registry answered every search
+  with its own Error 500 page (`500.jsp`, "a problem with our website's server"; confirmed from the cloud too), and
+  124 of 178 suppliers became ERROR, because that page wasn't counted as the site being down. Now it raises
+  `RegistryServerError` (a connection error: retried, counted by `SiteHealth`), the CRA guard pauses after one
+  failed lookup (`limit=1`) and waits up to 6 hours (`give_up_after`), retrying every 2 minutes with all workers
+  together, and the waiting lookup is retried for the same supplier instead of becoming ERROR.
 
 - **2026-10-21 (Saskatchewan consumer code)**: the user's run showed the real registry's code for a registered
   consumer is **PSTCON**; `_licence` expected "CONS", so 6 of the first 15 searches (registered consumers) came out

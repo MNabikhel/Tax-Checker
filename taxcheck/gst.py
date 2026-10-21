@@ -173,6 +173,11 @@ REGISTRY_RESULTS = {
 }
 
 
+class RegistryServerError(requests.ConnectionError):
+    """CRA's registry is having a server problem: treated like a dropped connection (retried; the run pauses while
+    the site is down) rather than as an answer about the supplier."""
+
+
 def parse_registry_result(page):
     """Read a CRA registry results page. Returns (outcome, CRA's message); raises on anything unexpected."""
     m = re.search(r"<strong>Result</strong>\s*</div>\s*<div[^>]*>(.*?)</div>", page, re.S)
@@ -220,7 +225,9 @@ class GstChecker:
         self.simplified = SimplifiedList(self.session, cache_dir=cache_dir)
         self.corporations = corporations
         self.name_sources = [s for s in [corporations, *(name_sources or [])] if s]
-        self.health = SiteHealth("The CRA GST/HST Registry")
+        # Waits up to 6 hours for the registry to come back (an overnight run has nobody watching; seen: CRA's own
+        # Error 500 page for every search at 1:30 am on 2026-10-21), retrying every 2 minutes, all workers together.
+        self.health = SiteHealth("The CRA GST/HST Registry", limit=1, give_up_after=6 * 3600)
         # Every answer, by (business number, name as CRA compares it, date): the same question comes up again for
         # duplicate rows, the "registered today?" and 1980 checks, and date searches. Shared by parallel workers.
         self.answers = {}
@@ -234,20 +241,26 @@ class GstChecker:
         key = (bn9, _name_key(name), date)
         if key in self.answers:
             return self.answers[key]
-        if self.health.down:
-            raise RuntimeError(self.health.down_message())
-        for attempt in range(1, attempts + 1):
+        attempt = 0
+        while True:
+            if self.health.down:  # while the site is failing this waits for the next retry; True once given up on
+                raise RuntimeError(self.health.down_message())
+            attempt += 1
             try:
                 outcome = self._registry_lookup(bn9, name, date)
                 self.health.record(True)
                 self.answers[key] = outcome
                 return outcome
             except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
-                if attempt == attempts:
-                    self.health.record(False, f"{type(e).__name__}: {e}")
-                    raise
-                log.warning("CRA registry problem (attempt %d/%d), retrying: %s", attempt, attempts, e)
-                time.sleep(2 * attempt)
+                if attempt < attempts:
+                    log.warning("CRA registry problem (attempt %d/%d), retrying: %s", attempt, attempts, e)
+                    time.sleep(2 * attempt)
+                    continue
+                self.health.record(False, f"{type(e).__name__}: {e}")
+                if self.health.failures >= self.health.limit:
+                    attempt = 0  # the site is down: this supplier waits with the others and is tried again
+                    continue
+                raise
 
     def _registry_lookup(self, bn9, name, date):
         self.throttle.wait()
@@ -270,6 +283,8 @@ class GstChecker:
             timeout=30,
         )
         r.raise_for_status()
+        if "500.jsp" in r.url or "(Error 500)" in r.text:
+            raise RegistryServerError("CRA's registry answered with its own Error 500 page (a problem with CRA's server)")
         outcome, message = parse_registry_result(r.text)
         log.debug("CRA registry bn=%s name=%r date=%s -> %s (%s)", bn9, name, date, outcome, message)
         return outcome

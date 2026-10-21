@@ -133,11 +133,54 @@ class CraDown(unittest.TestCase):
         g._registry_lookup = down
         with mock.patch("taxcheck.gst.time.sleep"):
             for _ in range(2):
-                with self.assertRaises(requests.ConnectionError):
+                with self.assertRaisesRegex(RuntimeError, "wasn't responding"):
                     g.registry_lookup("108161779", "X", cra_today())
-            with self.assertRaisesRegex(RuntimeError, "wasn't responding"):
-                g.registry_lookup("108161779", "X", cra_today())
-        self.assertEqual(len(calls), 6)  # 2 lookups x 3 attempts, then no more requests
+        self.assertEqual(len(calls), 3)  # 1 lookup x 3 attempts, then (given up at once here) no more requests
+
+    def test_cra_error_500_page_waits_for_the_registry_to_come_back(self):
+        # Seen on the user's overnight run (2026-10-21, 1:30 am): every search answered with CRA's own Error 500
+        # page, and 124 of 178 suppliers became ERROR. Now the lookup waits (retrying every 2 minutes, up to 6 hours)
+        # and the supplier gets its real answer once the registry is back.
+        from unittest import mock
+
+        from taxcheck.gst import GstChecker, RegistryServerError
+
+        g = GstChecker(delay=0)
+        now = [0.0]
+        g.health.clock = lambda: now[0]
+        g.health.sleep = lambda s: now.__setitem__(0, now[0] + s)
+        calls = []
+
+        def outage_then_back(bn9, name, date):
+            calls.append(now[0])
+            if now[0] < 20 * 60:  # down for 20 minutes
+                raise RegistryServerError("CRA's registry answered with its own Error 500 page")
+            return "registered"
+
+        g._registry_lookup = outage_then_back
+        with mock.patch("taxcheck.gst.time.sleep"):
+            self.assertEqual(g.registry_lookup("108161779", "X", cra_today()), "registered")
+        self.assertGreaterEqual(now[0], 20 * 60)
+        self.assertLess(len(calls), 40)  # a retry every 2 minutes, not a flood of requests
+
+    def test_error_500_page_is_recognised(self):
+        from taxcheck.gst import GstChecker, RegistryServerError
+
+        class Form:
+            text, url = '<input name="token" value="abc">', "https://x/reg_01_Ld.action"
+
+            def raise_for_status(self):
+                pass
+
+        class ErrorPage(Form):
+            text = "<h1>We're having a problem with that page (Error 500)</h1>"
+            url = "https://www.businessregistration-inscriptionentreprise.gc.ca/ebci/brom/registry/pub/500.jsp"
+
+        g = GstChecker(delay=0)
+        g.session.get = lambda *a, **k: Form()
+        g.session.post = lambda *a, **k: ErrorPage()
+        with self.assertRaises(RegistryServerError):
+            g._registry_lookup("108161779", "X", cra_today())
 
     def test_changed_search_page_gives_clear_error(self):
         from taxcheck.gst import GstChecker
