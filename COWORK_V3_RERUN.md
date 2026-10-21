@@ -47,7 +47,7 @@ businesses. Fixed in this version (section 2).
 Nothing else changed in how rows are routed or judged, and no settings file is needed (your earlier check of the
 vendor list still stands). Don't edit the `.py` files; if something needs code, write a change request (COWORK.md).
 
-3. **Saskatchewan in daily batches** (`Run Saskatchewan Batch.bat`, new). Saskatchewan's registry allows 100
+3. **Saskatchewan in daily batches** (the window's "Saskatchewan batch"; `advanced\Run Saskatchewan Batch.bat`). Saskatchewan's registry allows 100
    searches a day and the list has 946 Saskatchewan suppliers. Answers are now kept 60 days, so each batch
    searches only suppliers without an answer, up to the day's limit, and later runs reuse them with no CAPTCHA.
    Each batch writes `<workbook>_saskatchewan.xlsx` (every Saskatchewan supplier's status so far; only
@@ -58,31 +58,44 @@ vendor list still stands). Don't edit the `.py` files; if something needs code, 
    paid-since cut-off, if any) automatically and never changes the full run's results. Some
    suppliers need two searches (full name, then a shorter form), so expect roughly 10-20 days of batches.
 
+4. **One window instead of many `.bat` files.** The user now double-clicks only **`Tax Checker.bat`**. The
+   first time it installs (a few minutes); then a window opens with a **Next step** button that follows the
+   run: Check setup → Start the full check → Continue (if it stopped) → Run today's Saskatchewan batch (once a
+   day) → Add the Saskatchewan answers to the results → done. It shows progress and time left, highlights when
+   the Saskatchewan CAPTCHA needs ticking, says when a site is down (and that it retries by itself), has a Stop
+   button (results saved; Continue picks up), keeps the PC awake during a run, and remembers its options. The
+   window only runs the same scripts with options (no change to any check). The older `.bat` files are in
+   `advanced\` and still work. Messages in the results ("Action Needed") now name the window's buttons
+   (e.g. "Continue the last check", "Saskatchewan batch") instead of `.bat` files.
+
 ## 3. Tonight's run: what the user does
 
-1. Unzip the new `Tax-Checker.zip` over the **local** Tax-Checker folder (e.g. Downloads) and choose
-   **Replace the files**. The vendor workbook stays where it is in OneDrive.
-2. Double-click **`Run Tax Check.bat`**, choose the same workbook, and answer:
-   - Which taxes: **Enter** (everything)
-   - Check Saskatchewan now: **Y**. A browser window opens at the start: tick "I agree" and "I'm not a robot",
-     click Next (5 minutes to do it). About 100 Saskatchewan searches then run by themselves (roughly 20
-     minutes), the rest are left for the daily batches, and the GST/HST run continues overnight. The GST/HST,
-     QST, BC and Manitoba results stay comparable with v2 (only the Saskatchewan columns are new).
-   - Cut-off date: **Enter** (check everyone)
-   - Registration dates: **Enter** (Quick)
-3. Leave it overnight (about the same time as v2, plus a few minutes). Keep the PC awake and on the network/VPN.
-4. If it stops for any reason: double-click **`Resume Last Run.bat`** (same workbook and answers, no typing).
-5. Results: `<workbook>_tax_check.xlsx` next to the workbook (the v2 file is replaced, so **copy the v2 results
-   workbook to another name first** if you still need it for the comparison), log and progress file in the
-   `logs` folder next to it.
+1. Unzip the new `Tax-Checker.zip` into a **new local folder** (e.g. Downloads). The vendor workbook stays where
+   it is in OneDrive.
+2. Double-click **`Tax Checker.bat`** (first time: a few minutes of installing in a black window, then the
+   Tax Checker window opens).
+3. Click **Choose...** and pick the same workbook. Then follow the big **Next step** button:
+   - **Check setup** (about 2 minutes) → READY.
+   - **Start the full check**. Options (tick "Show options") are already the recommended answers: every tax,
+     Saskatchewan during the full check, Quick registration dates, no paid-since cut-off (check everyone). A
+     browser window opens first: tick "I agree" and "I'm not a robot", click Next (5 minutes to do it). About
+     100 Saskatchewan searches then run by themselves (roughly 20 minutes), the rest are left for the daily
+     batches, and the GST/HST run continues overnight. The GST/HST, QST, BC and Manitoba results stay
+     comparable with v2.
+4. Leave it overnight (about the same time as v2, plus a few minutes). The window keeps the PC awake; keep it
+   on the network/VPN and don't close the window (closing asks first, then stops and saves).
+5. If it stops for any reason: open the window (double-click `Tax Checker.bat`) and click **Continue the
+   stopped check** (same workbook and answers).
+6. Results: `<workbook>_tax_check.xlsx` next to the workbook ("Open results" in the window; the v2 file is
+   replaced, so **copy the v2 results workbook to another name first** if you still need it for the
+   comparison), log and progress file in the `logs` folder next to it ("Open logs folder").
 
-Saskatchewan, the following days: once a day (any time after the time the last batch printed), double-click
-**`Run Saskatchewan Batch.bat`**, tick the CAPTCHA, and let it run (about 20 minutes). Repeat until it says
-"all ... Saskatchewan suppliers have an answer". Then double-click **`Resume Last Run.bat`** once: it copies the
-Saskatchewan answers into the v3 results workbook (no CAPTCHA, no searches; it re-checks those suppliers'
-other taxes too, so allow about half an hour). Keep using the same tool folder
-(the answers are saved in its `cache` folder), and don't start another full run with `Run Tax Check.bat` until
-the batches are done (the batch and the final resume follow the latest full run).
+Saskatchewan, the following days: open the window once a day. It says how many Saskatchewan suppliers are done
+and when the next batch is possible; when it is, the button is **Run today's Saskatchewan batch**: click it,
+tick the CAPTCHA, and let it run (about 20 minutes). Repeat until it says all are done; the button then becomes
+**Add the Saskatchewan answers to the results**: click it once (no CAPTCHA, no searches; it re-checks those
+suppliers' other taxes too, so allow about half an hour). Keep using the same tool folder (the answers are
+saved in its `cache` folder), and don't start a new full check (under More) until the batches are done.
 
 ## 4. After the run: what Cowork should check
 
@@ -98,7 +111,7 @@ Compare **v3 with v2** (not only with v1). Expected differences, each with its r
 Check that:
 - the "Tax Check Summary" Saskatchewan counts look right (about 100 answered tonight; each later batch's
   `_saskatchewan.xlsx` summary line says how many are done and left);
-- the log has no block of ERROR rows (a site down for a while; `Resume Last Run.bat` retries them);
+- the log has no block of ERROR rows (a site down for a while; "Continue the last check" in the window retries them);
 - the "Tax Check Summary" notes list no source that failed to load (CRA simplified list, Revenu Québec NR list);
 - every "probable" online seller left in v3 matched on the vendor's own name (not a DBA/trade name);
 - the rows from 1a now show their cancellation date (three) and the new legal name (one).
@@ -116,7 +129,7 @@ shape (not the supplier's data if it leaves the company), what v2 and v3 said, a
 - Status changes since v1 are mostly CRA's own late corrections (back-dated cancellations, a legal name change):
   worth acting on, not errors.
 - Saskatchewan (946 vendors) is checked in daily batches of up to 100 searches (the registry's limit); the
-  batch workbook `<workbook>_saskatchewan.xlsx` shows progress, and the final `Resume Last Run.bat` puts the
+  batch workbook `<workbook>_saskatchewan.xlsx` shows progress, and the final "Add the Saskatchewan answers" puts the
   answers in the main results. For each Saskatchewan supplier, "REGISTERED" means a vendor's licence (PSTVEND)
   or registered consumer number under exactly its name; "NOT CONFIRMED" means no exact-name registration
   (similar names are listed in the details).

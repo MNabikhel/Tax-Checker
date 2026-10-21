@@ -1,7 +1,7 @@
 @echo off
 rem Saskatchewan probe: tick the CAPTCHA once; it searches a few well-known businesses and saves the pages
 rem (screenshots + HTML) in logs\sk_probe_<date>, so the tool can be taught to read the results. Uses 3 of 100 daily searches.
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist logs mkdir logs
 echo Tool folder: %CD%
 if not exist ".venv\Scripts\python.exe" (

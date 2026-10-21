@@ -84,7 +84,7 @@ class SiteHealth:
             if self.clock() - self.first_failure_at >= self.give_up_after:
                 if not self.gave_up:
                     log.warning("%s hasn't responded for %.0f minutes; giving up on it for the rest of this run "
-                                "(double-click \"Resume Last Run.bat\" later)", self.site, (self.clock() - self.first_failure_at) / 60)
+                                "(click \"Continue the last check\" in Tax Checker later)", self.site, (self.clock() - self.first_failure_at) / 60)
                 self.gave_up = True
                 return True
             wait = self.retry_every - (self.clock() - self.last_failure_at)
@@ -99,7 +99,7 @@ class SiteHealth:
         return (
             f"{self.site} wasn't responding for {minutes:.0f} minutes ({self.failures} lookups in a row failed, last "
             f"error: {self.last_error}), so it wasn't tried again in this run. It may be down for maintenance; "
-            "double-click \"Resume Last Run.bat\" later."
+            "click \"Continue the last check\" in Tax Checker later."
         )
 
     def record(self, ok, error=""):

@@ -65,7 +65,7 @@ def gst_issue(res):
     if st == NOT_LOOKED_UP:
         return "Not looked up (offline run)", "Run the online check.", SEV_OK
     if st == ERROR:
-        return "Lookup failed", "Double-click \"Resume Last Run.bat\" later (the CRA site may have been busy or down).", SEV_ERROR
+        return "Lookup failed", "Click \"Continue the last check\" in Tax Checker later (the CRA site may have been busy or down).", SEV_ERROR
     if st == REGISTERED and f.get("digital_economy_match"):
         check = ""
         if f.get("digital_economy_match") == "probable":
@@ -187,28 +187,28 @@ def provincial_issue(key, res):
                     "action.", SEV_NAME)
         return "Registered", "", SEV_OK
     if st == ERROR:
-        return "Lookup failed", "Double-click \"Resume Last Run.bat\" later (the site may have been busy or in maintenance).", SEV_ERROR
+        return "Lookup failed", "Click \"Continue the last check\" in Tax Checker later (the site may have been busy or in maintenance).", SEV_ERROR
     if st == MANUAL:
         if key == "sk_pst":
             if "at least 4 letters" in low:
                 return ("Manual check needed (name too short to search)", "Search the full name by hand on "
                         "Saskatchewan's PST registry.", SEV_MANUAL)
             if "searches per 24 hours" in low:
-                return ("Manual check needed (daily search limit reached)", "Double-click \"Run Saskatchewan Batch.bat\" "
+                return ("Manual check needed (daily search limit reached)", "Click \"Saskatchewan batch\" in Tax Checker "
                         "after the time in the details (the registry allows 100 searches a day; each batch does the "
-                        "next ones). When all are done, \"Resume Last Run.bat\" adds them here.", SEV_MANUAL)
+                        "next ones). When all are done, \"Add the Saskatchewan answers\" puts them here.", SEV_MANUAL)
             if "window was closed" in low or "wasn't completed in time" in low or "asked for the captcha again" in low:
-                return ("Manual check needed (Saskatchewan searches stopped)", "Double-click \"Resume Last Run.bat\" and tick "
+                return ("Manual check needed (Saskatchewan searches stopped)", "Click \"Continue the last check\" in Tax Checker and tick "
                         "the CAPTCHA, or search the name on Saskatchewan's PST registry.", SEV_MANUAL)
             if "didn't answer this search" in low:
                 return ("Manual check needed (registry didn't answer)", "Search the name by hand on Saskatchewan's PST "
                         "registry.", SEV_MANUAL)
             if "couldn't open a browser" in low:
-                return ("Manual check needed (browser didn't open)", "Run \"Test Setup.bat\", then double-click "
-                        "\"Resume Last Run.bat\" and answer Y to the Saskatchewan question, or search the name on "
+                return ("Manual check needed (browser didn't open)", "Click \"Check setup\" in Tax Checker, then "
+                        "\"Continue the last check\" with Saskatchewan ticked in Options, or search the name on "
                         "Saskatchewan's PST registry.", SEV_MANUAL)
-            return ("Manual check needed (CAPTCHA)", "Double-click \"Resume Last Run.bat\" and answer Y to the "
-                    "Saskatchewan question (tick the CAPTCHA once), or search the name on Saskatchewan's PST registry.",
+            return ("Manual check needed (CAPTCHA)", "Click \"Continue the last check\" in Tax Checker with "
+                    "Saskatchewan ticked in Options (tick the CAPTCHA once), or search the name on Saskatchewan's PST registry.",
                     SEV_MANUAL)
         return "Manual check needed", "See the details.", SEV_MANUAL
     if st == MISSING:

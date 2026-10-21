@@ -130,6 +130,46 @@ class Cli(unittest.TestCase):
         self.assertIn("1 suppliers already done, 1 with errors", resumed)
         self.assertIn("'no_browser': True", resumed)  # the stopped run's options, reused
 
+    def test_stop_file_stops_like_ctrl_c_and_resumes(self):
+        # The window's Stop button: it creates the stop file; the run stops after the current supplier, saves, and
+        # "Continue the last check" (--resume last) finishes the rest.
+        stop = self.dir / "stop_requested"
+        stop.write_text("stop")
+        with mock.patch.object(check_suppliers, "LAST_RUN", self.dir / ".last_run"):
+            code, log_text = self.run_cli("--stop-file", str(stop))
+            self.assertEqual(code, 0)
+            self.assertIn("Stopped early after 1 of 4", log_text)
+            self.assertIn("Continue the last check", log_text)
+            stop.unlink()
+            for h in list(logging.getLogger().handlers):
+                logging.getLogger().removeHandler(h)
+                h.close()
+            with mock.patch("builtins.input", side_effect=EOFError):  # no console in the window: no question
+                code = check_suppliers.main(["--resume", "last", "--stop-file", str(stop), "--log-dir",
+                                             str(self.dir / "logs2"), "--workers", "1"])
+        self.assertEqual(code, 0)
+        ws = openpyxl.load_workbook(self.dir / "suppliers_tax_check.xlsx")["Sheet"]
+        headers = [c.value for c in ws[1]]
+        self.assertTrue(all(r[headers.index("Overall")] for r in ws.iter_rows(min_row=2, values_only=True)))
+
+    def test_full_run_notes_saskatchewan_progress_for_the_window(self):
+        import json
+
+        wb = openpyxl.load_workbook(self.src)
+        wb.active.append(["Prairie Co", "SK", None, None, None, None])
+        wb.save(self.src)
+        code, _ = self.run_cli("--cache-dir", str(self.dir / "cache"))  # no --sk-assist: left for the batches
+        self.assertEqual(code, 0)
+        data = json.loads((self.dir / "cache" / "saskatchewan_progress.json").read_text(encoding="utf-8"))
+        entry = data[str(self.src.resolve())]
+        self.assertEqual((entry["total"], entry["answered"], entry["waiting"], entry["in_results_waiting"]),
+                         (1, 0, 1, 1))
+
+    def test_keep_awake_is_harmless_off_windows(self):
+        with mock.patch.object(check_suppliers.platform, "system", return_value="Linux"):
+            with check_suppliers.keep_awake() as on:
+                self.assertFalse(on)
+
     def test_check_columns_is_offline_and_explains_mapping(self):
         with mock.patch.object(FakeGst, "check", side_effect=AssertionError("no lookups in --check-columns")):
             code, log_text = self.run_cli("--check-columns", "--preview", "2")
@@ -378,12 +418,21 @@ class SaskatchewanBatches(unittest.TestCase):
         notes = [r[0] for r in result["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
         return rows, next(n for n in notes if str(n).startswith("SASKATCHEWAN BATCH"))
 
+    def progress(self):
+        import json
+
+        data = json.loads((self.dir / "saskatchewan_progress.json").read_text(encoding="utf-8"))
+        return data[str(self.src.resolve())]
+
     def test_day_by_day_until_done(self):
         before = (self.dir / ".last_run").read_text()
         rows, note = self.batch()  # day 1: the workbook comes from the last full run, no questions
         self.assertEqual(self.searched, ["PRAIRIE WIDGETS LTD", "NORTHERN SUPPLY CO"])
         self.assertIn("2 of 3 Saskatchewan suppliers have an answer; 1 still to search", note)
         self.assertIn("The next full batch is possible from 2026-10-22 09:00", note)
+        progress = self.progress()  # what the window reads for its next-step banner
+        self.assertEqual((progress["total"], progress["answered"], progress["waiting"]), (3, 2, 1))
+        self.assertNotIn("in_results_waiting", progress)  # a batch never changes the full run's results
         self.assertEqual(rows["REGINA PAINT INC"]["SK PST Status"], "MANUAL CHECK")
         self.assertFalse(rows["ACME LTD"].get("SK PST Status"))  # not a Saskatchewan supplier: untouched
         self.assertNotIn("GST/HST Status", rows["PRAIRIE WIDGETS LTD"])  # only Saskatchewan columns
@@ -391,7 +440,8 @@ class SaskatchewanBatches(unittest.TestCase):
         rows, note = self.batch()  # day 2: only what's left is searched
         self.assertEqual(self.searched, ["PRAIRIE WIDGETS LTD", "NORTHERN SUPPLY CO", "REGINA PAINT INC"])
         self.assertIn("all 3 Saskatchewan suppliers are done: 3 have an answer", note)
-        self.assertIn("Resume Last Run.bat", note)
+        self.assertIn("Add the Saskatchewan answers", note)
+        self.assertEqual(self.progress()["waiting"], 0)
         self.assertEqual({r["SK PST Status"] for n, r in rows.items() if n != "ACME LTD" and n != "GOOD CO"},
                          {"REGISTERED"})
         self.assertEqual((self.dir / ".last_run").read_text(), before)  # the full run's note is never replaced

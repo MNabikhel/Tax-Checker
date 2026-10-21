@@ -25,8 +25,8 @@ What the next agent will most likely be asked to do, in order:
 1. **Read the user's full-run output** (log + "Tax Check Summary" sheet). Look for a block of ERROR rows
    (a site down or changed: §10), MANUAL CHECK rows (why: the issue label says), and the counts per issue.
 2. **Saskatchewan past 100 suppliers:** the registry allows 100 searches per 24 hours; the rest are MANUAL
-   CHECK with the time searches reopen. The user double-clicks `Resume Last Run.bat` the next day (counter in
-   `cache/saskatchewan_searches.json`).
+   CHECK with the time searches reopen. The window offers "Run today's Saskatchewan batch" the next day (counter in
+   `cache/saskatchewan_searches.json`), then "Add the Saskatchewan answers" when all are done.
 3. **Data the vendor master could add** (each is read automatically if a column appears, see `COLUMNS`):
    QST numbers ("QST Number"), Manitoba RST numbers ("RST Number"), BC PST numbers. Today the user's file has
    only a Tax ID column, so QST/BC PST are checked only when such a number is in it, and Manitoba is searched
@@ -130,10 +130,12 @@ Every result matched the cloud runs row for row (GST/HST, QST, BC PST, Manitoba,
 
 Python 3.9+ (tested on 3.11, 3.12, 3.13; code parses as 3.9).
 
-Windows: double-click `Test Setup.bat` (creates or repairs `.venv`, installs requirements, tries to
-download Chromium, then `check_setup.py` checks Python, certificates, every site, the browser, the
-workbook and a few real lookups, ending READY / NOT READY), then `Run Trial (25 suppliers).bat` and
-`Run Tax Check.bat` (file picker → tax and dates menus → run → Explorer opens on the results).
+Windows: double-click **`Tax Checker.bat`**: the first time it creates `.venv`, installs requirements,
+tries to download Chromium and checks tkinter (then writes `.venv\.installed`; it reinstalls requirements
+when `requirements.txt` changed), and opens the window (`pythonw gui.py`). The window's Next step goes
+Check setup (`check_setup.py`: Python, certificates, every site, the browser, the workbook and a few real
+lookups → READY / NOT READY) → full check → Continue → Saskatchewan batches → Add the Saskatchewan answers.
+`advanced\Test Setup.bat` still creates or repairs `.venv` in one go (check_setup's fixes point to it).
 `START HERE.txt` has the user's steps. Python 3.14 was used for the user's full run without problems.
 By hand:
 
@@ -200,7 +202,10 @@ the log only).
 |---|---|---|
 | `check_suppliers.py` | CLI, file picker, menus (`--ask`), output locations, run orchestration with parallel workers (`--workers`), trial/resume/offline, background checkpoint saves, summary-sheet notes | `main`, `choose_workbook`, `run`, `parse_taxes`, `CheckpointSaver`, `save_workbook` |
 | `check_setup.py` | Setup test: Python, certificates, each site, browser, workbook, real lookups → READY / NOT READY report | `main`, `check_*`, `explain_error` |
-| `Test Setup.bat`, `Run Trial (25 suppliers).bat`, `Run Tax Check.bat`, `Setup.bat` | Windows double-click launchers (`Setup.bat` just calls `Test Setup.bat`) | |
+| `Tax Checker.bat` | The one launcher: install on first use (or when `requirements.txt` changed), then `pythonw gui.py` | |
+| `gui.py` | The window (tkinter): workbook, Next step button, Options, More, progress bar, log, Stop. Runs the scripts below as child processes (`python.exe -u`, no console window, UTF-8 output read line by line); Stop = `--stop-file` (then "Stop now" kills the process tree); errors in `logs/window_errors.txt` | `App`, `start`, `stop`, `_event` |
+| `taxcheck/gui_logic.py` | The window's logic, testable without a display: the next step from `.last_run`, `cache/saskatchewan_progress.json`, `cache/saskatchewan_searches.json` and `gui_settings.json` (setup passed for this workbook, options); each button's command line; what each output line means | `next_step`, `command`, `parse_line`, `results_file` |
+| `advanced\*.bat` | The older one-job launchers (each `cd /d "%~dp0.."`): `Test Setup.bat`, `Run Trial (25 suppliers).bat`, `Run Tax Check.bat` (console menus, `--ask`), and the ones below | |
 | `taxcheck/workbook.py` | Read .xlsx/.xlsm/.csv, header detection, column aliases, provinces, dates, write results and cross-row notes | `COLUMNS`, `PROVINCES`, `SupplierSheet`, `_cross_row_notes`, `InputError`, `as_text` |
 | `taxcheck/checks.py` | Per-row routing (country/postal, foreign vendors, which taxes), vendor-name candidates, official-name confirmation, digital-economy match, registration-date facts, caching, error containment, deferred browser checks for worker threads | `RowChecker`, `vendor_name_candidates`, `clean_vendor_name`, `same_business_name`, `Deferred`, `Offline`, `DryRun` |
 | `taxcheck/report.py` | Issue / Action / severity per tax, Main Issue per supplier | `gst_issue`, `provincial_issue`, `row_summary` |
@@ -218,12 +223,12 @@ the log only).
 | `taxcheck/mb_rst.py` | TAXcess form automation, one distinctive word per name (sheet, trade name, CRA's name) | `MbRstChecker`, `name_variants`, `parse_results` |
 | `taxcheck/sk_pst.py` | Assisted SETS search after a human passes the reCAPTCHA; one failed search affects only that supplier | `SkPstAssistant`, `classify`, `search_terms` |
 | `taxcheck/tailoring.py`, `tailoring.example.json`, `examples/tailoring_template.xlsx` | Tailoring without code: extra column/province/country spellings, date formats first, name markings, from `tailoring.json` or `tailoring.xlsx` in the tool folder | `apply`, `reset`, `TailoringError` |
-| `Offline Check.bat` | `--offline` run on a chosen workbook (format and check digit only) | |
-| `Run Test.bat`, `run_test.py`, `examples/Test_Suppliers.xlsx` | One-click test on public test data: setup check, profile, full run stopped by `--stop-after` (the Ctrl+C path), `--resume last`, an every-row check, one results zip; restores the user's `.last_run` | `main`, `every_row_checked` |
-| `Run Saskatchewan Batch.bat` | `--sk-only`: Saskatchewan PST only, for the last full run's workbook; searches suppliers with no saved answer up to the daily limit; `<workbook>_saskatchewan.xlsx`; never notes itself as the last run | `check_suppliers.saskatchewan_batch_summary`, `RowChecker.check_saskatchewan` |
-| `Resume Last Run.bat` | `--resume last`: continues the latest full run (workbook, progress file and menu answers noted in `.last_run` in the tool folder by `remember_run`; trials and offline runs aren't noted) | `check_suppliers.resume_last_run` |
-| `profile_workbook.py`, `Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
-| `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
+| `advanced\Offline Check.bat` | `--offline` run on a chosen workbook (format and check digit only) | |
+| `advanced\Run Test.bat` (or Test run in the window), `run_test.py`, `examples/Test_Suppliers.xlsx` | One-click test on public test data: setup check, profile, full run stopped by `--stop-after` (the Ctrl+C path), `--resume last`, an every-row check, one results zip; restores the user's `.last_run` | `main`, `every_row_checked` |
+| `advanced\Run Saskatchewan Batch.bat` (Saskatchewan batch in the window) | `--sk-only`: Saskatchewan PST only, for the last full run's workbook; searches suppliers with no saved answer up to the daily limit; `<workbook>_saskatchewan.xlsx`; never notes itself as the last run | `check_suppliers.saskatchewan_batch_summary`, `RowChecker.check_saskatchewan` |
+| `advanced\Resume Last Run.bat` (Continue in the window) | `--resume last`: continues the latest full run (workbook, progress file and menu answers noted in `.last_run` in the tool folder by `remember_run`; trials and offline runs aren't noted) | `check_suppliers.resume_last_run` |
+| `profile_workbook.py`, `advanced\Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
+| `sk_probe.py`, `advanced\Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
 | `taxcheck/http.py` | `requests` session (UA, GET retries, request logging), throttling, site-down detection (pause and retry every 2 min; give up after 30 min; shared by workers) | `new_session`, `Throttle`, `SiteHealth` |
 | `taxcheck/logsetup.py` | Log file + console handlers | `setup_logging` |
 | `taxcheck/progress.py` | Per-supplier progress CSV, periodic progress/ETA lines, `--resume` loader | `ProgressReport`, `load_resume` |
@@ -469,7 +474,8 @@ Ctrl+C saves what's done; re-running on the output file overwrites its result co
 - `tests/test_offline.py`, `test_workbook_io.py`, `test_responses.py`, `test_gst_logic.py`,
   `test_more_sources.py`, `test_robustness.py`, `test_cli.py`, and for the vendor export
   `test_vendor_export.py`, `test_vendor_names.py`, `test_report.py`, `test_gst_dates.py`,
-  `test_digital_economy.py`, `test_fallbacks.py`, `test_check_setup.py`, `test_diagnostics.py`: no network,
+  `test_digital_economy.py`, `test_fallbacks.py`, `test_check_setup.py`, `test_diagnostics.py`,
+  `test_gui_logic.py` (the window's next step, commands and output reading): no network,
   a few seconds in all. Names and numbers in them are made up (or public test data below).
 - `tests/fixtures/`: **real** responses saved from CRA and Revenu Québec. If a site changes, save a new
   page into a fixture and add a case to `test_responses.py`.
@@ -511,6 +517,22 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (one window: `Tax Checker.bat`)**: the user asked for one double-click file instead of many
+  scripts. `Tax Checker.bat` installs on first use and opens a window (`gui.py`, logic in
+  `taxcheck/gui_logic.py`) whose Next step button follows the whole job: Check setup → Start the full check →
+  Continue (after a stop) → Run today's Saskatchewan batch (once a day; it says when the next is possible, from
+  the search log) → Add the Saskatchewan answers → done. Options replace the console menus (same answers,
+  remembered in `gui_settings.json`, git-ignored); More has the other jobs. The window only runs the existing
+  scripts with options. Added to `check_suppliers.py`: `--stop-file` (the Stop button: checked after each
+  supplier, while waiting for one, and in the Saskatchewan searches; same path as Ctrl+C), `keep_awake()` (Windows
+  `SetThreadExecutionState` during a run, so the PC doesn't sleep overnight), and
+  `cache/saskatchewan_progress.json` (per workbook: Saskatchewan answered / by hand / still to search; from full
+  runs also what the results workbook still lacks). The old `.bat` files moved to `advanced\` (still working;
+  `Setup.bat` removed), and the results' Action Needed texts and log messages name the window's buttons instead
+  of `.bat` files. Tested: `tests/test_gui_logic.py`, stop-file and progress tests in `test_cli.py`, and the real
+  window on a virtual display from a fresh copy (setup check, full check stopped with Stop, Continue to the end,
+  the Saskatchewan banner, Open results).
 
 - **2026-10-21 (Québec numbered companies)**: from the user's v3 rows: "9165-8559 QC INC" wasn't expanded (the
   numbered-company pattern needed an unbroken number); CRA accepts "9165-8559 QUEBEC INC." for it. `_NUMBERED_SHORT`

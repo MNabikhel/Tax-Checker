@@ -11,9 +11,9 @@ vendor-master export** and support their full run.
    what to change for what you see). Then `HANDOFF.md` §0 and the parts it points you to.
 2. Follow the rules in `.github/copilot-instructions.md` (same as TAILORING §1): never edit the source
    workbook, never guess legal names, never filter by payment amount, never bypass the Saskatchewan CAPTCHA or
-   loosen TLS/throttling, never commit supplier files, names or numbers, keep the `.bat` flow working.
+   loosen TLS/throttling, never commit supplier files, names or numbers, keep the double-click flow working (`Tax Checker.bat` and its window, and the `.bat` files in `advanced\`).
 3. Start by establishing the baseline: `python -m unittest discover tests` must pass.
 4. Most tailoring needs no code: put it in `tailoring.xlsx` / `tailoring.json` in the tool folder
    (`taxcheck/tailoring.py`, template `examples/tailoring_template.xlsx`). Then get the shape of the user's file: run `python profile_workbook.py "<path to their workbook>"` (or ask
-   them to double-click `Profile Workbook.bat`) and work through TAILORING §5 with its output.
+   them to click "Profile workbook" under More in the Tax Checker window) and work through TAILORING §5 with its output.
 5. Every change gets a test with made-up data; record changes in HANDOFF §12.

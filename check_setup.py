@@ -1,6 +1,6 @@
 """Setup test: checks everything the tax check needs, in about 2 minutes, and writes a report.
 
-    Double-click "Test Setup.bat"   (or: python check_setup.py [workbook.xlsx])
+    "Check setup" in Tax Checker, or "advanced\Test Setup.bat"   (or: python check_setup.py [workbook.xlsx])
 
 Steps, each reported PASS / WARN / FAIL with a plain-English fix:
   1. Python and the installed packages
@@ -62,7 +62,7 @@ def explain_error(e):
     text = f"{type(e).__name__}: {e}"
     if isinstance(e, requests.exceptions.SSLError) or "CERTIFICATE_VERIFY_FAILED" in text:
         return ("certificate not trusted (the network re-signs web traffic)",
-                "re-run Test Setup.bat (it installs 'truststore'). If it still fails, ask IT whether Python may use the "
+                "re-run \"advanced\\Test Setup.bat\" (it installs 'truststore'). If it still fails, ask IT whether Python may use the "
                 "Windows certificate store, or for the company root certificate.")
     if isinstance(e, requests.exceptions.ProxyError) or "ProxyError" in text:
         return ("the network proxy refused or needs settings", "ask IT for the proxy address and set HTTPS_PROXY.")
@@ -82,12 +82,12 @@ def check_python(rep):
         rep.result(FAIL, "Python version", ver, "install Python 3.12 from python.org.")
     elif (v.major, v.minor) > (3, 13):
         rep.result(WARN, "Python version", f"{ver} (tool tested on 3.11-3.13; usually fine)",
-                   "if odd errors appear, install Python 3.12 and re-run Test Setup.bat.")
+                   "if odd errors appear, install Python 3.12 and re-run \"advanced\\Test Setup.bat\".")
     else:
         rep.result(PASS, "Python version", ver)
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
     rep.result(PASS if in_venv else WARN, "Tool's own Python environment (.venv)", "in use" if in_venv else "not in use",
-               "start this with Test Setup.bat rather than plain python.")
+               "start this with \"Tax Checker.bat\" rather than plain python.")
     from importlib import metadata
 
     ok = True
@@ -97,7 +97,7 @@ def check_python(rep):
         except metadata.PackageNotFoundError:
             ok = False
             rep.result(FAIL if pkg != "truststore" else WARN, f"Package {pkg}", "not installed",
-                       "re-run Test Setup.bat (it installs requirements.txt).")
+                       "re-run \"advanced\\Test Setup.bat\" (it installs requirements.txt).")
     return ok
 
 
@@ -109,7 +109,7 @@ def check_certificates(rep):
         rep.result(PASS, "Using the Windows certificate store", "lookups trust the same certificates as your browser")
     else:
         rep.result(WARN, "Using Python's own certificate list",
-                   "on networks with TLS inspection this causes CERTIFICATE_VERIFY_FAILED", "re-run Test Setup.bat to install truststore.")
+                   "on networks with TLS inspection this causes CERTIFICATE_VERIFY_FAILED", "re-run \"advanced\\Test Setup.bat\" to install truststore.")
 
 
 def check_sites(rep):
@@ -182,7 +182,7 @@ def check_browser(rep, log_dir):
             browser._ensure_started()
         except BrowserUnavailable as e:
             rep.result(FAIL, "Browser", str(e)[:400],
-                       "make sure Microsoft Edge is installed and up to date, then re-run Test Setup.bat; send the report if it still fails.")
+                       "make sure Microsoft Edge is installed and up to date, then re-run \"advanced\\Test Setup.bat\"; send the report if it still fails.")
             return False
         rep.result(PASS, "Browser started", browser.engine)
         pages = (("Manitoba TAXcess page", TAXCESS_RST), ("eTaxBC page", ETAXBC), ("CRA simplified list page (canada.ca)", SIMPLIFIED_LIST))
@@ -443,7 +443,7 @@ def main(argv=None):
     else:
         rep.say("  READY: GST/HST lookups work." + (f" {len(warns)} warning(s) above (other checks may be limited)." if warns else ""))
         if not os.environ.get("TAXCHECK_TEST_RUN"):
-            rep.say("  This test doesn't create a results workbook. The trial (next) does: 25 real lookups, about 2 minutes.")
+            rep.say("  This test doesn't create a results workbook. The trial does (\"Trial (25 suppliers)\" in Tax Checker, or next here): 25 real lookups, about 2 minutes.")
     rep.say(f"  Report: {report_path}")
     rep.say(f"  Detailed log: {log_path}")
     rep.save(report_path)

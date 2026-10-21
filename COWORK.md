@@ -11,7 +11,7 @@ work is split:
 | Who | Does |
 |---|---|
 | **Cowork** | Reads this folder's guides, the user's workbook and every report/log the tool writes (all in OneDrive); decides what the export needs; writes the **tailoring settings** (`tailoring.xlsx`, or `tailoring.json`); explains results and next steps |
-| **The user** | Double-clicks the `.bat` files on their PC (the tool runs there: their network, Edge, the government sites) and puts Cowork's settings file in the tool folder |
+| **The user** | Double-clicks `Tax Checker.bat` on their PC and uses its window's buttons (the older `.bat` files are in `advanced\`) (the tool runs there: their network, Edge, the government sites) and puts Cowork's settings file in the tool folder |
 
 Everything the tool writes lands **next to the workbook** (in OneDrive): the profile report and logs in a
 `logs` folder, results as `<workbook>_tax_check.xlsx` (`..._TRIAL.xlsx` for a trial). Cowork can read them there
@@ -31,9 +31,9 @@ run. If something needs a code change, write a change request instead (below).
 
 ## The tailoring loop
 
-1. **User:** `Test Setup.bat` once (expects READY). (`Run Test.bat` is a one-click test on built-in public test
+1. **User:** "Check setup" in the Tax Checker window once (expects READY). ("Test run" under More is a one-click test on built-in public test
    data; its `TaxCheck_Test_Results_<date>.zip` goes to the tool's maintainer, not into tailoring.)
-2. **User:** `Profile Workbook.bat`, choose the workbook. **Cowork:** read `logs/profile_<date>.txt` next to the
+2. **User:** "Profile workbook" (under More), with the workbook chosen. **Cowork:** read `logs/profile_<date>.txt` next to the
    workbook, and look at the workbook itself (it's in OneDrive): column headers, how Tax IDs, provinces, countries,
    names and dates are written.
 3. **Cowork:** work through TAILORING §5's table. Most findings are settings, not code:
@@ -49,15 +49,15 @@ run. If something needs a code change, write a change request instead (below).
 
    Start from `examples/tailoring_template.xlsx`: keep only the rows needed, add a `note` row saying why each
    is there, and save it in the **tool folder** as `tailoring.xlsx` (or have the user copy it there).
-4. **User:** `Profile Workbook.bat` again. Its second line says which settings were applied; a mistake in the
+4. **User:** "Profile workbook" again. Its second line says which settings were applied; a mistake in the
    file stops it with a message saying what to fix. **Cowork:** confirm the columns and routing now look right.
-5. **User:** `Offline Check.bat` (about 2 minutes, no lookups). **Cowork:** read the results workbook's
+5. **User:** "Offline check" (under More; about 2 minutes, no lookups). **Cowork:** read the results workbook's
    "Tax Check Summary" sheet and the log: NO NUMBER, INVALID NUMBER, NOT APPLICABLE counts; anything surprising
    goes back to step 3.
-6. **User:** `Run Trial (25 suppliers).bat`. **Cowork:** check against TAILORING §5 step 4's pass criteria.
-7. **User:** `Run Tax Check.bat` (all rows; 3–4 hours; overnight is fine). After any stop (restart, network
+6. **User:** "Trial (25 suppliers)" (under More). **Cowork:** check against TAILORING §5 step 4's pass criteria.
+7. **User:** "Start the full check" (all rows; 3–4 hours; overnight is fine). After any stop (restart, network
    drop, Ctrl+C), and the next day for Saskatchewan suppliers past the registry's 100-a-day limit:
-   `Resume Last Run.bat` (same workbook and answers, no typing).
+   "Continue the stopped check" (same workbook and answers, no typing).
    **Cowork:** walk the tax lead through the summary sheet and the Action List.
 
 ## When a change needs code

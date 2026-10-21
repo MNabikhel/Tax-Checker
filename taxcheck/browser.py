@@ -14,7 +14,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-INSTALL_HINT = ("Run Test Setup.bat (it installs Playwright), or make sure Microsoft Edge is installed; "
+INSTALL_HINT = ("Run \"advanced\\Test Setup.bat\" (it installs Playwright), or make sure Microsoft Edge is installed; "
                 "'playwright install chromium' also works where downloads aren't blocked.")
 
 

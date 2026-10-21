@@ -227,9 +227,9 @@ class SaskatchewanLabels(unittest.TestCase):
         issue, action, _ = provincial_issue("sk_pst", Result(MANUAL, "Couldn't open a browser for the assisted check: "
                                                                      "browser couldn't start"))
         self.assertEqual(issue, "Manual check needed (browser didn't open)")
-        self.assertIn("Resume Last Run.bat", action)
+        self.assertIn("Continue the last check", action)
         issue, action, _ = provincial_issue("sk_pst", Result(MANUAL, "Saskatchewan's registry needs a person"))
-        self.assertIn("answer Y to the Saskatchewan question", action)
+        self.assertIn("Saskatchewan ticked in Options", action)
 
     def test_manual_and_near_match_reasons(self):
         self.assertEqual(provincial_issue("sk_pst", Result(MANUAL, "needs at least 4 letters of the name"))[0],

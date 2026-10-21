@@ -1,7 +1,7 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist ".venv\Scripts\python.exe" (
-    echo The tool isn't set up yet. Double-click "Test Setup.bat" first.
+    echo The tool isn't set up yet. Double-click "Tax Checker.bat" first.
     pause
     exit /b 1
 )

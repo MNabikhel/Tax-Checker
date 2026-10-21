@@ -1,78 +1,44 @@
 TAX-CHECKER: HOW TO RUN IT
 ==========================
 
-TEST RUN (one click, no vendor data, about 10 minutes)
-------------------------------------------------------
-Double-click "Run Test.bat". It sets up the tool, checks every government site, and runs a built-in
-file of public test businesses: a full run that stops on purpose part way (to test resuming), then
-the resume, which checks every remaining supplier. Your only job: when the Saskatchewan window
-opens, tick "I agree" and "I'm not a robot" and click Next. At the end File Explorer opens on
-TaxCheck_Test_Results_<date>.zip in this folder: send that file. It holds only test data.
-
-THE REAL RUN (what you do each time)
-------------------------------------
-1. If you keep the tool in a synced cloud folder, copy the project folder to a local folder
-   (e.g. Downloads) and choose "Replace the files in the destination". That keeps the installed
-   environment (.venv) local. Only needed when the tool or the workbook changed.
-2. In the local Tax-Checker folder, double-click "Run Tax Check.bat".
-3. Pick the supplier workbook in the window that opens.
-4. Choose which taxes to check:
-     1  GST/HST only (fastest)
-     2  Everything (press Enter)
-     3  Choose letters, e.g.  G M   (G GST/HST, Q QST, B BC PST, M Manitoba RST, S Saskatchewan)
-   GST/HST is always included.
-   If Saskatchewan is included, you're asked whether to check it (press Enter for yes). A browser
-   window then opens right at the start: tick "I agree" and "I'm not a robot", click Next. That's
-   needed once: every Saskatchewan search then runs by itself, and the rest of the check carries on.
-   Then, optionally, a cut-off date: only vendors last paid on or after it are checked (the others are
-   listed as NOT CHECKED). Press Enter to check everyone (ask the tax lead which cut-off to use).
-   Then choose GST/HST registration dates:
-     1  Quick (press Enter): still registered today? cancellation date if not (about +1 hour)
-     2  Full: also every supplier's GST/HST start date (hours more; for smaller lists)
-     3  None (fastest)
-5. Leave it running (about 3.5-4.5 hours with everything and quick dates; GST/HST only with no
-   dates is about 2.5 hours). Keep the PC awake and on the network/VPN.
-   A progress line every 25 suppliers shows how many are done and the time left.
-6. When it finishes, File Explorer opens on  <workbook>_tax_check.xlsx  next to the workbook.
-
-If it stops part way (restart, network drop, Ctrl+C), double-click "Resume Last Run.bat". It picks up
-the last full run by itself (same workbook, same answers; it only asks about Saskatchewan again if you
-said N). Suppliers already finished are kept; ones with errors are tried again. It also does the
-Saskatchewan suppliers left over by the registry's 100-searches-a-day limit: use it the next day.
-
-SASKATCHEWAN IN DAILY BATCHES (the registry allows 100 searches a day)
----------------------------------------------------------------------
-Answer Y to Saskatchewan in the full run: it does the first ~100. Then, once a day, double-click
-"Run Saskatchewan Batch.bat" and tick the CAPTCHA: it checks only the Saskatchewan suppliers still without
-an answer (the last full run's workbook, chosen automatically), up to the day's limit, and writes
-<workbook>_saskatchewan.xlsx. Its last line says how many are done, how many are left and when the next
-batch is possible. When it says all have an answer, double-click "Resume Last Run.bat" once to put them in
-the full run's results (no CAPTCHA). Answers are kept 60 days; always use the same Tax-Checker folder.
-
-OFFLINE CHECK (2 minutes, no lookups)
--------------------------------------
-"Offline Check.bat" reads your file and checks every number's format, with no lookups. Useful after the
-tailoring settings change (tailoring.xlsx in this folder).
-
-PROFILE WORKBOOK (to help tailor the tool)
-------------------------------------------
-"Profile Workbook.bat" asks for your supplier file and saves logs\profile_<date>.txt next to it: counts and
-patterns only (how Tax IDs, provinces, names and dates are written), no supplier names or numbers. Send that
-file to whoever is tailoring the tool.
-
-SASKATCHEWAN PROBE (only if asked)
-----------------------------------
-"Saskatchewan Probe.bat" opens the Saskatchewan registry: tick the CAPTCHA, click Next, and it searches a
-few well-known businesses, saving screenshots and pages in logs\sk_probe_<date>. Zip that folder and send it
-to whoever maintains the tool. It uses 3 of the registry's 100 searches per day.
-
-DO I NEED "Test Setup.bat"?
+ONE FILE: "Tax Checker.bat"
 ---------------------------
-- Not for every run. "Run Tax Check.bat" is all you need once the tool is set up.
-- Run "Test Setup.bat" only: the first time on a PC, after copying an update of the tool,
-  or when something fails (it repairs the install and says what's wrong).
-- "Run Trial (25 suppliers).bat" is an optional 2-minute check before a long run.
-- There is no other setup file (Test Setup.bat replaced Setup.bat).
+Double-click "Tax Checker.bat". The first time on a PC it installs what the tool needs (a few minutes,
+in a black window), then the Tax Checker window opens. Next times the window opens straight away.
+Everything is in that window. It always shows the NEXT STEP with one big button:
+
+1. Choose the supplier workbook (it's never changed; results go in a copy next to it).
+2. "Check setup" (about 2 minutes, first time): checks the government sites, the browser and a few
+   real lookups on your workbook. It creates no results.
+3. "Start the full check": runs by itself for a few hours and keeps the PC awake (leave it on and on
+   the network/VPN). Saskatchewan first: a browser window opens; tick "I agree" and "I'm not a robot",
+   click Next (5 minutes to do it). Up to 100 Saskatchewan searches then run by themselves, then
+   everything else. The window shows progress, the time left, and what to do if anything needs you.
+4. If it stopped (Stop button, restart, network drop): the button becomes "Continue the stopped
+   check". Finished suppliers are kept; ones with errors are tried again.
+5. Saskatchewan, the next days (the registry allows 100 searches a day): open the window once a day;
+   it says how many are done and when the next batch is possible. Click "Run today's Saskatchewan
+   batch" and tick the CAPTCHA (about 20 minutes). Repeat until it says all are done.
+6. "Add the Saskatchewan answers to the results" (once, no CAPTCHA): puts them in the results workbook.
+7. "Open results" opens <workbook>_tax_check.xlsx.
+
+Options (tick "Show options"): which taxes, Saskatchewan during the full check (untick to leave it all
+to the daily batches), GST/HST registration dates (Quick recommended; Full is slower), and a paid-since
+cut-off (blank = check everyone; ask the tax lead). The window remembers them.
+
+"More" has the other jobs: start a new full check from the beginning, a 25-supplier trial, the
+offline check (number formats only, no lookups), the workbook profile (for tailoring; no names or
+numbers), the one-click test on public test data (sends back TaxCheck_Test_Results_<date>.zip),
+Open results and Open logs folder.
+
+If the tool is in a synced cloud folder, copy it to a local folder (e.g. Downloads) first. Always use
+the same Tax-Checker folder until the Saskatchewan batches are done (their answers are kept in its
+"cache" folder for 60 days).
+
+The "advanced" folder has the older one-job .bat files (Run Tax Check, Resume Last Run, Run
+Saskatchewan Batch, Test Setup, Run Test, Offline Check, Profile Workbook, Trial, Saskatchewan Probe).
+They still work and do the same as the window's buttons; you don't need them. "advanced\Test
+Setup.bat" also repairs the install if something is broken.
 
 READING THE RESULTS
 -------------------

@@ -5,7 +5,7 @@ Saskatchewan PST) against official government lookup services and writes the res
 supplier workbook.
 
 **Tailoring the tool to the user's data? Read `TAILORING.md` first (with Microsoft 365 Copilot Cowork: `COWORK.md`)** (tax background, one row end to end, the
-user's dataset, a step-by-step playbook driven by `Profile Workbook.bat`). Then **read `HANDOFF.md` before changing anything** (start with section 0, "Current state and what's next"). It
+user's dataset, a step-by-step playbook driven by the workbook profile: "Profile workbook" in the window). Then **read `HANDOFF.md` before changing anything** (start with section 0, "Current state and what's next"). It
 explains the architecture, how each government site behaves, what has been verified, and how to adapt the
 tool to a new dataset. Status: verified end to end and ready for the user's full run (19,911 suppliers).
 
@@ -24,7 +24,7 @@ Key rules:
   numbers must be made up (or the public test data in `tests/test_live.py`), never copied from the user's file.
 - The user's standing rules: never edit the source workbook, never guess legal names (only forms of the
   vendor's own name and official registry names), never filter or prioritize by payment amount, keep the
-  double-click `.bat` flow working. Open decisions for the user are in HANDOFF.md section 2.
+  double-click flow working (`Tax Checker.bat` and its window `gui.py`, and the `.bat` files in `advanced\`). Open decisions for the user are in HANDOFF.md section 2.
 - Never bypass CAPTCHAs, disable TLS verification, or remove request throttling. Saskatchewan allows 100
   searches a day: don't add searches per supplier without a reason.
 - A name or number from a registry is only a candidate until CRA accepts it for that business number; leads

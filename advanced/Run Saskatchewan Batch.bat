@@ -3,9 +3,9 @@ rem Saskatchewan PST only, in daily batches: the registry allows 100 searches a 
 rem Saskatchewan suppliers of the last full run's workbook that have no answer yet (answers are kept 60 days),
 rem up to the day's limit, and writes <workbook>_saskatchewan.xlsx with every Saskatchewan supplier so far.
 rem You tick the CAPTCHA once at the start. Run it once a day until it says all are done.
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist ".venv\Scripts\python.exe" (
-    echo The tool isn't set up yet. Double-click "Test Setup.bat" first.
+    echo The tool isn't set up yet. Double-click "Tax Checker.bat" first.
     pause
     exit /b 1
 )

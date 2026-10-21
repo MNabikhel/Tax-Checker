@@ -141,7 +141,7 @@ def resume_last_run(args):
         data = json.loads(LAST_RUN.read_text(encoding="utf-8"))
         progress = Path(data["progress"])
     except (OSError, ValueError, KeyError, TypeError):
-        return ("There's no earlier full run in this folder to resume. Start one with \"Run Tax Check.bat\", or resume "
+        return ("There's no earlier full run in this folder to resume. Start one in Tax Checker, or resume "
                 "a progress file by hand: --resume \"<...>\\logs\\progress_<date>_<time>.csv\"")
     if not progress.exists():
         return f"The last run's progress file is missing ({progress}); resume a progress file by hand with --resume."
@@ -157,28 +157,82 @@ def resume_last_run(args):
     return ""
 
 
-def saskatchewan_batch_summary(results, sk, total, stopped_early=False, saved_elsewhere=0):
-    """One line for the screen and the summary sheet: how far the Saskatchewan batches have got. `total` is the
-    number of Saskatchewan suppliers; a supplier with no result yet (the batch stopped) is still to search, unless
-    it's one of `saved_elsewhere` (answered in this or an earlier batch, but not written in this one)."""
+def saskatchewan_counts(results, total, saved_elsewhere=0):
+    """(answered, need a search by hand, still to search) among `total` Saskatchewan suppliers."""
     from taxcheck.result import ERROR, MANUAL
 
     sk_results = [r["sk_pst"] for r in results.values() if "sk_pst" in r]
     by_hand = sum(1 for r in sk_results if r.status == MANUAL and ("at least 4 letters" in r.detail
                                                                   or "didn't answer this search" in r.detail))
     answered = sum(1 for r in sk_results if r.status not in (MANUAL, ERROR)) + saved_elsewhere
-    waiting = total - answered - by_hand
+    return answered, by_hand, max(total - answered - by_hand, 0)
+
+
+SK_PROGRESS = "saskatchewan_progress.json"  # in the cache folder: how far each workbook's Saskatchewan checks are
+
+
+def record_saskatchewan_progress(args, src, results, total, saved_elsewhere=0):
+    """Note, per workbook, how many Saskatchewan suppliers have an answer (the window shows it and suggests the next
+    batch). `in_results_waiting` is what the full run's results workbook still lacks (a batch doesn't change it)."""
+    if not total or args.limit or args.offline or TEST_RUN:
+        return
+    path = Path(args.cache_dir) / SK_PROGRESS
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    answered, by_hand, waiting = saskatchewan_counts(results, total, saved_elsewhere)
+    entry = data.get(str(Path(src).resolve()), {})
+    entry.update(total=total, answered=answered, by_hand=by_hand, waiting=waiting,
+                 updated=dt.datetime.now().isoformat(timespec="seconds"))
+    if not args.sk_only:
+        entry["in_results_waiting"] = waiting
+    data[str(Path(src).resolve())] = entry
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass  # only for the window's next-step suggestion
+
+
+@contextlib.contextmanager
+def keep_awake():
+    """Keep Windows from going to sleep while a run is going (a full run takes hours). No-op elsewhere."""
+    done = False
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)  # ES_CONTINUOUS | SYSTEM_REQUIRED
+            done = True
+        except Exception:
+            pass
+    try:
+        yield done
+    finally:
+        if done:
+            with contextlib.suppress(Exception):
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+
+
+def saskatchewan_batch_summary(results, sk, total, stopped_early=False, saved_elsewhere=0):
+    """One line for the screen and the summary sheet: how far the Saskatchewan batches have got. `total` is the
+    number of Saskatchewan suppliers; a supplier with no result yet (the batch stopped) is still to search, unless
+    it's one of `saved_elsewhere` (answered in this or an earlier batch, but not written in this one)."""
+    answered, by_hand, waiting = saskatchewan_counts(results, total, saved_elsewhere)
     hand = f" {by_hand} need a search by hand (see their details)." if by_hand else ""
     if not waiting and not stopped_early:
         return (f"SASKATCHEWAN BATCH: all {total} Saskatchewan suppliers are done: {answered} have an answer.{hand} To "
-                "add them to the full run's results workbook, double-click \"Resume Last Run.bat\" (no CAPTCHA).")
+                "add them to the full run's results workbook, click \"Add the Saskatchewan answers\" in Tax Checker (no CAPTCHA).")
     stopped = (sk.unavailable or "") if sk else ""
     m = re.search(r"The next full batch is possible from [^)]*\)", stopped)
     why = ("This batch was stopped before the end." if stopped_early and not stopped
            else f"Today's searches are used up. {m.group(0)}." if m
            else f"The searches stopped: {stopped.split(' Search by hand')[0].rstrip('.')}." if stopped else "")
     return (f"SASKATCHEWAN BATCH: {answered} of {total} Saskatchewan suppliers have an answer; {waiting} still to "
-            f"search.{hand} {why} Double-click \"Run Saskatchewan Batch.bat\" again for the next batch (answers so "
+            f"search.{hand} {why} Click \"Saskatchewan batch\" in Tax Checker again for the next batch (answers so "
             "far are kept 60 days and aren't searched again).").replace("  ", " ").replace("..", ".")
 
 
@@ -385,7 +439,7 @@ def save_final(sheet, results, out, notes, ok_statuses):
         signal.signal(signal.SIGINT, previous)
 
 
-def prefetch_saskatchewan(checker, sk, rows):
+def prefetch_saskatchewan(checker, sk, rows, stop=None):
     """Run every Saskatchewan search right after the person passes the registry's CAPTCHA, at the start.
 
     The CAPTCHA is needed once per browser session (see sk_pst.SkPstAssistant), but in a long run the
@@ -405,7 +459,7 @@ def prefetch_saskatchewan(checker, sk, rows):
                  "used for them).", len(jobs) - fresh)
     if fresh > left:
         log.warning("Saskatchewan: %d suppliers still to search, and %d of the registry's %d searches per 24 hours are "
-                    "left. The rest wait for the next batch: double-click \"Run Saskatchewan Batch.bat\" on the "
+                    "left. The rest wait for the next batch: click \"Saskatchewan batch\" in Tax Checker on the "
                     "following days.", fresh, left, sk.daily_limit)
     if fresh and not left:
         log.warning("Saskatchewan: today's searches are used up, so the window won't open. %s",
@@ -415,6 +469,8 @@ def prefetch_saskatchewan(checker, sk, rows):
                     "robot' once and click Next. The searches then run by themselves.", min(fresh, left))
     started, stopped = time.monotonic(), False
     for i, (names, had_number) in enumerate(jobs, 1):
+        if stop and stop():
+            raise KeyboardInterrupt  # the window's Stop button
         # Every supplier is gone through even after the searches stop: saved answers still count.
         res = checker._guard(checker._sk_noted, names, had_number)
         log.info("[Saskatchewan %d/%d] %s: %s", i, len(jobs), next((n for n in names if n), ""), res.status)
@@ -537,6 +593,8 @@ def run(args, log_path):
         gst = GstChecker(corporations=corporations, name_sources=[s for s in (registries, orgbook) if s],
                          cache_dir=args.cache_dir)
 
+    stop_file = Path(args.stop_file) if getattr(args, "stop_file", None) else None
+    stop_requested = (lambda: stop_file.exists()) if stop_file else (lambda: False)
     progress = ProgressReport(log_path.parent, len(to_check), every_rows=args.progress_every)
     remember_run(args, progress.path)
     for r, values in rows:  # carry resumed rows into the new progress file, so the latest file is complete
@@ -651,7 +709,9 @@ def run(args, log_path):
                 top_up()
                 while pending:
                     r, values, fut = pending.popleft()
-                    while True:  # short waits so Ctrl+C is noticed on Windows
+                    while True:  # short waits so Ctrl+C (and the window's Stop button) is noticed on Windows
+                        if stop_requested():
+                            raise KeyboardInterrupt
                         try:
                             out_row, secs = fut.result(timeout=0.5)
                             break
@@ -671,7 +731,7 @@ def run(args, log_path):
         stopped_early = None  # set below; None if something stops the run before it's decided
         try:
             if sk:
-                prefetch_saskatchewan(checker, sk, [values for _, values in to_check])
+                prefetch_saskatchewan(checker, sk, [values for _, values in to_check], stop=stop_requested)
             for i, (r, values, out_row, secs) in enumerate(results_in_order(), 1):
                 t0 = time.monotonic()
                 results[r] = checker.run_deferred(out_row)  # browser checks, main thread (no-op if none deferred)
@@ -684,13 +744,15 @@ def run(args, log_path):
                     checkpoints.save(results)
                 if args.stop_after and i >= args.stop_after and i < len(to_check):
                     raise KeyboardInterrupt  # --stop-after: exactly what Ctrl+C does (Run Test.bat tests resuming)
+                if stop_requested():
+                    raise KeyboardInterrupt  # --stop-file: the window's Stop button
         except KeyboardInterrupt:
             # A long run stopped with Ctrl+C keeps what it has; --resume with the progress file finishes the rest.
             log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s",
                         sum(1 for x in results.values() if "sk_pst" in x) if args.sk_only else len(results),
                         len(to_check) if args.sk_only else len(rows),
-                        "" if args.limit or offline else " To continue later, double-click \"%s\"."
-                        % ("Run Saskatchewan Batch.bat" if args.sk_only else "Resume Last Run.bat"))
+                        "" if args.limit or offline else " To continue later, click \"%s\" in Tax Checker."
+                        % ("Saskatchewan batch" if args.sk_only else "Continue the last check"))
             stopped_early = True
             if executor:
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -752,7 +814,7 @@ def run(args, log_path):
     if args.limit and len(results) < len(rows):
         notes.insert(0, f"TRIAL RUN (--limit {args.limit}): only {len(results)} of {len(rows)} suppliers have results.")
     if failure is not None:
-        notes.insert(0, f"RUN FAILED: {type(failure).__name__}: {failure}. See the log; double-click \"Resume Last Run.bat\" to continue.")
+        notes.insert(0, f"RUN FAILED: {type(failure).__name__}: {failure}. See the log; click \"Continue the last check\" in Tax Checker to continue.")
     if gst.__class__ is Offline:
         pass
     elif gst.simplified.error:
@@ -768,13 +830,16 @@ def run(args, log_path):
         saved = sum(1 for v in unwritten for names, _ in checker.saskatchewan_searches([v])
                     if sk and search_terms(*names) and not sk.gave_up(names) and sk.answered(names)) if stopped_early else 0
         notes.insert(0, saskatchewan_batch_summary(results, sk, len(to_check), bool(stopped_early), saved))
+        record_saskatchewan_progress(args, src, results, len(to_check), saved)
         log.warning("%s", "=" * 70)
         log.warning("%s", notes[0])
         log.warning("%s", "=" * 70)
+    if not args.sk_only and not stopped_early:  # (a stopped run's counts are incomplete)
+        record_saskatchewan_progress(args, src, results, sum(1 for x in results.values() if "sk_pst" in x))
     if stopped_early:
         notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(to_check) if args.sk_only else len(rows)} suppliers "
-                        "were checked. Rows without results weren't checked: double-click "
-                        f"\"{'Run Saskatchewan Batch.bat' if args.sk_only else 'Resume Last Run.bat'}\" to check them.")
+                        "were checked. Rows without results weren't checked: click "
+                        f"\"{'Saskatchewan batch' if args.sk_only else 'Continue the last check'}\" in Tax Checker to check them.")
     ok_statuses = (REGISTERED, NAME_NOT_MATCHED) if args.trust_gst_number else (REGISTERED,)
     if args.trust_gst_number:
         notes.insert(0, "NUMBER-ONLY RESULTS (--accept-number-only): 'REGISTERED - NAME NOT MATCHED' counts as OK in the "
@@ -849,6 +914,8 @@ def main(argv=None):
                     help="Saskatchewan batch: check only Saskatchewan PST, for the Saskatchewan suppliers not answered "
                          "yet, up to the registry's daily limit (Run Saskatchewan Batch.bat); results in "
                          "<workbook>_saskatchewan.xlsx")
+    ap.add_argument("--stop-file", help="stop (as if Ctrl+C was pressed) when this file appears (the window's Stop "
+                                        "button)")
     ap.add_argument("--stop-after", type=int, help="stop after N suppliers as if Ctrl+C was pressed (Run Test.bat "
                                                    "uses it to test resuming)")
     ap.add_argument("--resume", help="progress_*.csv from an earlier run that stopped: skip the suppliers it finished; "
@@ -928,7 +995,8 @@ def main(argv=None):
     # Corporate networks with TLS inspection re-sign web traffic; use Windows' certificates so lookups aren't refused.
     log.debug("System certificate store in use: %s", use_system_certificates())
     try:
-        run(args, log_path)
+        with keep_awake():
+            run(args, log_path)
     except InputError as e:
         log.error("Can't run: %s", e)
         return 1

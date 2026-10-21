@@ -11,8 +11,9 @@ Taking over development or adapting it to a new dataset? Start with [HANDOFF.md]
 Requires Python 3.9+ ([python.org](https://www.python.org/downloads/); on Windows tick "Add python.exe to
 PATH" when installing).
 
-**Windows:** double-click `Setup.bat` once. It creates a private Python environment in the tool's
-folder, installs everything, downloads the browser used for BC/Manitoba/Saskatchewan, and runs the tests.
+**Windows:** double-click **`Tax Checker.bat`**. The first time it creates a private Python environment in the
+tool's folder, installs everything and downloads the browser used for BC/Manitoba/Saskatchewan; then (and every
+later time, straight away) it opens the Tax Checker window.
 
 **Any system:**
 ```
@@ -24,13 +25,22 @@ playwright install chromium      # one-time; needed for BC, Manitoba and Saskatc
 
 ## Quick start (Windows)
 
-1. Double-click **`Test Setup.bat`**: installs/repairs what's needed, checks every government site, the
-   browser and your workbook, does a few real lookups, and ends with READY / NOT READY and the fixes. Its
-   report (and every run's log) is also copied to a diagnostics folder if you set one up (below).
-   It doesn't create a results workbook; when READY it offers the trial.
-2. **`Run Trial (25 suppliers).bat`** (or answer Y at the end of the setup test): 25 real lookups, about 2 minutes;
-   saves `<workbook>_tax_check_TRIAL.xlsx` next to the workbook and opens that folder.
-3. **`Run Tax Check.bat`**: the full run; saves `<workbook>_tax_check.xlsx` next to the workbook and opens that folder.
+Double-click **`Tax Checker.bat`** and follow the window's **Next step** button. It walks through, in order:
+choose the workbook → **Check setup** (`check_setup.py`: every government site, the browser, a few real lookups;
+READY / NOT READY with fixes; no results) → **Start the full check** (saves `<workbook>_tax_check.xlsx` next to
+the workbook) → **Continue the stopped check** if it stopped → **Run today's Saskatchewan batch** once a day
+until all are done → **Add the Saskatchewan answers to the results** → done. The window shows progress and
+time left, highlights when the Saskatchewan CAPTCHA needs ticking, says when a site is down and being retried,
+has a **Stop** button (the run saves and can be continued), keeps the PC awake during a run, and remembers its
+options (taxes, Saskatchewan now or later, registration dates, paid-since cut-off). **More** has a new full
+check, the 25-supplier trial, the offline check, the workbook profile, the one-click test, Open results and Open
+logs folder. The window (`gui.py`, logic in `taxcheck/gui_logic.py`) only runs the scripts below with options;
+it never checks anything itself.
+
+The older one-job launchers are in **`advanced\`** and still work: `Test Setup.bat` (installs/repairs, then the
+setup check, then offers the trial), `Run Trial (25 suppliers).bat`, `Run Tax Check.bat` (console menus),
+`Resume Last Run.bat`, `Run Saskatchewan Batch.bat`, `Run Test.bat`, `Offline Check.bat`,
+`Profile Workbook.bat`, `Saskatchewan Probe.bat`.
 
 On corporate networks that inspect and re-sign web traffic, Python's own certificate list makes every lookup fail
 with `CERTIFICATE_VERIFY_FAILED`. The tool uses the operating system's certificate store through the `truststore`
@@ -44,8 +54,8 @@ work), or set `TAXCHECK_DIAGNOSTICS_DIR`. Off by default; `diagnostics_dir.txt` 
 
 ## Usage
 
-**Windows:** double-click `Run Tax Check.bat`. A window opens to choose the supplier workbook; the check
-runs and the window stays open at the end so you can read the summary.
+**Windows:** double-click `Tax Checker.bat` (or `advanced\Run Tax Check.bat` for the console version, which
+asks its questions in menus).
 
 **Command line:**
 ```
@@ -77,11 +87,11 @@ Downloaded reference data is kept in the tool's own `cache` folder and shared be
 | `--check-columns` | Check nothing: show how your columns are read and what the first rows would check (offline). |
 | `--offline` | Look nothing up: check every row's number format, CRA check digit and routing, and write the results file. Rows that pass show `NOT LOOKED UP` (Overall `PENDING`). |
 | `--limit 25` | Trial run: only check the first 25 suppliers. |
-| `--resume logs\progress_<date>.csv` | Continue a run that stopped: suppliers finished in that run are kept, ones with errors are re-checked. `--resume last` (what `Resume Last Run.bat` runs) = the latest full run, with its workbook and answers. |
+| `--resume logs\progress_<date>.csv` | Continue a run that stopped: suppliers finished in that run are kept, ones with errors are re-checked. `--resume last` (what "Continue" in the window runs) = the latest full run, with its workbook and answers. |
 | `--checkpoint-every 2000` | Save the results workbook every N suppliers during the run (default 2000; `0` = only at the end). |
 | `--progress-every 25` | Write a progress line (done, speed, time left, counts) every N suppliers (default 25). |
-| `--gst-dates end` | GST/HST registration dates: `none`, `end` (default: still registered today; cancellation date) or `full` (also every start date; slow). The .bat launchers ask. |
-| `--taxes gst` | Which taxes to check: `gst`, `qst`, `bc`, `mb`, `sk` (comma-separated) or `all` (default). GST/HST is always checked. The .bat launchers ask with a menu (`--ask`). |
+| `--gst-dates end` | GST/HST registration dates: `none`, `end` (default: still registered today; cancellation date) or `full` (also every start date; slow). The window has it under Options; `advanced\Run Tax Check.bat` asks. |
+| `--taxes gst` | Which taxes to check: `gst`, `qst`, `bc`, `mb`, `sk` (comma-separated) or `all` (default). GST/HST is always checked. The window has it under Options; `advanced\Run Tax Check.bat` asks with a menu (`--ask`). |
 | `--workers 3` | Parallel lookups (default 3, max 6; `1` = one at a time). Each keeps its own pacing; Manitoba/BC browser checks run alongside on the main thread. |
 | `--as-of-today` | Ignore the date column and confirm every registration as of today (or `--date`). |
 
@@ -101,10 +111,10 @@ To try it out, run it on `examples/sample_suppliers.xlsx`, which uses publicly p
 
 **Tailoring settings.** An export with other header names, province/country spellings, month-first text dates or
 vendor-master markings can be handled without code: `tailoring.xlsx` (template in `examples/`) or
-`tailoring.json` (see `tailoring.example.json`) in the tool folder. **Offline Check.bat** runs the `--offline`
+`tailoring.json` (see `tailoring.example.json`) in the tool folder. **Offline check** (under More in the window, or `advanced\Offline Check.bat`) runs the `--offline`
 check on a chosen file.
 
-**Profile Workbook.bat** (`python profile_workbook.py [file]`) prints the shape of a supplier file without its
+**Profile workbook** (under More, or `advanced\Profile Workbook.bat`) (`python profile_workbook.py [file]`) prints the shape of a supplier file without its
 contents (column mapping, Tax ID formats, spellings, name markers, what would be checked) and saves it in
 `logs\profile_<date>.txt`: safe to send to whoever tailors the tool (see `TAILORING.md`).
 
@@ -139,12 +149,13 @@ and all taxes (registration dates off); expect roughly 3x that one at a time. Fo
   per supplier, time left, and status counts so far.
 - **Checkpoint saves** of the results workbook every 2,000 suppliers, marked "IN PROGRESS" on the summary sheet.
 
-**`Run Saskatchewan Batch.bat`** (`--sk-only`) checks only Saskatchewan PST, for the Saskatchewan suppliers of the last full run's workbook that have no answer yet, up to the registry's 100 searches a day; run it once a day until its last line says all have an answer, then `Resume Last Run.bat` puts them in the full results. Saskatchewan answers are kept 60 days (`cache/saskatchewan_answers.json`).
+**Saskatchewan batch** (the window's button, or `advanced\Run Saskatchewan Batch.bat`; `--sk-only`) checks only Saskatchewan PST, for the Saskatchewan suppliers of the last full run's workbook that have no answer yet, up to the registry's 100 searches a day; run it once a day until its last line says all have an answer, then **Add the Saskatchewan answers** (`--resume last --sk-assist`) puts them in the full results. Each run notes per workbook how many Saskatchewan suppliers have an answer (`cache/saskatchewan_progress.json`), which the window uses for its next step. Saskatchewan answers are kept 60 days (`cache/saskatchewan_answers.json`).
 
-**`Run Test.bat`** tests everything in one click on built-in public test data (`run_test.py`): setup check,
+**Test run** (under More, or `advanced\Run Test.bat`) tests everything in one click on built-in public test data (`run_test.py`): setup check,
 profile, a full run stopped on purpose part way, the resume, and one zip of every log and result to send back.
 
-If the run stops (Ctrl+C, PC restart, network drop), double-click **`Resume Last Run.bat`** (`--resume last`):
+If the run stops (the window's Stop button, Ctrl+C, PC restart, network drop), click **Continue the stopped
+check** in the window (or `advanced\Resume Last Run.bat`; `--resume last`):
 it continues the latest full run with the same workbook and answers (asking again only about Saskatchewan, if
 it was skipped). Or name a progress file: `--resume logs\progress_<date>_<time>.csv`. Finished suppliers are
 kept, suppliers with errors are re-checked, and the new progress file includes both, so the latest one is
@@ -249,7 +260,7 @@ for a manual check. **The registry allows 100 searches per 24 hours**, so each s
 searches (the name without vendor-master markings like `*`, "The" or Ltd/Inc, since the registry matches any
 portion of a name and ignores punctuation), and the tool counts searches across runs: when they're used up,
 the remaining Saskatchewan suppliers are marked for a manual check with the time searches are available again
-(run again then with `--resume`). **`Saskatchewan Probe.bat`** (`python sk_probe.py ["name" ...]`) captures what
+(run again then with `--resume`). **`advanced\Saskatchewan Probe.bat`** (`python sk_probe.py ["name" ...]`) captures what
 the registry's results pages look like: tick the CAPTCHA once and it searches a few well-known Saskatchewan
 businesses, saving a screenshot, the page (.html) and what the tool read for each in `logs\sk_probe_<date>`.
 Results are read cautiously: REGISTERED only when a result row has the supplier's name and a

@@ -20,3 +20,5 @@ diagnostics_dir.txt
 !tests/fixtures/**
 test_run/
 TaxCheck_Test_Results_*.zip
+gui_settings.json
+gui_settings.json.tmp

@@ -380,7 +380,7 @@ class SkPstAssistant:
             first, full = (dt.datetime.fromtimestamp(t + 24 * 3600) for t in (min(self._searched_at), max(self._searched_at)))
             when = f" The next full batch is possible from {full:%Y-%m-%d %H:%M} (a few searches from {first:%H:%M})."
         return (f"Saskatchewan's registry allows {self.daily_limit} searches per 24 hours and they're used up.{when} "
-                f"Double-click \"Run Saskatchewan Batch.bat\" then for the next batch, or search by hand at {SK_REGISTRY}")
+                f"Click \"Saskatchewan batch\" in Tax Checker then for the next batch, or search by hand at {SK_REGISTRY}")
 
     # Result rows: from DataTables' own data when it has taken over the table (it keeps only one page of rows on
     # screen), otherwise from the page. Header rows (no <td>) are left out.
