@@ -69,6 +69,24 @@ class InTheCheck(unittest.TestCase):
         self.assertEqual(gst_issue(g)[0], "Registration cancelled since payment date")
         self.assertIn("dated after 2026-07-14", gst_issue(g)[1])
 
+    def test_cancelled_shortly_before_payment_gets_its_cancellation_date(self):
+        # Seen in the user's run: CRA recorded cancellations weeks late, back-dated to Sept 30, so a payment on
+        # Oct 13 was "not registered" with no hint the supplier had been registered until just before.
+        cra = FakeCra(dt.date(2015, 1, 1), dt.date(2026, 10, 1))
+        g = run(cra, dt.date(2026, 10, 13), "end")
+        self.assertEqual(g.status, NOT_REGISTERED)
+        self.assertEqual(g.facts["registration_end"], "2026-09-30")
+        self.assertIn("registered until 2026-09-30", g.detail)
+        issue, action, _ = gst_issue(g)
+        self.assertEqual(issue, "Registration cancelled before payment date")
+        self.assertIn("2026-09-30", action)
+
+    def test_never_registered_costs_one_extra_lookup(self):
+        cra = FakeCra(dt.date(2030, 1, 1))  # not registered on any day asked
+        g = run(cra, dt.date(2026, 10, 13), "end")
+        self.assertEqual(gst_issue(g)[0], "Not registered")
+        self.assertEqual(len(cra.asked), 2)  # today, and two years before the payment date
+
     def test_full_mode_adds_start_date(self):
         g = run(FakeCra(dt.date(2012, 8, 9)), dt.date(2026, 6, 1), "full")
         self.assertEqual(g.facts["registered_since"], "2012-08-09")

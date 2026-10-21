@@ -124,6 +124,19 @@ class LooserNames(unittest.TestCase):
     def test_probable_only_when_one_business_fits(self):
         self.assertEqual(self.status("ORBIT").status, NOT_APPLICABLE)  # Orbit Labs and Orbit Software both fit
 
+    def test_probable_never_from_an_operating_name(self):
+        # Seen in the user's run: "<dealer> LLC DBA SLATE" was offered as "Slate Digital LLC" (an unrelated seller)
+        # once "Digital" was dropped. Operating names only count when they match exactly.
+        self.assertEqual(self.status("PRAIRIE DESIGN LLC DBA HEXWAVE").status, NOT_APPLICABLE)
+        self.assertEqual(self.status("PRAIRIE DESIGN LLC (HEXWAVE)").status, NOT_APPLICABLE)
+        _, rc = checker(registered=ALL)
+        rc.available = {"name", "gst", "country", "trade_name"}
+        res = rc.check({"name": "PRAIRIE DESIGN LLC", "trade_name": "HEXWAVE", "gst": None, "country": "US"}, DATE)
+        self.assertEqual(res["gst"].status, NOT_APPLICABLE)
+        exact = self.status("PRAIRIE DESIGN LLC DBA AIRALO")  # exactly the listed trade name: still found
+        self.assertEqual((exact.status, exact.facts["digital_economy_match"]), (REGISTERED, True))
+        self.assertEqual(self.status("HEXWAVE").facts["digital_economy_match"], "probable")  # its own name: as before
+
     def test_probable_only_for_foreign_vendors(self):
         self.assertEqual(self.status("HEXWAVE", country="CA").status, MISSING)
 

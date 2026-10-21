@@ -124,6 +124,11 @@ def gst_issue(res):
             return ("Registered after payment date",
                     f"Not registered on {date}, {when}. Check any GST/HST charged on invoices from before the "
                     "registration date.", SEV_LATE)
+        if f.get("cancelled_before_payment"):
+            return ("Registration cancelled before payment date",
+                    f"Registered until {f.get('registration_end')}, not on {date} or today. Don't claim input tax credits "
+                    "on GST/HST charged after the cancellation; confirm with the supplier (re-registered under another "
+                    "number?).", SEV_NOT_REGISTERED)
         when = f"on {date} or today" if now == NOT_REGISTERED else f"on {date}"
         return ("Not registered",
                 f"Not registered for GST/HST {when}. Don't claim input tax credits on GST/HST from this supplier; "

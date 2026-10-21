@@ -1,6 +1,7 @@
 """Decides which checks apply to a supplier row and runs them."""
 
 import copy
+import datetime as dt
 import logging
 import re
 import threading
@@ -147,21 +148,12 @@ def _swap_suffix(name):
     return None
 
 
-def vendor_name_candidates(name):
-    """Names to try with CRA for one vendor-master name, most likely first (at most MAX_NAME_TRIES).
-
-    Order: the name as given; its legal part (before "O/A"/"DBA"/brackets, or up to "LTD"/"INC" when a trade
-    name or location follows); a tidied version (no padded vendor number, "REMIT", "*"); the legal suffix
-    spelled the other way (Ltd/Limited...); numbered companies written in full ("9999907 AB" ->
-    "9999907 ALBERTA LTD."); and last the operating name (after "O/A", in brackets) or the parent company
-    ("..., A DIV OF BIGBUILD"). Every candidate is made from the vendor's own name; nothing is invented.
-    """
-    if _blank(name):
-        return []
-    name = str(name).strip()
+def _legal_and_operating(name):
+    """("ACME LTD", ["WIDGETS"]) for "ACME LTD O/A WIDGETS" or "ACME LTD (WIDGETS)": the legal part and the
+    operating (trade) names, untidied."""
     # Status notes and asterisks are vendor-master markings, never part of a registered name.
     # (Runs of spaces are kept here: _tidy uses them to spot padded vendor numbers.)
-    plain = re.sub(r"(?<=\w)\*+(?=\s|$)", "", _STATUS_TAG.sub("", name)).strip()
+    plain = re.sub(r"(?<=\w)\*+(?=\s|$)", "", _STATUS_TAG.sub("", str(name).strip())).strip()
     legal, trades = plain, []
     parts = [p.strip(" -,;:") for p in _OPERATING_AS.split(plain)]
     if len(parts) > 1:
@@ -177,6 +169,27 @@ def vendor_name_candidates(name):
         legal = _PAREN.sub(" ", legal).strip()
         if inner:
             trades.append(inner)
+    return legal, trades
+
+
+def operating_names(name):
+    """The operating (trade) names in a vendor-master name: after "O/A"/"DBA", or in brackets."""
+    return [] if _blank(name) else [_tidy(t) for t in _legal_and_operating(name)[1]]
+
+
+def vendor_name_candidates(name):
+    """Names to try with CRA for one vendor-master name, most likely first (at most MAX_NAME_TRIES).
+
+    Order: the name as given; its legal part (before "O/A"/"DBA"/brackets, or up to "LTD"/"INC" when a trade
+    name or location follows); a tidied version (no padded vendor number, "REMIT", "*"); the legal suffix
+    spelled the other way (Ltd/Limited...); numbered companies written in full ("9999907 AB" ->
+    "9999907 ALBERTA LTD."); and last the operating name (after "O/A", in brackets) or the parent company
+    ("..., A DIV OF BIGBUILD"). Every candidate is made from the vendor's own name; nothing is invented.
+    """
+    if _blank(name):
+        return []
+    name = str(name).strip()
+    legal, trades = _legal_and_operating(name)
     legal = _tidy(legal)
     cut = _UP_TO_SUFFIX.match(legal)
     if cut and core_name(cut.group(1)):  # not "INC RESEARCH LTD" -> "INC"
@@ -491,9 +504,28 @@ class RowChecker:
                     g.detail += f" Registered since {since}."
             else:
                 g.detail += f" Still not registered today ({today})."
+                if can_search:
+                    self._cancelled_before_payment(g, bn9, date)
         except Exception as e:
             f["dates_error"] = f"{type(e).__name__}: {e}"
             log.warning("Registration date search for %s failed: %s", bn9, e)
+
+    LOOKBACK_DAYS = 730  # how far before the payment date a recent cancellation is looked for
+
+    def _cancelled_before_payment(self, g, bn9, date):
+        """Not registered on the payment date or today: was it registered shortly before (seen: CRA recorded a
+        cancellation weeks late, back-dated)? If so, find the cancellation date. One lookup when it wasn't."""
+        from .gst_dates import cancellation_date, registered_on
+
+        earlier = date - dt.timedelta(days=self.LOOKBACK_DAYS)
+        before = self._per_number("registered earlier", bn9, lambda v: True, lambda: registered_on(self.gst, bn9, earlier))
+        if not before:
+            return
+        end = self._per_number("cancelled before", bn9, lambda e: e < date,
+                               lambda: cancellation_date(self.gst, bn9, earlier, date))
+        g.facts.update(registration_end=str(end), cancelled_before_payment=True,
+                       dates_source="CRA registry (date search)")
+        g.detail += f" It was registered until {end}: the registration was cancelled before {date}."
 
     def _per_number(self, what, bn9, still_true, search):
         """A registration date for a business number, searched once and reused for its other rows while it
@@ -622,7 +654,8 @@ class RowChecker:
                     why = gst_note[:-1]
                 else:
                     why = f"Tax ID '{row.get('gst')}' isn't a Canadian GST/HST number"
-                res = self._digital_economy(gst_names, date, f"Non-Canadian supplier ({where}); {why}.")
+                res = self._digital_economy(gst_names, date, f"Non-Canadian supplier ({where}); {why}.",
+                                            operating=[*operating_names(name), row.get("trade_name")])
                 if res is None:
                     res = Result(NOT_APPLICABLE, f"Non-Canadian supplier ({where}); {why}, so no Canadian sales-tax check applies.")
                 else:
@@ -728,7 +761,7 @@ class RowChecker:
         rows = simplified._rows
         return isinstance(rows, dict) and str(number)[:9] in rows
 
-    def _digital_economy(self, names, date, why, foreign=True):
+    def _digital_economy(self, names, date, why, foreign=True, operating=()):
         """A supplier with no usable Canadian number whose name is on CRA's list of simplified GST/HST
         (digital economy) registrants, confirmed with the CRA registry; None if not.
 
@@ -742,9 +775,13 @@ class RowChecker:
             return None  # --offline / --check-columns stand-ins
         names = _card_style_names(names)
         # A probable (looser) match only for foreign vendors: a Canadian business with no number on file isn't
-        # likely to be a non-resident digital seller, so only an exact name match counts for it.
+        # likely to be a non-resident digital seller, so only an exact name match counts for it. And only from
+        # the vendor's own legal name: a short operating name ("... DBA SLATE") matched an unrelated registrant
+        # ("Slate Digital LLC") once "Digital" was dropped. Operating names still count for exact matches.
+        skip = {_name_key(n) for n in operating if n}
+        own = [n for n in names if n and _name_key(n) not in skip]
         for probable in (False, True) if foreign else (False,):
-            for bn9 in _simplified_by_name(simplified, names, probable=probable):
+            for bn9 in _simplified_by_name(simplified, own if probable else names, probable=probable):
                 entry = simplified.lookup(bn9, date)
                 key = ("digital_economy", bn9, str(date))
                 if key not in self._cache:

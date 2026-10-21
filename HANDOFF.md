@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 275: 254 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 278: 257 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -510,6 +510,16 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (user's v1/v2 comparison)**: (1) a false online-seller match: "<dealer> LLC DBA SLATE" was offered
+  as "Slate Digital LLC" because the probable tier ran on the operating name "SLATE" (with "Digital" dropped from
+  the listed name). Probable matches now use only the vendor's own legal name, never an operating name (after
+  O/A / DBA, in brackets) or the trade-name column; exact matches on those still count (`operating_names`,
+  `_digital_economy(operating=...)`). (2) Rows that changed from REGISTERED (v1) to NOT REGISTERED (v2) were
+  checked live: real CRA changes, cancellations back-dated to 2026-09-30 / 09-01 and recorded after v1, plus one
+  legal-name change. Now, when a number isn't registered on the payment date or today, quick dates also ask about
+  two years earlier (`LOOKBACK_DAYS`) and, if it was registered then, find the cancellation date: issue
+  "Registration cancelled before payment date" (one extra lookup per such supplier, ~10 more when cancelled).
 
 - **2026-10-20 (user's Run Test.bat results)**: see §2 "Verified on the user's PC". Fixed the Saskatchewan rows
   read as none (above); setup check's run estimate now in minutes for small files.
