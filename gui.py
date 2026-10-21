@@ -454,7 +454,7 @@ class App:
         else:
             self.bar.configure(mode="determinate")
         if action == logic.SETUP and ok and self.ready and self.ready.done:
-            self.settings["setup_ok"] = {"workbook": self.workbook.get(), "at": dt.datetime.now().isoformat("minutes")}
+            self.settings["setup_ok"] = {"workbook": self.workbook.get(), "at": dt.datetime.now().isoformat(timespec="minutes")}
             logic.save_settings(self.tool_dir, self.settings)
         text = (f"{ACTION_NAMES[action]}: stopped. The results so far are saved; click the button above to continue."
                 if self.stop_pressed_at else f"{ACTION_NAMES[action]}: finished." if ok
