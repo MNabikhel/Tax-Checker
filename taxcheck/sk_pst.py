@@ -198,7 +198,9 @@ class SkPstAssistant:
     """
 
     REASK_MIN = 3
-    ANSWER_AGE = 24 * 3600  # a resumed or repeated run within a day reuses answers: no CAPTCHA, no daily searches
+    # Answers are kept 30 days: Saskatchewan's 100-a-day limit means a big list takes days of batches ("Run
+    # Saskatchewan Batch.bat"), and every later run reuses what's been searched (no CAPTCHA, no daily searches).
+    ANSWER_AGE = 30 * 24 * 3600
 
     def __init__(self, browser, wait_minutes=5, counter_file=None, daily_limit=DAILY_LIMIT, answers_file=None):
         self.browser = browser  # must be headed (visible) so a person can complete the CAPTCHA
@@ -227,9 +229,18 @@ class SkPstAssistant:
             return {}
 
     def answered(self, names):
-        """True when every search these names need has an answer from the last day (no browser needed)."""
+        """True when this supplier's answer can be given from saved answers alone (no browser, no search): every
+        term it would search is saved, or an earlier saved term already finds it registered."""
         terms = search_terms(*names)
-        return bool(terms) and all(t in self._answers for t in terms)
+        if not terms:
+            return True  # name too short: nothing to search
+        for term in terms:
+            saved = self._answers.get(term)
+            if not saved:
+                return False
+            if classify(saved["rows"], saved["text"], names)[0] == REGISTERED:
+                return True
+        return True
 
     def _save_answer(self, term, rows, text):
         if not self.answers_file or unreadable(rows, text):
@@ -317,7 +328,7 @@ class SkPstAssistant:
         again = dt.datetime.fromtimestamp(min(self._searched_at) + 24 * 3600) if self._searched_at else None
         when = f" More searches are possible from {again:%Y-%m-%d %H:%M}." if again else ""
         return (f"Saskatchewan's registry allows {self.daily_limit} searches per 24 hours and they're used up.{when} "
-                f"Double-click \"Resume Last Run.bat\" later, or search by hand at {SK_REGISTRY}")
+                f"Double-click \"Run Saskatchewan Batch.bat\" then for the next batch, or search by hand at {SK_REGISTRY}")
 
     # Result rows: from DataTables' own data when it has taken over the table (it keeps only one page of rows on
     # screen), otherwise from the page. Header rows (no <td>) are left out.
@@ -424,6 +435,8 @@ class SkPstAssistant:
         if saved:
             self.reused_at = dt.datetime.fromtimestamp(float(saved["at"]))
             return saved["rows"], saved["text"]
+        if not self.searches_left():  # before the window and its CAPTCHA: nothing could be searched anyway
+            raise DailyLimitReached("no searches left")
         for attempt in (1, 2):
             try:
                 self._ready()
@@ -455,8 +468,8 @@ class SkPstAssistant:
             for term in terms:
                 rows, text = self._answered_search(term)
                 status, detail, row = classify(rows, text, names)
-                note = (f" (Registry answer from this tool's search at {self.reused_at:%Y-%m-%d %H:%M}, reused "
-                        "within a day.)" if self.reused_at else self._evidence(term))
+                note = (f" (Registry answer from this tool's search on {self.reused_at:%Y-%m-%d %H:%M}.)"
+                        if self.reused_at else self._evidence(term))
                 last = (status, detail, term, note)
                 if status == REGISTERED:
                     return Result(status, detail + note, row)

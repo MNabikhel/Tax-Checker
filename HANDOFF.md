@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 278: 257 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 280: 259 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -220,6 +220,7 @@ the log only).
 | `taxcheck/tailoring.py`, `tailoring.example.json`, `examples/tailoring_template.xlsx` | Tailoring without code: extra column/province/country spellings, date formats first, name markings, from `tailoring.json` or `tailoring.xlsx` in the tool folder | `apply`, `reset`, `TailoringError` |
 | `Offline Check.bat` | `--offline` run on a chosen workbook (format and check digit only) | |
 | `Run Test.bat`, `run_test.py`, `examples/Test_Suppliers.xlsx` | One-click test on public test data: setup check, profile, full run stopped by `--stop-after` (the Ctrl+C path), `--resume last`, an every-row check, one results zip; restores the user's `.last_run` | `main`, `every_row_checked` |
+| `Run Saskatchewan Batch.bat` | `--sk-only`: Saskatchewan PST only, for the last full run's workbook; searches suppliers with no saved answer up to the daily limit; `<workbook>_saskatchewan.xlsx`; never notes itself as the last run | `check_suppliers.saskatchewan_batch_summary`, `RowChecker.check_saskatchewan` |
 | `Resume Last Run.bat` | `--resume last`: continues the latest full run (workbook, progress file and menu answers noted in `.last_run` in the tool folder by `remember_run`; trials and offline runs aren't noted) | `check_suppliers.resume_last_run` |
 | `profile_workbook.py`, `Profile Workbook.bat` | Counts and patterns of a supplier file (no names or numbers) for tailoring: columns, Tax ID shapes, spellings, name markers, routing | `profile`, `shape` |
 | `sk_probe.py`, `Saskatchewan Probe.bat` | Captures real Saskatchewan results pages (html, screenshot, what was read) for fitting `classify` | `main` |
@@ -510,6 +511,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (Saskatchewan in daily batches)**: `Run Saskatchewan Batch.bat` / `--sk-only` (see the code map).
+  Saskatchewan answers are kept 30 days (`SkPstAssistant.ANSWER_AGE`; was 1 day) so batches only search what's
+  left and later runs reuse them; the remaining-searches check now happens before the window opens (no CAPTCHA
+  when the day's limit is used up); daily-limit advice points to the batch file. Rehearsed end to end with the
+  real Saskatchewan code and a stand-in registry (`TheWholeSaskatchewanPlan`): full run to the limit, a same-day
+  batch (no window), the next day's batch (only the rest), and `--resume last` (no CAPTCHA, no search).
 
 - **2026-10-21 (user's v1/v2 comparison)**: (1) a false online-seller match: "<dealer> LLC DBA SLATE" was offered
   as "Slate Digital LLC" because the probable tier ran on the operating name "SLATE" (with "Digital" dropped from

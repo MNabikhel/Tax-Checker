@@ -603,6 +603,14 @@ class RowChecker:
                 jobs.append(job)
         return jobs
 
+    def check_saskatchewan(self, row, date=None):
+        """Only the Saskatchewan PST check, for "Run Saskatchewan Batch.bat": {} if the row has nothing to search."""
+        jobs = self.saskatchewan_searches([row])
+        if not jobs:
+            return {}
+        names, had_number = jobs[0]
+        return {"sk_pst": self._browser_check("_sk_noted", names, had_number)}
+
     def _check_row(self, row, date):
         country, prov, foreign, how = self.locate(row)
         if how:

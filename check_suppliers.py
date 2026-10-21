@@ -123,8 +123,8 @@ def show_in_explorer(path):
 
 def remember_run(args, progress_path, finished=False):
     """Note the latest full run (not a trial or offline run) so --resume last can pick it up after a stop."""
-    if args.limit or args.offline:
-        return
+    if args.limit or args.offline or getattr(args, "sk_only", False) is True:
+        return  # trials, offline runs and Saskatchewan batches never replace the full run's note
     data = {k: getattr(args, k, None) for k in RUN_SETTINGS}
     data["taxes"] = sorted(args.taxes) if args.taxes else None
     data.update(workbook=str(Path(args.workbook).resolve()), progress=str(Path(progress_path).resolve()),
@@ -155,6 +155,25 @@ def resume_last_run(args):
     print(f"Resuming the run of {args.workbook}" + (" (it had finished: the results are rewritten, and anything "
                                                        "left for a re-run is tried again)" if data.get("finished") else ""))
     return ""
+
+
+def saskatchewan_batch_summary(results, sk):
+    """One line for the screen and the summary sheet: how far the Saskatchewan batches have got."""
+    from taxcheck.result import ERROR, MANUAL
+
+    sk_results = [r["sk_pst"] for r in results.values() if "sk_pst" in r]
+    waiting = [r for r in sk_results if r.status in (MANUAL, ERROR) and "at least 4 letters" not in r.detail]
+    done = len(sk_results) - len(waiting)
+    if not waiting:
+        return (f"SASKATCHEWAN BATCH: all {done} Saskatchewan suppliers have an answer. To add them to the full run's "
+                "results workbook, double-click \"Resume Last Run.bat\" (no CAPTCHA needed).")
+    stopped = (sk.unavailable or "") if sk else ""
+    m = re.search(r"More searches are possible from [\d-]+ [\d:]+", stopped)
+    why = (f"Today's searches are used up. {m.group(0)}." if m
+           else f"The searches stopped: {stopped.split(' Search by hand')[0].rstrip('.')}." if stopped else "")
+    return (f"SASKATCHEWAN BATCH: {done} of {len(sk_results)} Saskatchewan suppliers have an answer; {len(waiting)} "
+            f"still to search. {why} Double-click \"Run Saskatchewan Batch.bat\" again for the next batch (answers "
+            "so far are kept 30 days and aren't searched again).").replace("  ", " ")
 
 
 def remember_workbook(path):
@@ -375,11 +394,14 @@ def prefetch_saskatchewan(checker, sk, rows):
     left = sk.searches_left()
     if len(jobs) > left:
         log.warning("Saskatchewan: %d suppliers to search, but the registry allows only %d searches per 24 hours "
-                    "(%d left now). Suppliers past the limit are marked for a manual check; double-click \"Resume Last Run.bat\" later "
-                    "to search the rest.", len(jobs), sk.daily_limit, left)
+                    "(%d left now). Suppliers past the limit are marked for a manual check; double-click \"Run Saskatchewan "
+                    "Batch.bat\" on the following days to search the rest.", len(jobs), sk.daily_limit, left)
     answered = getattr(sk, "answered", lambda names: False)
     fresh = sum(1 for names, _ in jobs if not answered(names))
-    if fresh:
+    if fresh and not left:
+        log.warning("Saskatchewan: today's %d searches are used up, so the window won't open; %d suppliers wait for "
+                    "the next batch. %s", sk.daily_limit, fresh, sk._limit_message())
+    elif fresh:
         log.warning(">>> Saskatchewan: %d searches. A browser window opens now: tick 'I agree' and 'I'm not a robot' "
                     "once and click Next. The searches then run by themselves, then the rest of the check.", fresh)
     if fresh < len(jobs):
@@ -433,7 +455,7 @@ class CheckpointSaver:
 def run(args, log_path):
     src = Path(args.workbook)
     # A trial gets its own file, so it's obvious which results are partial and the full run never mixes with it.
-    suffix = "_tax_check_TRIAL" if args.limit else "_tax_check"
+    suffix = "_saskatchewan" if args.sk_only else "_tax_check_TRIAL" if args.limit else "_tax_check"
     out = Path(args.output) if args.output else src.with_name(f"{src.stem}{suffix}.xlsx")
     if out.suffix.lower() != ".xlsx":
         log.warning("Results are always saved as an Excel workbook; writing %s", out.with_suffix(".xlsx"))
@@ -448,6 +470,14 @@ def run(args, log_path):
     # --resume: reuse what an earlier (stopped or crashed) run already finished, from its progress file.
     results = load_resume(args.resume) if args.resume else {}
     to_check = [(r, v) for r, v in rows if r not in results]
+    if args.sk_only:
+        # Saskatchewan batch: only the suppliers with a Saskatchewan search; everything else is the full run's job.
+        results, scout = {}, RowChecker(None, None, taxes={"sk_pst"}, available=sheet.cols)
+        to_check = [(r, v) for r, v in rows if scout.saskatchewan_searches([v])]
+        log.info("Saskatchewan batch: %d Saskatchewan suppliers in %s", len(to_check), src.name)
+        if not to_check:
+            log.warning("No Saskatchewan suppliers in this workbook: nothing to do.")
+            return None
     cutoff, skipped = paid_cutoff(args), 0
     if cutoff:
         if "date" not in sheet.cols:
@@ -535,6 +565,8 @@ def run(args, log_path):
                 available=sheet.cols, taxes=args.taxes, gst_dates=args.gst_dates,
             )
             checker.number_search = not getattr(args, "no_number_search", False)
+        check_row = checker.check_saskatchewan if args.sk_only else checker.check
+
         def row_date(r, values):
             date = None if args.as_of_today else parse_date(values.get("date"))
             if values.get("date") and not date and not args.as_of_today:
@@ -546,7 +578,7 @@ def run(args, log_path):
             return date
 
         executor, worker_orgbooks = None, []
-        workers = 1 if offline else max(1, min(args.workers, MAX_WORKERS))
+        workers = 1 if offline or args.sk_only else max(1, min(args.workers, MAX_WORKERS))
         if workers > 1:
             # Each worker has its own CRA/Revenu Québec/OrgBook session and its own throttle (so each still waits
             # between its requests); they share the duplicate-lookup cache, the federal names and the simplified list.
@@ -626,7 +658,7 @@ def run(args, log_path):
                 for r, values in to_check:
                     t0 = time.monotonic()
                     log.debug("---- Row %d: %s", r, values.get("name"))
-                    out_row = checker.check(values, row_date(r, values))
+                    out_row = check_row(values, row_date(r, values))
                     yield r, values, out_row, time.monotonic() - t0
 
         stopped_early = None  # set below; None if something stops the run before it's decided
@@ -720,6 +752,11 @@ def run(args, log_path):
             notes.append(source.error)
     if qst and qst.nr_error:
         notes.append(qst.nr_error)
+    if args.sk_only:
+        notes.insert(0, saskatchewan_batch_summary(results, sk))
+        log.warning("%s", "=" * 70)
+        log.warning("%s", notes[0])
+        log.warning("%s", "=" * 70)
     if stopped_early:
         notes.insert(0, f"STOPPED EARLY: only {len(results)} of {len(rows)} suppliers were checked. Rows without results weren't checked: "
                         "double-click \"Resume Last Run.bat\" to check them.")
@@ -793,6 +830,10 @@ def main(argv=None):
     ap.add_argument("--as-of-today", action="store_true",
                     help="ignore the date column and confirm every registration as of today (or --date)")
     ap.add_argument("--limit", type=int, help="only check the first N suppliers (a trial run)")
+    ap.add_argument("--sk-only", action="store_true",
+                    help="Saskatchewan batch: check only Saskatchewan PST, for the Saskatchewan suppliers not answered "
+                         "yet, up to the registry's daily limit (Run Saskatchewan Batch.bat); results in "
+                         "<workbook>_saskatchewan.xlsx")
     ap.add_argument("--stop-after", type=int, help="stop after N suppliers as if Ctrl+C was pressed (Run Test.bat "
                                                    "uses it to test resuming)")
     ap.add_argument("--resume", help="progress_*.csv from an earlier run that stopped: skip the suppliers it finished; "
@@ -804,6 +845,15 @@ def main(argv=None):
     ap.add_argument("--progress-every", type=int, default=25,
                     help="write a progress line (done, speed, time left) every N suppliers (default 25)")
     args = ap.parse_args(argv)
+    if args.sk_only:
+        args.taxes, args.sk_assist, args.no_name_lookup, args.workers, args.gst_dates = {"sk_pst"}, True, True, 1, "none"
+        args.ask, args.resume, args.limit = False, None, None
+        if not args.workbook:  # the full run's workbook, so the batch needs no questions
+            with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+                last = json.loads(LAST_RUN.read_text(encoding="utf-8"))["workbook"]
+                if Path(last).exists():
+                    args.workbook = last
+                    print(f"Saskatchewan batch for {last} (the workbook of the last full run)")
     if str(args.resume or "").lower() == "last":
         problem = resume_last_run(args)
         if problem:

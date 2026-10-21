@@ -294,3 +294,104 @@ class TestRunIsolation(unittest.TestCase):
         self.assertEqual(Path(out[0]), Path(tmp) / ".last_run")
         self.assertEqual(out[1], "True")
         self.assertEqual(out[2], str(before))  # .last_workbook left as it was
+
+
+class SaskatchewanBatches(unittest.TestCase):
+    """"Run Saskatchewan Batch.bat" (--sk-only): only Saskatchewan suppliers, up to the daily limit, then the rest
+    on later days; answers are kept, so each batch searches only what's left."""
+
+    LIMIT = 2
+
+    def setUp(self):
+        import json
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.src = self.dir / "vendors.xlsx"
+        wb = openpyxl.Workbook()
+        for row in [["Company Name", "State", "Tax ID"], ["PRAIRIE WIDGETS LTD", "SK", "108161779RT0001"],
+                    ["ACME LTD", "ON", "857305932RT0001"], ["NORTHERN SUPPLY CO", "SK", ""],
+                    ["REGINA PAINT INC", "Sask.", ""], ["GOOD CO", "BC", ""]]:
+            wb.active.append(row)
+        wb.save(self.src)
+        self.searched = []
+        test = self
+
+        class FakeSk:  # the registry: LIMIT searches per run ("per day"), answers saved between runs
+            daily_limit = test.LIMIT
+
+            def __init__(self, browser, counter_file=None, answers_file=None, **kw):
+                self.file, self.left, self.captchas, self.unavailable = answers_file, test.LIMIT, 0, None
+                self.saved = json.loads(answers_file.read_text()) if answers_file.exists() else {}
+
+            def answered(self, names):
+                return names[0] in self.saved
+
+            def searches_left(self):
+                return self.left
+
+            def _limit_message(self):
+                return ("Saskatchewan's registry allows 2 searches per 24 hours and they're used up. More searches are "
+                        "possible from 2026-10-22 09:00. Double-click later.")
+
+            def check(self, names):
+                if names[0] in self.saved:
+                    return Result(REGISTERED, "vendor's licence (Registry answer from this tool's search on ...)")
+                if self.unavailable or not self.left:
+                    self.unavailable = self._limit_message()
+                    return Result("MANUAL CHECK", self.unavailable)
+                self.left -= 1
+                test.searched.append(names[0])
+                self.saved[names[0]] = True
+                self.file.write_text(json.dumps(self.saved))
+                return Result(REGISTERED, "vendor's licence")
+
+        class NoGst(FakeGst):
+            def check(self, *a, **k):
+                raise AssertionError("a Saskatchewan batch never looks up GST/HST")
+
+        for p in (mock.patch.object(check_suppliers, "SkPstAssistant", FakeSk),
+                  mock.patch.object(check_suppliers, "GstChecker", NoGst),
+                  mock.patch.object(check_suppliers, "QstChecker", FakeQst),
+                  mock.patch.object(check_suppliers, "LAST_RUN", self.dir / ".last_run")):
+            p.start()
+            self.addCleanup(p.stop)
+        (self.dir / ".last_run").write_text('{"workbook": "%s", "progress": "x"}' % str(self.src).replace("\\", "/"))
+
+    def tearDown(self):
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            h.close()
+
+    def batch(self):
+        for h in list(logging.getLogger().handlers):
+            logging.getLogger().removeHandler(h)
+            h.close()
+        code = check_suppliers.main(["--sk-only", "--log-dir", str(self.dir / "logs"), "--cache-dir", str(self.dir)])
+        self.assertEqual(code, 0)
+        result = openpyxl.load_workbook(self.dir / "vendors_saskatchewan.xlsx")
+        ws = result.worksheets[0]
+        headers = [c.value for c in ws[1]]
+        rows = {r[0]: dict(zip(headers, r)) for r in ws.iter_rows(min_row=2, values_only=True)}
+        notes = [r[0] for r in result["Tax Check Summary"].iter_rows(values_only=True) if r and r[0]]
+        return rows, next(n for n in notes if str(n).startswith("SASKATCHEWAN BATCH"))
+
+    def test_day_by_day_until_done(self):
+        before = (self.dir / ".last_run").read_text()
+        rows, note = self.batch()  # day 1: the workbook comes from the last full run, no questions
+        self.assertEqual(self.searched, ["PRAIRIE WIDGETS LTD", "NORTHERN SUPPLY CO"])
+        self.assertIn("2 of 3 Saskatchewan suppliers have an answer; 1 still to search", note)
+        self.assertIn("More searches are possible from 2026-10-22 09:00", note)
+        self.assertEqual(rows["REGINA PAINT INC"]["SK PST Status"], "MANUAL CHECK")
+        self.assertFalse(rows["ACME LTD"].get("SK PST Status"))  # not a Saskatchewan supplier: untouched
+        self.assertNotIn("GST/HST Status", rows["PRAIRIE WIDGETS LTD"])  # only Saskatchewan columns
+
+        rows, note = self.batch()  # day 2: only what's left is searched
+        self.assertEqual(self.searched, ["PRAIRIE WIDGETS LTD", "NORTHERN SUPPLY CO", "REGINA PAINT INC"])
+        self.assertIn("all 3 Saskatchewan suppliers have an answer", note)
+        self.assertIn("Resume Last Run.bat", note)
+        self.assertEqual({r["SK PST Status"] for n, r in rows.items() if n != "ACME LTD" and n != "GOOD CO"},
+                         {"REGISTERED"})
+        self.assertEqual((self.dir / ".last_run").read_text(), before)  # the full run's note is never replaced

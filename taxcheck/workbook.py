@@ -349,7 +349,8 @@ class SupplierSheet:
         start = start or ws.max_column + 1
         # Only the taxes chosen for this run get columns (self.taxes is set by check_suppliers; None = all).
         chosen = getattr(self, "taxes", None)
-        taxes = [(k, label) for k, label in TAXES if chosen is None or k == "gst" or k in chosen]
+        # (GST/HST is in every run's choice except a Saskatchewan batch's.)
+        taxes = [(k, label) for k, label in TAXES if chosen is None or k in chosen]
         labels = dict(TAXES)
         for name in ("Tax Check Summary", "Action List"):
             if name in self.wb.sheetnames:

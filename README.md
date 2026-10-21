@@ -139,6 +139,8 @@ and all taxes (registration dates off); expect roughly 3x that one at a time. Fo
   per supplier, time left, and status counts so far.
 - **Checkpoint saves** of the results workbook every 2,000 suppliers, marked "IN PROGRESS" on the summary sheet.
 
+**`Run Saskatchewan Batch.bat`** (`--sk-only`) checks only Saskatchewan PST, for the Saskatchewan suppliers of the last full run's workbook that have no answer yet, up to the registry's 100 searches a day; run it once a day until its last line says all have an answer, then `Resume Last Run.bat` puts them in the full results. Saskatchewan answers are kept 30 days (`cache/saskatchewan_answers.json`).
+
 **`Run Test.bat`** tests everything in one click on built-in public test data (`run_test.py`): setup check,
 profile, a full run stopped on purpose part way, the resume, and one zip of every log and result to send back.
 

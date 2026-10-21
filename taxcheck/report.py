@@ -185,8 +185,9 @@ def provincial_issue(key, res):
                 return ("Manual check needed (name too short to search)", "Search the full name by hand on "
                         "Saskatchewan's PST registry.", SEV_MANUAL)
             if "searches per 24 hours" in low:
-                return ("Manual check needed (daily search limit reached)", "Double-click \"Resume Last Run.bat\" after the "
-                        "time in the details (the registry allows 100 searches a day).", SEV_MANUAL)
+                return ("Manual check needed (daily search limit reached)", "Double-click \"Run Saskatchewan Batch.bat\" "
+                        "after the time in the details (the registry allows 100 searches a day; each batch does the "
+                        "next ones). When all are done, \"Resume Last Run.bat\" adds them here.", SEV_MANUAL)
             if "window was closed" in low or "wasn't completed in time" in low or "asked for the captcha again" in low:
                 return ("Manual check needed (Saskatchewan searches stopped)", "Double-click \"Resume Last Run.bat\" and tick "
                         "the CAPTCHA, or search the name on Saskatchewan's PST registry.", SEV_MANUAL)

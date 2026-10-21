@@ -18,6 +18,8 @@ import urllib.parse
 from pathlib import Path
 from unittest import mock
 
+import openpyxl
+
 from taxcheck import sk_pst
 from taxcheck.browser import Browser, BrowserUnavailable
 from taxcheck.checks import RowChecker
@@ -242,9 +244,10 @@ class AssistedFlow(unittest.TestCase):
         again = sk_pst.SkPstAssistant(NoBrowser(), answers_file=answers)
         self.assertTrue(again.answered(["PRAIRIE HARDWARE LTD"]))
         self.assertFalse(again.answered(["NORTHERN SUPPLY"]))
+        self.assertTrue(again.answered(["AB"]))  # too short to search: nothing to ask
         res = again.check(["PRAIRIE HARDWARE LTD"])
         self.assertEqual(res.status, REGISTERED)
-        self.assertIn("reused within a day", res.detail)
+        self.assertIn("Registry answer from this tool's search on", res.detail)
         self.assertEqual(again.check(["UNKNOWN WIDGETS"]).status, NOT_CONFIRMED)
         self.assertEqual((FakeRegistry.searches, again.captchas), (searched, 0))
 
@@ -502,3 +505,88 @@ class SaskatchewanSearchList(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWholeSaskatchewanPlan(unittest.TestCase):
+    """The user's plan end to end, with the real Saskatchewan code, a real browser and the stand-in registry:
+    a full run with Saskatchewan (up to the daily limit), batches on the following days until all are answered,
+    then Resume Last Run to put them in the full run's workbook, without a CAPTCHA or a search."""
+
+    setUp = AssistedFlow.setUp
+
+    def run_cli(self, *args, answers=()):
+        import logging
+
+        import check_suppliers
+
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            h.close()
+        headless = lambda headless=True, debug_dir=None: Browser(debug_dir=debug_dir)  # no screen in tests
+        with mock.patch.object(check_suppliers, "Browser", headless), \
+                mock.patch.object(sk_pst, "DAILY_LIMIT", 2), \
+                mock.patch.object(check_suppliers, "LAST_RUN", self.tmp / ".last_run"), \
+                mock.patch("builtins.input", side_effect=list(answers)):
+            code = check_suppliers.main([*args, "--log-dir", str(self.tmp / "logs"), "--cache-dir", str(self.tmp),
+                                         "--no-name-lookup", "--no-browser", "--workers", "1"])
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            h.close()
+        self.assertEqual(code, 0)
+
+    def sk_column(self, name):
+        ws = openpyxl.load_workbook(self.tmp / name).worksheets[0]
+        headers = [c.value for c in ws[1]]
+        return {r[0]: r[headers.index("SK PST Status")] for r in ws.iter_rows(min_row=2, values_only=True)
+                if r[0] and r[headers.index("SK PST Status")]}
+
+    def test_full_run_then_daily_batches_then_resume(self):
+        import check_suppliers
+
+        class Gst:  # GST/HST isn't what this test is about
+            simplified = mock.Mock(error=None, _rows={})
+
+            def __init__(self, *a, **k):
+                pass
+
+            def check(self, bn9, names, date, extra_names=()):
+                return Result(REGISTERED, "fake CRA", names[0])
+
+        src = self.tmp / "vendors.xlsx"
+        wb = openpyxl.Workbook()
+        for row in [["Company Name", "State", "Tax ID"], ["PRAIRIE HARDWARE LTD", "SK", "108161779RT0001"],
+                    ["NORTHERN SUPPLY", "SK", "108161779RT0001"], ["ACME LTD", "ON", "857305932RT0001"],
+                    ["ZZQX IMAGINARY WIDGETS", "SK", "108161779RT0001"]]:
+            wb.active.append(row)
+        wb.save(src)
+        with mock.patch.object(check_suppliers, "GstChecker", Gst), \
+                mock.patch.object(check_suppliers, "SkPstAssistant",
+                                  lambda b, **kw: sk_pst.SkPstAssistant(b, wait_minutes=0.5, daily_limit=2,
+                                                                        **{k: v for k, v in kw.items() if k != "daily_limit"})):
+            # Night 1: the full run, Saskatchewan Y; the daily limit (2 here) stops the third search.
+            self.run_cli(str(src), "--sk-assist", "--gst-dates", "none")
+            self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "NORTHERN SUPPLY"])
+            self.assertEqual(self.sk_column("vendors_tax_check.xlsx")["ZZQX IMAGINARY WIDGETS"], "MANUAL CHECK")
+            shown = FakeRegistry.terms_shown
+
+            # Same day, a batch: nothing left to search today, so no window, no CAPTCHA.
+            self.run_cli("--sk-only")
+            self.assertEqual(FakeRegistry.terms_shown, shown)
+            self.assertEqual(self.sk_column("vendors_saskatchewan.xlsx")["PRAIRIE HARDWARE LTD"], "REGISTERED")
+
+            # Next day (the 24 hours have passed): the batch searches only what's left.
+            (self.tmp / "saskatchewan_searches.json").write_text("[]")
+            self.run_cli("--sk-only")
+            self.assertEqual(FakeRegistry.searches, ["PRAIRIE HARDWARE", "NORTHERN SUPPLY", "ZZQX IMAGINARY WIDGETS"])
+            batch = self.sk_column("vendors_saskatchewan.xlsx")
+            self.assertEqual(batch["ZZQX IMAGINARY WIDGETS"], "NOT CONFIRMED")
+            self.assertNotIn("ACME LTD", batch)
+
+            # All answered: Resume Last Run puts them in the full run's workbook, with no CAPTCHA and no search.
+            shown, searched = FakeRegistry.terms_shown, list(FakeRegistry.searches)
+            self.run_cli("--resume", "last")
+            self.assertEqual((FakeRegistry.terms_shown, FakeRegistry.searches), (shown, searched))
+            final = self.sk_column("vendors_tax_check.xlsx")
+            self.assertEqual(final, {"PRAIRIE HARDWARE LTD": "REGISTERED", "NORTHERN SUPPLY": "REGISTERED",
+                                     "ZZQX IMAGINARY WIDGETS": "NOT CONFIRMED"})
