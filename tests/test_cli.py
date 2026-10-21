@@ -415,6 +415,10 @@ class SaskatchewanBatchSummary(unittest.TestCase):
         self.assertIn("stopped before the end", line)
         self.assertNotIn("Resume Last Run", line)
 
+    def test_stopped_during_the_searches_counts_saved_answers(self):
+        line = check_suppliers.saskatchewan_batch_summary({}, mock.Mock(unavailable=None), 946, True, saved_elsewhere=300)
+        self.assertIn("300 of 946 Saskatchewan suppliers have an answer; 646 still to search", line)
+
     def test_counts_and_by_hand(self):
         from taxcheck.result import ERROR, MANUAL, NOT_CONFIRMED
 

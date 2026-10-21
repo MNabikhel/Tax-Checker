@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 287: 266 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 292: 271 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -511,6 +511,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (second review of the Saskatchewan batches)**: a supplier is left for a search by hand when any of
+  its search terms failed in `MAX_FAILS` batches (was: the first term only); a failure counts only if the search
+  was really sent, once per term per batch; 3 suppliers failing in a row (`STOP_AFTER_FAILURES`) stop the searches
+  for that run (site down), without holding it against them; the answers file is written to a temp file and
+  swapped in (a stop mid-write can't lose it); unreadable results count as a failed search; a batch stopped during
+  its searches still counts the answers it saved.
 
 - **2026-10-21 (review of the Saskatchewan batches)**: an independent review found, and these were fixed: the
   registry's own limit page could be saved as an answer (it then stopped or crashed every batch for weeks): only

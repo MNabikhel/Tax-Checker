@@ -477,6 +477,45 @@ class SavedAnswers(unittest.TestCase):
 
         self.assertEqual(provincial_issue("sk_pst", res)[0], "Manual check needed (registry didn't answer)")
 
+    def test_any_search_term_failing_twice_is_left_for_a_search_by_hand(self):
+        names = ["PRAIRIE WIDGET LTD", "ZEPHYR TRADING"]  # vendor name and trade name: two searches
+        self.assertEqual(len(sk_pst.search_terms(*names)), 2)
+        for _ in range(sk_pst.SkPstAssistant.MAX_FAILS):
+            sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+            sk._note_failure(sk_pst.search_terms(*names)[1])  # the second search is the one that fails
+        self.assertTrue(sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file).gave_up(names))
+
+    def test_only_searches_really_sent_count_and_an_outage_stops_the_batch(self):
+        sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+
+        def not_sent(term):  # e.g. the page wouldn't load: nothing reached the registry
+            raise sk_pst.ResultsNotLoaded("no page")
+
+        sk._answered_search = not_sent
+        for name in ("ALPHA WIDGETS", "BRAVO WIDGETS", "CHARLIE WIDGETS"):
+            self.assertEqual(sk.check([name]).status, ERROR)
+        self.assertEqual(sk._failed, {})  # the site being down isn't held against the suppliers
+        self.assertIn("stopped answering", sk.unavailable)
+        self.assertEqual(sk.check(["DELTA WIDGETS"]).status, MANUAL)  # the rest wait for the next batch
+
+    def test_a_failure_counts_once_per_batch(self):
+        sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+
+        def sent_then_failed(term):
+            sk._submitted = term
+            raise sk_pst.ResultsNotLoaded("no answer")
+
+        sk._answered_search = sent_then_failed
+        sk.check(["ALPHA WIDGETS"])
+        sk.check(["ALPHA WIDGETS"])  # the same supplier again (another row, with a PST number)
+        self.assertEqual(sk._failed, {"ALPHA WIDGETS": 1})
+
+    def test_answers_file_is_replaced_whole(self):
+        sk = sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file)
+        sk._save_answer("PRAIRIE WIDGET", [["PRAIRIE WIDGET LTD", "PSTVEND"]], "Only 1 company found.")
+        self.assertEqual([p.name for p in self.file.parent.iterdir()], [self.file.name])  # no .tmp left behind
+        self.assertTrue(sk_pst.SkPstAssistant(self.NoBrowser(), answers_file=self.file).answered(["PRAIRIE WIDGET LTD"]))
+
     def test_limit_message_gives_the_full_batch_time(self):
         import time
 

@@ -19,6 +19,7 @@ screenshot saved next to the log.
 import datetime as dt
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -210,6 +211,7 @@ class SkPstAssistant:
     # Saskatchewan Batch.bat"), and every later run reuses what's been searched (no CAPTCHA, no daily searches).
     ANSWER_AGE = 60 * 24 * 3600  # covers 10-20 batch days with weekends and missed days
     MAX_FAILS = 2  # a search the registry failed to answer in this many batches is left for a search by hand
+    STOP_AFTER_FAILURES = 3  # this many suppliers failing in a row: the site is down, stop searching for this run
 
     def __init__(self, browser, wait_minutes=5, counter_file=None, daily_limit=DAILY_LIMIT, answers_file=None):
         self.browser = browser  # must be headed (visible) so a person can complete the CAPTCHA
@@ -226,6 +228,9 @@ class SkPstAssistant:
         # The registry's answer to each search term, kept a day between runs (see ANSWER_AGE).
         self.answers_file = Path(answers_file) if answers_file else None
         self._answers, self._failed = self._load_answers()
+        self._failed_now = set()  # terms whose failure this run has counted (a supplier can be asked about twice)
+        self._submitted = None  # the term last actually sent to the registry
+        self._failures_in_a_row = 0
         self.reused_at = None  # when the answer just returned was searched, if it came from an earlier run
 
     def _load_answers(self):
@@ -246,15 +251,16 @@ class SkPstAssistant:
             return
         try:
             self.answers_file.parent.mkdir(parents=True, exist_ok=True)
-            self.answers_file.write_text(json.dumps({**self._answers, FAILED_KEY: self._failed}, default=str),
-                                         encoding="utf-8")
+            # Written whole, then swapped in: a stop mid-write mustn't lose weeks of batches' answers.
+            tmp = self.answers_file.with_name(self.answers_file.name + ".tmp")
+            tmp.write_text(json.dumps({**self._answers, FAILED_KEY: self._failed}, default=str), encoding="utf-8")
+            os.replace(tmp, self.answers_file)
         except (OSError, TypeError, ValueError):
             pass  # only saves searches in later batches
 
     def gave_up(self, names):
         """The registry failed to answer this supplier's first search in MAX_FAILS batches: search it by hand."""
-        terms = search_terms(*names)
-        return bool(terms) and self._failed.get(terms[0], 0) >= self.MAX_FAILS
+        return any(self._failed.get(t, 0) >= self.MAX_FAILS for t in search_terms(*names))
 
     def answered(self, names):
         """True when this supplier's answer can be given from saved answers alone (no browser, no search): every
@@ -281,6 +287,10 @@ class SkPstAssistant:
         self._save()
 
     def _note_failure(self, term):
+        """The registry didn't answer a search that was actually sent: counted once per batch per term."""
+        if term in self._failed_now:
+            return
+        self._failed_now.add(term)
         self._failed[term] = self._failed.get(term, 0) + 1
         self._save()
 
@@ -425,6 +435,7 @@ class SkPstAssistant:
         if not self.searches_left():
             raise DailyLimitReached("no searches left")
         self._count_search()
+        self._submitted = term
         page = self.page
         page.fill(SEARCH_BOX, term)
         # Only the PST search form's own button: every SETS page also has a site-wide "Search SETS" button.
@@ -506,8 +517,12 @@ class SkPstAssistant:
         try:
             last = None
             for term in terms:
+                self._submitted = None
                 rows, text = self._answered_search(term)
                 status, detail, row = classify(rows, text, names)
+                if status == ERROR and not self.reused_at:  # results shown but unreadable: a failed search
+                    self._note_failure(term)
+                self._failures_in_a_row = 0
                 note = (f" (Registry answer from this tool's search on {self.reused_at:%Y-%m-%d %H:%M}.)"
                         if self.reused_at else self._evidence(term))
                 last = (status, detail, term, note)
@@ -522,9 +537,16 @@ class SkPstAssistant:
         except BrowserUnavailable as e:
             self.unavailable = f"Couldn't open a browser for the assisted check: {e} Search by hand at {SK_REGISTRY}"
         except Exception as e:
-            # Only this supplier: the next one is searched as usual (and this one again in the next batch).
+            # Only this supplier: the next one is searched as usual (and this one again in the next batch). It counts
+            # towards leaving it for a search by hand only if the search was really sent (not the site being down).
             log.warning("Saskatchewan search failed for %s: %s", term, e, exc_info=not isinstance(e, ResultsNotLoaded))
-            self._note_failure(term)
+            if self._submitted == term:
+                self._note_failure(term)
+            self._failures_in_a_row += 1
+            if self._failures_in_a_row >= self.STOP_AFTER_FAILURES:
+                self.unavailable = (f"Saskatchewan's registry stopped answering ({self._failures_in_a_row} searches in a "
+                                    f"row failed); the rest wait for the next batch. Search by hand at {SK_REGISTRY}")
+                log.warning("Saskatchewan: %s", self.unavailable)
             return Result(ERROR, f"Saskatchewan search failed twice ({str(e).splitlines()[0]}). Search by hand at "
                                  f"{SK_REGISTRY}{self._evidence(terms[0]) if self.page and not self.page.is_closed() else ''}")
         log.warning("Saskatchewan: %s", self.unavailable)

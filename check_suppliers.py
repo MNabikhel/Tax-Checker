@@ -41,7 +41,7 @@ from taxcheck.orgbook import OrgBookBC
 from taxcheck.progress import ProgressReport, load_resume
 from taxcheck.qst import QstChecker
 from taxcheck.result import NAME_NOT_MATCHED, NOT_CHECKED, REGISTERED, Result
-from taxcheck.sk_pst import SkPstAssistant
+from taxcheck.sk_pst import SkPstAssistant, search_terms
 from taxcheck.tailoring import FILE_NAME as TAILORING_FILE
 from taxcheck.tailoring import TailoringError
 from taxcheck.tailoring import apply as apply_tailoring
@@ -157,15 +157,16 @@ def resume_last_run(args):
     return ""
 
 
-def saskatchewan_batch_summary(results, sk, total, stopped_early=False):
+def saskatchewan_batch_summary(results, sk, total, stopped_early=False, saved_elsewhere=0):
     """One line for the screen and the summary sheet: how far the Saskatchewan batches have got. `total` is the
-    number of Saskatchewan suppliers; a supplier with no result yet (the batch stopped) is still to search."""
+    number of Saskatchewan suppliers; a supplier with no result yet (the batch stopped) is still to search, unless
+    it's one of `saved_elsewhere` (answered in this or an earlier batch, but not written in this one)."""
     from taxcheck.result import ERROR, MANUAL
 
     sk_results = [r["sk_pst"] for r in results.values() if "sk_pst" in r]
     by_hand = sum(1 for r in sk_results if r.status == MANUAL and ("at least 4 letters" in r.detail
                                                                   or "didn't answer this search" in r.detail))
-    answered = sum(1 for r in sk_results if r.status not in (MANUAL, ERROR))
+    answered = sum(1 for r in sk_results if r.status not in (MANUAL, ERROR)) + saved_elsewhere
     waiting = total - answered - by_hand
     hand = f" {by_hand} need a search by hand (see their details)." if by_hand else ""
     if not waiting and not stopped_early:
@@ -685,7 +686,8 @@ def run(args, log_path):
                     raise KeyboardInterrupt  # --stop-after: exactly what Ctrl+C does (Run Test.bat tests resuming)
         except KeyboardInterrupt:
             # A long run stopped with Ctrl+C keeps what it has; --resume with the progress file finishes the rest.
-            log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s", len(results),
+            log.warning("Stopped early after %d of %d suppliers; saving the results so far.%s",
+                        sum(1 for x in results.values() if "sk_pst" in x) if args.sk_only else len(results),
                         len(to_check) if args.sk_only else len(rows),
                         "" if args.limit or offline else " To continue later, double-click \"%s\"."
                         % ("Run Saskatchewan Batch.bat" if args.sk_only else "Resume Last Run.bat"))
@@ -761,7 +763,11 @@ def run(args, log_path):
     if qst and qst.nr_error:
         notes.append(qst.nr_error)
     if args.sk_only:
-        notes.insert(0, saskatchewan_batch_summary(results, sk, len(to_check), bool(stopped_early)))
+        # Stopped during the searches: suppliers answered so far aren't in `results` yet, but are saved.
+        unwritten = [v for r, v in to_check if "sk_pst" not in results.get(r, {})]
+        saved = sum(1 for v in unwritten for names, _ in checker.saskatchewan_searches([v])
+                    if sk and search_terms(*names) and not sk.gave_up(names) and sk.answered(names)) if stopped_early else 0
+        notes.insert(0, saskatchewan_batch_summary(results, sk, len(to_check), bool(stopped_early), saved))
         log.warning("%s", "=" * 70)
         log.warning("%s", notes[0])
         log.warning("%s", "=" * 70)
