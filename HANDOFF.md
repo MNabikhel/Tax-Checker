@@ -4,7 +4,7 @@ For the agent (or person) taking this over. Read this first; it explains what th
 has been verified, how the code is laid out, and how to adapt it to a new supplier dataset.
 `README.md` is the user-facing guide; this file is the engineering one.
 
-**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 296: 275 offline
+**Last updated:** 2026-10-20 · **Branch:** `main` (current; all work is merged) · **Tests:** 297: 276 offline
 (some in a local browser), 21 live (18 pass from a cloud machine; Edge, Saskatchewan and the Québec NR list need the user's PC)
 
 ---
@@ -511,6 +511,13 @@ Inc. `774075766`.
   `cache/` and `*_tax_check.xlsx`, but not results written elsewhere with `-o`.
 
 ## 12. Change log
+
+- **2026-10-21 (whose number it is)**: for a number not registered on the payment date or today, the run now looks
+  up whose business number it is (the registries by number: `GstChecker._official_name`) for "Registry Name" and
+  the action, and offers a possible current number: another business number registered under exactly that name
+  (or the vendor's legal name) that CRA confirms is registered (`_whose_number`, `_possible_number(exclude=)`); a
+  lead, never a status change. The cancellation details now explain how the date was found (placeholder-name
+  answers per day). Seen on the user's run: 8 vendor records sharing a number cancelled 2025-03-08.
 
 - **2026-10-21 (CRA registry outage overnight)**: from about 1:25 am Mountain the CRA registry answered every search
   with its own Error 500 page (`500.jsp`, "a problem with our website's server"; confirmed from the cloud too), and

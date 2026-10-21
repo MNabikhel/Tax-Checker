@@ -506,6 +506,7 @@ class RowChecker:
                 g.detail += f" Still not registered today ({today})."
                 if can_search:
                     self._cancelled_before_payment(g, bn9, date)
+                self._whose_number(g, bn9, ctx, date)
         except Exception as e:
             f["dates_error"] = f"{type(e).__name__}: {e}"
             log.warning("Registration date search for %s failed: %s", bn9, e)
@@ -525,7 +526,32 @@ class RowChecker:
                                lambda: cancellation_date(self.gst, bn9, earlier, date))
         g.facts.update(registration_end=str(end), cancelled_before_payment=True,
                        dates_source="CRA registry (date search)")
-        g.detail += f" It was registered until {end}: the registration was cancelled before {date}."
+        g.detail += (f" It was registered until {end}: the registration was cancelled before {date}. (Found by asking "
+                     f"CRA's registry about this number on other days with a placeholder name: it answers 'insufficient "
+                     f"information' on days the number was registered, up to {end}, and 'not registered' from "
+                     f"{end + dt.timedelta(days=1)}.)")
+
+    def _whose_number(self, g, bn9, ctx, date):
+        """A number not registered on the payment date or today: whose business number it is (the registries
+        looked up by number), and a possible current number: another business number registered under exactly
+        that name, which CRA confirms is registered for GST/HST (a lead for a person, never a status change)."""
+        from .gst import cra_today
+
+        official = getattr(self.gst, "_official_name", None)
+        if official is None:
+            return
+        try:
+            name, label, _ = official(bn9)
+            if name:
+                g.facts.update(official_name=name, official_name_source=label)
+                g.detail += f" Business number {bn9} belongs to '{name}' ({label})."
+            names = [n for n in (name, *ctx["gst_names"][1:2]) if n]
+            if names:
+                self._possible_number(g, names, cra_today(), exclude=bn9)
+                if g.facts.get("possible_number"):
+                    g.detail = g.detail.replace(" Possible number:", " Possible current number:")
+        except Exception as e:  # extra information only
+            log.debug("Couldn't look up whose number %s is: %s", bn9, e)
 
     def _per_number(self, what, bn9, still_true, search):
         """A registration date for a business number, searched once and reused for its other rows while it
@@ -731,7 +757,7 @@ class RowChecker:
             log.debug("  %s: %s | %s | %s", tax, res.status, res.detail, res.registered_name)
         return out, ctx
 
-    def _possible_number(self, res, names, date):
+    def _possible_number(self, res, names, date, exclude=None):
         """For a Canadian supplier with no GST/HST number: a business number registered under exactly the vendor's
         name (Canada's Business Registries, by name) that CRA confirms is registered for GST/HST under that name on
         the date. Noted on `res` as a lead for a person to confirm with the supplier; the status stays NO NUMBER.
@@ -745,7 +771,8 @@ class RowChecker:
             candidates = {}
             for n in names[:2]:
                 for bn9, registered in source.numbers_for_name(n):
-                    candidates.setdefault(bn9, registered)
+                    if bn9 != exclude:  # (a cancelled number: its business's other numbers)
+                        candidates.setdefault(bn9, registered)
             if len(candidates) != 1:
                 continue  # none, or several businesses with this name: no lead
             (bn9, registered), = candidates.items()

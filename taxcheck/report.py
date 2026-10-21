@@ -124,15 +124,20 @@ def gst_issue(res):
             return ("Registered after payment date",
                     f"Not registered on {date}, {when}. Check any GST/HST charged on invoices from before the "
                     "registration date.", SEV_LATE)
+        lead = (f" Possible current number: {f['possible_number_source']} lists '{f['possible_number_name']}' with "
+                f"business number {f['possible_number']}, which CRA confirms is registered: confirm it's theirs (e.g. on "
+                "a recent invoice) before using it." if f.get("possible_number") else "")
+        whose = f" (the number belongs to '{f['official_name']}')" if f.get("official_name") else ""
         if f.get("cancelled_before_payment"):
             return ("Registration cancelled before payment date",
-                    f"Registered until {f.get('registration_end')}, not on {date} or today. Don't claim input tax credits "
-                    "on GST/HST charged after the cancellation; confirm with the supplier (re-registered under another "
-                    "number?).", SEV_NOT_REGISTERED)
+                    f"Registered until {f.get('registration_end')}{whose}, not on {date} or today. Get the supplier's "
+                    "current GST/HST number (e.g. from a recent invoice); don't claim input tax credits on GST/HST "
+                    f"charged under this number after the cancellation.{lead}", SEV_NOT_REGISTERED)
         when = f"on {date} or today" if now == NOT_REGISTERED else f"on {date}"
         return ("Not registered",
-                f"Not registered for GST/HST {when}. Don't claim input tax credits on GST/HST from this supplier; "
-                "confirm with the supplier (small supplier, or registration cancelled).", SEV_NOT_REGISTERED)
+                f"Not registered for GST/HST {when}{whose}. Don't claim input tax credits on GST/HST from this "
+                f"supplier; confirm with the supplier (small supplier, or registration cancelled).{lead}",
+                SEV_NOT_REGISTERED)
     if st == INVALID:
         issue = "Tax ID typo (fails check digit)" if "check digit" in (problem + res.detail) else "Tax ID not a GST/HST number"
         return issue, f"Correct the Tax ID in the vendor record ({problem or res.detail}).", SEV_BAD_NUMBER

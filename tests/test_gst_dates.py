@@ -81,6 +81,37 @@ class InTheCheck(unittest.TestCase):
         self.assertEqual(issue, "Registration cancelled before payment date")
         self.assertIn("2026-09-30", action)
 
+    def test_whose_number_and_a_possible_current_number(self):
+        # Seen on the user's run: a supplier's number cancelled in March 2025; the row didn't say whose number it was.
+        cra = FakeCra(dt.date(2015, 1, 1), dt.date(2025, 3, 9))
+        new_number = "123456782"
+
+        class Registry:
+            label = "Canada's Business Registries"
+
+            def names(self, bn9):
+                return ["PRAIRIE OFFICE SUPPLY INC."] if bn9 == "108161779" else []
+
+            def numbers_for_name(self, name):
+                return [("108161779", "PRAIRIE OFFICE SUPPLY INC."), (new_number, "PRAIRIE OFFICE SUPPLY INC.")]
+
+        from taxcheck.gst import GstChecker
+
+        cra.name_sources = [Registry()]
+        cra._official_name = lambda bn9, extra_names=(): GstChecker._official_name(cra, bn9)
+        lookup = cra.registry_lookup
+        cra.registry_lookup = lambda bn9, name, date, attempts=3: ("registered" if bn9 == new_number
+                                                                   else lookup(bn9, name, date))
+        g = run(cra, dt.date(2026, 3, 31), "end")
+        self.assertEqual(g.facts["registration_end"], "2025-03-08")
+        self.assertEqual(g.facts["official_name"], "PRAIRIE OFFICE SUPPLY INC.")
+        self.assertEqual(g.facts["possible_number"], new_number)  # the old number itself isn't offered
+        issue, action, _ = gst_issue(g)
+        self.assertIn("belongs to 'PRAIRIE OFFICE SUPPLY INC.'", action)
+        self.assertIn(f"Possible current number: Canada's Business Registries lists 'PRAIRIE OFFICE SUPPLY INC.' with "
+                      f"business number {new_number}", action)
+        self.assertEqual(g.status, NOT_REGISTERED)  # a lead, never a status change
+
     def test_never_registered_costs_one_extra_lookup(self):
         cra = FakeCra(dt.date(2030, 1, 1))  # not registered on any day asked
         g = run(cra, dt.date(2026, 10, 13), "end")
