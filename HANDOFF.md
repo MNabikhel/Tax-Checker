@@ -518,6 +518,11 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-22 (Options window too tall)**: on the user's screen the Options window ran off the bottom (Start not
+  visible). The explanations now scroll (scrollbar and mouse wheel, `gui.scrollable`) with Start/Cancel pinned
+  below them, the window is sized to the screen, and the main window shortens its message pane on small screens.
+  Checked at 1366x768 and 1920x1080 with enlarged text (Windows display scaling).
+
 - **2026-10-21 (one window: `Tax Checker.bat`)**: the user asked for one double-click file instead of many
   scripts. `Tax Checker.bat` installs on first use and opens a window (`gui.py`, logic in
   `taxcheck/gui_logic.py`) whose Next step button follows the whole job: Check setup → Start the full check →

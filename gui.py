@@ -16,6 +16,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 
 from taxcheck import gui_logic as logic
 
@@ -29,6 +30,40 @@ ACTION_NAMES = {logic.FULL: "Full check", logic.RESUME: "Continuing the check", 
                 logic.FINISH: "Adding the Saskatchewan answers", logic.TRIAL: "Trial (25 suppliers)",
                 logic.OFFLINE: "Offline check", logic.PROFILE: "Workbook profile", logic.SETUP: "Setup check",
                 logic.TEST: "Test run"}
+
+
+def scrollable(win):
+    """A frame inside `win` that scrolls (scrollbar and mouse wheel) when it's taller than the screen allows.
+    Returns (frame, fit): call fit() once the frame is filled, to size the window to its content or the screen."""
+    bg = ttk.Style(win).lookup("TFrame", "background") or None
+    canvas = tk.Canvas(win, highlightthickness=0, borderwidth=0, background=bg)
+    bar = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=bar.set)
+    frame = ttk.Frame(canvas, padding=12)
+    canvas.create_window((0, 0), window=frame, anchor="nw")
+    frame.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.pack(side="left", fill="both", expand=True)
+
+    def wheel(event):
+        if bar.winfo_ismapped():
+            step = -1 if getattr(event, "num", 0) == 4 or getattr(event, "delta", 0) > 0 else 1
+            canvas.yview_scroll(step * 3, "units")
+
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):  # Windows/Mac, and Linux
+        win.bind(seq, wheel)
+
+    def fit():
+        win.update_idletasks()
+        room = win.winfo_screenheight() - 120 - (win.winfo_reqheight() - canvas.winfo_reqheight())  # taskbar, title
+        height = min(frame.winfo_reqheight(), max(room, 200))
+        canvas.configure(width=frame.winfo_reqwidth(), height=height)
+        if height < frame.winfo_reqheight():
+            bar.pack(side="right", fill="y")
+        win.update_idletasks()
+        x = max((win.winfo_screenwidth() - win.winfo_reqwidth()) // 2, 0)
+        win.geometry(f"+{x}+10")  # top of the screen, so nothing is below the taskbar
+
+    return frame, fit
 
 
 def python_for_scripts():
@@ -66,11 +101,12 @@ class App:
         self.eta, self.ready = "", None
 
         root.title("Tax Checker")
-        root.minsize(760, 600)
+        root.minsize(600, 400)
         self._build()
         self.workbook.set(self._initial_workbook())
         self._show_options_summary()
         self.refresh()
+        self._fit_to_screen()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.after(100, self._poll)
 
@@ -152,14 +188,28 @@ class App:
         self.log.pack(side="left", fill="both", expand=True)
         scroll.pack(side="left", fill="y")
 
+    def _fit_to_screen(self):
+        """Small screens or large text: shorten the message pane so the whole window fits (it still scrolls)."""
+        self.root.update_idletasks()
+        over = self.root.winfo_reqheight() - (self.root.winfo_screenheight() - 90)
+        if over > 0:
+            line = max(tkfont.Font(font=self.log.cget("font")).metrics("linespace"), 1)
+            self.log.configure(height=max(10 - -(-over // line), 3))
+            self.root.minsize(self.root.winfo_reqwidth() // 2, 300)
+            self.root.geometry("+0+0")
+
     def open_options(self, action=None):
         """The full check's options, each explained. With an action (full check or trial), its Start button runs it."""
         before = self.options()
         win = tk.Toplevel(self.root)
         win.title("Tax Checker: options" if not action else f"Tax Checker: {ACTION_NAMES[action]}")
         win.transient(self.root)
-        frame = ttk.Frame(win, padding=12)
-        frame.pack(fill="both", expand=True)
+        # Start/Cancel stay at the bottom, always visible; the explanations above them scroll when the screen is
+        # too small for all of them (laptops, or Windows display scaling at 125-150%).
+        buttons = ttk.Frame(win, padding=(12, 8))
+        buttons.pack(side="bottom", fill="x")
+        ttk.Separator(win).pack(side="bottom", fill="x")
+        frame, fit = scrollable(win)
         ttk.Label(frame, text=("Check these choices, then click Start." if action else "Options for the full "
                                "check.") + " They're set to the recommended answers and remembered for next time.",
                   style="Title.TLabel", wraplength=660, justify="left").pack(anchor="w", pady=(0, 8))
@@ -226,8 +276,6 @@ class App:
                 "last paid before it aren't looked up (listed as NOT CHECKED), which makes the check faster. Vendors "
                 "with no or an unreadable payment date are always checked.")
 
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill="x", pady=(10, 0))
         chosen = {"go": False}
 
         def go():
@@ -252,6 +300,7 @@ class App:
         ttk.Button(buttons, text="Cancel", command=cancel).pack(side="left", padx=8)
         win.bind("<Escape>", lambda _: cancel())
         win.protocol("WM_DELETE_WINDOW", cancel)
+        fit()
         win.grab_set()
         self.root.wait_window(win)
         self._show_options_summary()
