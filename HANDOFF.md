@@ -518,6 +518,12 @@ Inc. `774075766`.
 
 ## 12. Change log
 
+- **2026-10-22 (Canada's Business Registries page size)**: the site started refusing `pagesize=100` with
+  400 "Page size cannot exceed 50", so every lookup failed and the run paused on it until it gave up (seen in the
+  user's run). `BusinessRegistries.PAGE` is now 50, and `_search` adopts a lower limit if the site names one
+  (one retry, not counted as an outage). Name searches stay safe with fewer results per page: `complete()` gives no
+  lead unless every match is on the page.
+
 - **2026-10-22 (Options window too tall)**: on the user's screen the Options window ran off the bottom (Start not
   visible). The explanations now scroll (scrollbar and mouse wheel, `gui.scrollable`) with Start/Cancel pinned
   below them, the window is sized to the screen, and the main window shortens its message pane on small screens.

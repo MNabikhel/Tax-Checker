@@ -53,6 +53,38 @@ class Lookups(unittest.TestCase):
         self.assertIn("lookups failed", a.error)
 
 
+class PageSizeLimit(unittest.TestCase):
+    def test_adopts_the_limit_the_site_names(self):
+        # 2026-10-22: the site started refusing pagesize=100 with 400 "Page size cannot exceed 50".
+        import requests
+
+        sizes = []
+
+        class R:
+            def __init__(self, ok):
+                self.status_code, self.text = (200, "") if ok else (400, "Page size cannot exceed 30")
+
+            def raise_for_status(self):
+                if self.status_code != 200:
+                    raise requests.HTTPError("400 Client Error: Bad Request")
+
+            def json(self):
+                return PAYLOAD
+
+        class Session:
+            def get(self, url, params, timeout):
+                sizes.append(params["pagesize"])
+                return R(params["pagesize"] <= 30)
+
+        cbr = BusinessRegistries(session=Session(), delay=0)
+        self.assertEqual(cbr.PAGE, 50)  # the site's limit since 2026-10-22
+        self.assertEqual(cbr.names("123456782")[0], "WIDGETCO INC.")
+        self.assertEqual(sizes, [50, 30])  # one retry, at the limit it named
+        self.assertEqual(cbr.health.failures, 0)  # not counted as the site being down
+        cbr.names("111111118")
+        self.assertEqual(sizes[-1], 30)  # remembered
+
+
 class PossibleNumber(unittest.TestCase):
     NAME_SEARCH = {"docs": [
         {"BN": "123456782", "Company_Name": "PRAIRIE WIDGET MODELS INC.", "Status_State": "Active"},

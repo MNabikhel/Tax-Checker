@@ -78,13 +78,22 @@ class BusinessRegistries:
         self._cache = {} if cache is None else cache  # shareable between parallel workers
         self.error = None
 
-    PAGE = 100  # results per search ("pagesize"; the site's default page is about 25)
+    # Results per search ("pagesize"). The site refused more than 50 from 2026-10-22 (400 "Page size cannot exceed
+    # 50"; it allowed 100 before). If it lowers the limit again, _search adopts the limit it names.
+    PAGE = 50
 
     def _search(self, query):
-        self.throttle.wait()
-        r = self.session.get(SEARCH, params={"fq": "keyword:{%s}" % query, "lang": "en", "queryaction": "fieldquery",
-                                             "sortfield": "score", "sortorder": "desc", "pagesize": self.PAGE},
-                             timeout=30)
+        for _ in range(2):
+            self.throttle.wait()
+            r = self.session.get(SEARCH, params={"fq": "keyword:{%s}" % query, "lang": "en",
+                                                 "queryaction": "fieldquery", "sortfield": "score", "sortorder": "desc",
+                                                 "pagesize": self.PAGE}, timeout=30)
+            m = (re.search(r"page size cannot exceed (\d+)", getattr(r, "text", "") or "", re.I)
+                 if getattr(r, "status_code", 200) == 400 else None)
+            if not m or int(m.group(1)) >= self.PAGE or int(m.group(1)) < 1:
+                break
+            log.warning("Canada's Business Registries now allows %s results per search; using that", m.group(1))
+            self.PAGE = int(m.group(1))
         r.raise_for_status()
         return r.json()
 
