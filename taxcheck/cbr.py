@@ -79,21 +79,38 @@ class BusinessRegistries:
         self.error = None
 
     # Results per search ("pagesize"). The site refused more than 50 from 2026-10-22 (400 "Page size cannot exceed
-    # 50"; it allowed 100 before). If it lowers the limit again, _search adopts the limit it names.
+    # 50"; it allowed 100 before). If it's refused again, _search finds a size the site accepts by itself.
     PAGE = 50
+    MIN_PAGE = 10  # below this, ask with no page size at all (the site's own default page)
+
+    def _get(self, query, size):
+        self.throttle.wait()
+        params = {"fq": "keyword:{%s}" % query, "lang": "en", "queryaction": "fieldquery", "sortfield": "score",
+                  "sortorder": "desc"}
+        if size:
+            params["pagesize"] = size
+        return self.session.get(SEARCH, params=params, timeout=30)
+
+    def _smaller(self, response, size):
+        """The next page size to try after a 400: the limit the site names, else half, else None (its default)."""
+        m = re.search(r"page size cannot exceed (\d+)", getattr(response, "text", "") or "", re.I)
+        if m and 1 <= int(m.group(1)) < size:
+            return int(m.group(1))
+        return size // 2 if size // 2 >= self.MIN_PAGE else None
 
     def _search(self, query):
-        for _ in range(2):
-            self.throttle.wait()
-            r = self.session.get(SEARCH, params={"fq": "keyword:{%s}" % query, "lang": "en",
-                                                 "queryaction": "fieldquery", "sortfield": "score", "sortorder": "desc",
-                                                 "pagesize": self.PAGE}, timeout=30)
-            m = (re.search(r"page size cannot exceed (\d+)", getattr(r, "text", "") or "", re.I)
-                 if getattr(r, "status_code", 200) == 400 else None)
-            if not m or int(m.group(1)) >= self.PAGE or int(m.group(1)) < 1:
-                break
-            log.warning("Canada's Business Registries now allows %s results per search; using that", m.group(1))
-            self.PAGE = int(m.group(1))
+        """One search. A 400 ("Bad Request") is retried with smaller pages (50, 25, 12, then the site's default),
+        in case the site lowered its limit again; the first size it accepts is kept for the rest of the run. If
+        every size gets a 400, it isn't the page size: the error is raised as before (and the size is unchanged)."""
+        size = self.PAGE
+        r = self._get(query, size)
+        while getattr(r, "status_code", 200) == 400 and size is not None:
+            size = self._smaller(r, size)
+            r = self._get(query, size)
+        if size != self.PAGE and getattr(r, "status_code", 200) < 400:
+            log.warning("Canada's Business Registries refused %s results per search; using %s from now on",
+                        self.PAGE, size or "its default page size")
+            self.PAGE = size
         r.raise_for_status()
         return r.json()
 

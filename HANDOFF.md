@@ -520,8 +520,9 @@ Inc. `774075766`.
 
 - **2026-10-22 (Canada's Business Registries page size)**: the site started refusing `pagesize=100` with
   400 "Page size cannot exceed 50", so every lookup failed and the run paused on it until it gave up (seen in the
-  user's run). `BusinessRegistries.PAGE` is now 50, and `_search` adopts a lower limit if the site names one
-  (one retry, not counted as an outage). Name searches stay safe with fewer results per page: `complete()` gives no
+  user's run). `BusinessRegistries.PAGE` is now 50, and on a 400 `_search` steps down by itself: the limit the
+  site names, else half (25, 12), else no page size (the site's default); the first size accepted is kept for the
+  run and isn't counted as an outage. A 400 at every size is a real error, raised as before. Name searches stay safe with fewer results per page: `complete()` gives no
   lead unless every match is on the page.
 
 - **2026-10-22 (Options window too tall)**: on the user's screen the Options window ran off the bottom (Start not

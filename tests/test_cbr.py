@@ -54,15 +54,17 @@ class Lookups(unittest.TestCase):
 
 
 class PageSizeLimit(unittest.TestCase):
-    def test_adopts_the_limit_the_site_names(self):
-        # 2026-10-22: the site started refusing pagesize=100 with 400 "Page size cannot exceed 50".
+    """2026-10-22: the site started refusing pagesize=100 with 400 "Page size cannot exceed 50". A refused page size
+    is now found again by itself: the limit the site names, else halving, else the site's default page."""
+
+    def registries(self, accepts, message=""):
         import requests
 
-        sizes = []
+        self.sizes = []
 
         class R:
             def __init__(self, ok):
-                self.status_code, self.text = (200, "") if ok else (400, "Page size cannot exceed 30")
+                self.status_code, self.text = (200, "") if ok else (400, message)
 
             def raise_for_status(self):
                 if self.status_code != 200:
@@ -71,18 +73,44 @@ class PageSizeLimit(unittest.TestCase):
             def json(self):
                 return PAYLOAD
 
+        test = self
+
         class Session:
             def get(self, url, params, timeout):
-                sizes.append(params["pagesize"])
-                return R(params["pagesize"] <= 30)
+                test.sizes.append(params.get("pagesize"))
+                return R(accepts(params.get("pagesize")))
 
-        cbr = BusinessRegistries(session=Session(), delay=0)
+        return BusinessRegistries(session=Session(), delay=0)
+
+    def test_uses_the_limit_the_site_names(self):
+        cbr = self.registries(lambda size: size is None or size <= 30, "Page size cannot exceed 30")
         self.assertEqual(cbr.PAGE, 50)  # the site's limit since 2026-10-22
         self.assertEqual(cbr.names("123456782")[0], "WIDGETCO INC.")
-        self.assertEqual(sizes, [50, 30])  # one retry, at the limit it named
+        self.assertEqual(self.sizes, [50, 30])
         self.assertEqual(cbr.health.failures, 0)  # not counted as the site being down
         cbr.names("111111118")
-        self.assertEqual(sizes[-1], 30)  # remembered
+        self.assertEqual(self.sizes[-1], 30)  # remembered for the rest of the run
+
+    def test_halves_when_the_site_doesnt_say_its_limit(self):
+        cbr = self.registries(lambda size: size is None or size <= 20, "Bad Request")
+        self.assertEqual(cbr.names("123456782")[0], "WIDGETCO INC.")
+        self.assertEqual(self.sizes, [50, 25, 12])
+        self.assertEqual(cbr.PAGE, 12)
+
+    def test_falls_back_to_the_sites_default_page(self):
+        cbr = self.registries(lambda size: size is None)
+        self.assertEqual(cbr.names("123456782")[0], "WIDGETCO INC.")
+        self.assertEqual(self.sizes, [50, 25, 12, None])
+        cbr.names("111111118")
+        self.assertEqual(self.sizes[-1], None)
+
+    def test_a_400_that_isnt_the_page_size_is_still_an_error(self):
+        cbr = self.registries(lambda size: False)
+        cbr.health.give_up_after = 0
+        self.assertEqual(cbr.names("123456782"), [])
+        self.assertEqual(self.sizes, [50, 25, 12, None])  # tried, then gave up on this lookup
+        self.assertEqual(cbr.PAGE, 50)  # unchanged
+        self.assertIn("lookups failed", cbr.error)
 
 
 class PossibleNumber(unittest.TestCase):
